@@ -1,0 +1,3 @@
+pandas
+biopython
+git+git://github.com/linnil1/pyHLAMSA
