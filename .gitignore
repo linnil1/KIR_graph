@@ -1,0 +1,9 @@
+*.fa
+*.fai
+*.gz
+*.bam
+*.bai
+*.gff
+IPDKIR/
+pyHLAMSA/
+ftp-trace.ncbi.nlm.nih.gov/
