@@ -69,10 +69,18 @@ def align_genes(genes):
             print(gene_name, "has imcomplete sequence in", lab)
             ind = gene.labels.index(lab)
             i = int(re.findall(r"\d+", lab[1])[0])
+            """
+            # method 1:
             gene.labels[ind] = ("intron", f"intron{i}")
             gene.labels[ind+1:ind+1] = [("exon", f"exon{i+1}"),
                                         ("intron", f"intron{i+1}")]
             gene.blocks[ind+1:ind+1] = [0, 0]
+            """
+            # method 2:
+            gene.labels[ind] = ("intron", f"intron{i+1}")
+            gene.labels[ind:ind] = [("intron", f"intron{i}"),
+                                    ("exon", f"exon{i+1}")]
+            gene.blocks[ind:ind] = [0, 0]
 
         # 3DP1
         for name in kir_column:
@@ -102,7 +110,7 @@ def clustalo(name):
     print("clustalomega alignment")
     run_dk("quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4 "
            f"clustalo --infile {name}.fa -o {name}.aln.fa "
-           f"--outfmt fasta --threads {thread}")
+           f"--outfmt fasta --threads {thread} --force")
 
 
 def msa_for_chunk(kir_chunk):
@@ -196,26 +204,44 @@ def download():
     run("git clone https://github.com/linnil1/pyHLAMSA")
     run("git clone git@github.com:linnil1/pyHLAMSA.git")
     run("git clone git@github.com:linnil1/HLAMSA-export-to-Hisat2.git")
+
+
+def download_data():
+    """ Download large data """
     run("wget ftp://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/NIST_Illumina_2x250bps/reads -m -nd -np -P giab_hg002")
     run("cat giab_hg002/D1_S1_L001_R1_0* > merge_D1_S1_L001_R1.fastq.gz")
     run("cat giab_hg002/D1_S1_L001_R2_0* > merge_D1_S1_L001_R2.fastq.gz")
 
 
 if __name__ == "__main__":
-    download()
+    # download()
+    # download_data()
     kir_to_msa()
 
 
 """
 Next:
+# load data(In script)
 kir_msa = Genemsa.load_msa("kir_merge.save.fa", "kir_merge.save.gff")
+
+# MSA to hisat index
 python3 kir_to_hisat2.py
 /root/hisatgenotype/hisat2/hisat2-build-s --wrapper basic-0 kir_backbone.fa \
         --snp kir.index.snp --haplotype kir.haplotype -p 30 kir.graph
-hisat2 -x kir.graph  --no-unal --threads 25 \
-    -1 merge_D1_S1_L001_R1.fastq.gz \
-    -2 merge_D1_S1_L001_R2.fastq.gz > giab_merge.sam
+
+# Read Mapping: Sometimes Segment Error(I don't know why)
+hisat2 -x kir.graph --threads 25 --no-unal --no-spliced-alignment \
+        --max-altstried 64 --haplotype -X 2000 \
+        -1 merge_D1_S1_L001_R1.fastq.gz \
+        -2 merge_D1_S1_L001_R2.fastq.gz > giab_merge.sam
 samtools sort giab_merge.sam -o giab_merge.bam
+
+# Remove singleton
 samtools view giab_merge.bam -f 0x2 -F 256 -o giab_merge.pair.bam
 samtools index giab_merge.pair.bam
+
+# Remove LINE region
+echo KIR*consensus$'\t'18400$'\t'19700 > kir.bed
+bedtools intersect -a giab_merge.pair.bam -b ../kir.bed -v | samtools sort - -o giab_merge.pair.filter.bam
+samtools index giab_merge.filter.bam
 """
