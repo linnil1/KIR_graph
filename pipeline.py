@@ -190,12 +190,26 @@ def kir_to_msa():
     kir_msa_align.labels = next(iter(kir_draft.values())).labels
 
     # save to other types
-    kir_msa_align.add("KIR*consensus",
+    kir_msa_align.add("KIR*BACKBONE",
                       kir_msa_align.get_consensus(include_gap=False))
     kir_msa_align.save_fasta("kir_merge.consensus.fa", gap=False)
-    kir_msa_align.save_bam("kir_merge.bam", "KIR*consensus")
+    kir_msa_align.save_bam("kir_merge.bam", "KIR*BACKBONE")
     kir_msa_align.save_gff("kir_merge.gff")
     kir_msa_align.save_msa("kir_merge.save.fa", "kir_merge.save.gff")
+
+
+def kir_to_multi_msa():
+    """ Main function """
+    # read
+    kir = KIRmsa(filetype=["gen"])
+
+    # shrink
+    for gene_name, kir_msa_align in kir.genes.items():
+        kir_msa_align.add(f"{gene_name}*BACKBONE",
+                          kir_msa_align.get_consensus(include_gap=False))
+        kir_msa_align.save_bam(f"kir_split.{gene_name}.bam", f"{gene_name}*BACKBONE")
+        kir_msa_align.save_gff(f"kir_split.{gene_name}.gff")
+        kir_msa_align.save_msa(f"kir_split.{gene_name}.save.fa", f"kir_split.{gene_name}.save.gff")
 
 
 def download():
@@ -216,7 +230,8 @@ def download_data():
 if __name__ == "__main__":
     # download()
     # download_data()
-    kir_to_msa()
+    # kir_to_msa()
+    kir_to_multi_msa()
 
 
 """
