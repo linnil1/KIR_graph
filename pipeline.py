@@ -4,13 +4,18 @@ Description: Read IPD-KIR to MSA format for furthur development
 """
 import re
 import os
+import glob
 import copy
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import pandas as pd
 from Bio import SeqIO, AlignIO
 from Bio.SeqRecord import SeqRecord
 from pyHLAMSA import KIRmsa, Genemsa
+
+# this require hisat2 docker
+# import pipeline_to_hisat
+# import pipeline_typing
 
 # setup logger to stdout
 logger = logging.getLogger("pyHLAMSA")
@@ -24,12 +29,16 @@ kir_column = ["5UTR", "exon1", "intron1", "exon2", "intron2", "exon3",
               "intron3", "exon4", "intron4", "exon5", "intron5", "exon6",
               "intron6", "exon7", "intron7", "exon8", "intron8", "exon9",
               "3UTR"]
+genes = ["KIR2DL1", "KIR2DL2", "KIR2DL3", "KIR2DL4", "KIR2DL5",
+         "KIR2DP1", "KIR2DS1", "KIR2DS2", "KIR2DS3", "KIR2DS4", "KIR2DS5",
+         "KIR3DL1", "KIR3DL2", "KIR3DL3", "KIR3DP1", "KIR3DS1"]
+fastq_suffix = ".fastq"
 
 
-def run_dk(cmd):
+def run_dk(image, cmd):
     """ run docker container """
     run("docker run -it --rm --security-opt label=disable -u root -w /app "
-        "-v $PWD:/app " + cmd)
+        f"-v $PWD:/app {image} {cmd}")
 
 
 def run(cmd):
@@ -108,7 +117,7 @@ def summary(genes):
 def clustalo(name):
     """ Run clustalomega """
     print("clustalomega alignment")
-    run_dk("quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4 "
+    run_dk("quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
            f"clustalo --infile {name}.fa -o {name}.aln.fa "
            f"--outfmt fasta --threads {thread} --force")
 
@@ -124,7 +133,7 @@ def msa_for_chunk(kir_chunk):
             # SeqIO.write(chunk, output_handle, "fasta")
 
     # align
-    with ThreadPoolExecutor(max_workers=thread) as executor:
+    with ProcessPoolExecutor(max_workers=thread) as executor:
         for chunk_name, chunk in kir_chunk.items():
             name = f"KIR_{chunk_name}"
             executor.submit(clustalo, name)
@@ -227,15 +236,134 @@ def download_data():
     run("cat giab_hg002/D1_S1_L001_R2_0* > merge_D1_S1_L001_R2.fastq.gz")
 
 
+def hisat2_split():
+    index = "kir_split"
+    for name in samples:
+        f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
+        run(f"""\
+            hisat2 --threads {thread} -x {index}.graph -1 {f1} -2 {f2} \
+            --no-spliced-alignment --max-altstried 64 --haplotype \
+            > {name}{suffix}.sam""")
+
+
+def hisat2_merge():
+    index = "kir_merge"
+    for name in samples:
+        f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
+        # run(f"hisat2 --threads 25 -x {index}.graph -1 {f1} -2 {f2} --no-unal --no-spliced-alignment --max-altstried 64 --haplotype > {name}.sam")
+        run(f""" \
+            hisat2 --threads {thread} -x {index}.graph -1 {f1} -2 {f2} \
+            --no-spliced-alignment --max-altstried 64 --haplotype \
+            > {name}{suffix}.sam
+        """)
+
+
+def bowtie2():
+    # dk quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0
+    index = "kir_split.linear"
+    for name in samples:
+        f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
+        # run(f"bowtie2 --threads 25 -x {index}.linear -1 {f1} -2 {f2} --no-unal  > {name}.linear.sam")
+        run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+               f"bowtie2 --threads 25 -x {index} -1 {f1} -2 {f2} -a -S {name}{suffix}.sam")
+
+
+def bowtie2Ping():
+    index = "kir_split.linear"
+    for name in samples:
+        f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
+        # run(f"bowtie2 --threads 25 -x {index}.linear -1 {f1} -2 {f2} --no-unal  > {name}.linear.sam")
+        # '--no-unal', 
+        run(f"bowtie2 --threads 25 -x {index} -1 {f1} -2 {f2} " + \
+            " ".join(['-5 0', '-3 6', '-N 0', '--end-to-end', '--score-min L,-2,-0.08', '-I 75', '-X 1000', '-a','--np 1', '--mp 2,2', '--rdg 1,1', '--rfg 1,1']) + \
+            f"-S  {name}{suffix}.sam")
+
+
+def bowtie2BuildFull():
+    index = "kir_full"
+    run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+           f"bowtie2-build kir_merge_sequences.fa {index} --threads 30")
+
+
+def bowtie2Full():
+    index = "kir_full"
+    for name in samples:
+        f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
+        # '--no-unal', 
+        run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+               f"bowtie2 --threads 25 -x {index} -1 {f1} -2 {f2} -X 1000 -a --end-to-end -S {name}.full.sam")
+
+
+def bowtie2Build():
+    index = "kir_split.linear"
+    run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+           f"bowtie2-build kir_split_backbone.fa {index} --threads 30")
+
+
+def samtobam():
+    for name in samples:
+        name += suffix
+        run(f"samtools sort {name}.sam -o {name}.bam")
+        run(f"samtools view {name}.bam -f 0x2 -F 256 -o {name}.pair.bam")
+        run(f"samtools index {name}.pair.bam")
+
+
+def fastqc():
+    run_dk("docker.io/biocontainers/fastqc:v0.11.9_cv7",
+           f"clustalo --infile {name}.fa -o {name}.aln.fa "
+           f"--outfmt fasta --threads {thread} --force")
+
+
+def hisatTyping(index):
+    pipeline_typing.hisatdataInit(index)
+    # for sample in samples:
+    #     pipeline_typing.typingAllGene(f"{sample}{suffix}.pair.bam")
+    with ProcessPoolExecutor(max_workers=thread) as executor:
+        for sample in samples:
+            executor.submit(pipeline_typing.typingAllGene, f"{sample}{suffix}.pair.bam")
+
+
 if __name__ == "__main__":
     # download()
     # download_data()
-    # kir_to_msa()
-    kir_to_multi_msa()
+    samples = sorted(map(lambda i: i.split(".read")[0], glob.glob("data/synSeq.*.read1.fastq")))
+    samples = ["data/synSeq.hiseq.dp50.rl150.1"]
+    samples = [f"data/linnil1_syn.0{i}" for i in range(10)]
+    sample = samples[0]
+
+    # kir_merge
+    # kir_to_msa() # pipeline_to_hisat.main("kir_merge")
+    # pipeline_to_hisat.build("kir_merge")
+    suffix = ".merge"
+    # hisat2_merge()
+    # samtobam()
+    # hisatTyping("./kir_merge")
+
+    # kir_split
+    # kir_to_multi_msa()
+    # pipeline_to_hisat.main("kir_split")
+    # pipeline_to_hisat.build("kir_split")
+    # run("cat kir_split.*.save.gff > kir_split.gff")
+
+    suffix = ".linear"
+    # bowtie2Build()
+    bowtie2()
+    # samtobam()
+
+    suffix = ".full"
+    # bowtie2BuildFull()
+    bowtie2Full()
+    # samtobam()
+
+    suffix = ".split"
+    # hisat2_split()
+    # samtobam()
+    # pipeline_typing.hisatdataInit("./kir_split", f"{samples[0]}{suffix}.pair.bam")
+    # pipeline_typing.typingAllGene()
 
 
 """
-Next:
+Tips:
 # load data(In script)
 kir_msa = Genemsa.load_msa("kir_merge.save.fa", "kir_merge.save.gff")
 
