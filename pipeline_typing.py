@@ -8,12 +8,12 @@ import glob
 import sys
 
 # hisat
+# sys.path.insert(0, "/home/linnil1/hisat2/hisat-genotype/hisatgenotype_modules/")
 import hisatgenotype_typing_common as typing_common
 import hisatgenotype_assembly_graph as assembly_graph
 
 # local
 from pipeline_typing_util import (
-    get_mpileup_cmd, get_bam_proc,
     readBam, read_hisat2,
     get_allele_vars, get_maxrights, get_alts,
     get_exonic_vars, get_rep_alleles
@@ -34,12 +34,54 @@ def hisatdataInit(path):
 
     print("Alts")
     Alts = {}
+    """
+    for gene, ref_allele in refGenes.items():
+        Alts[gene] = [[],[],[],[]]
+    """
     for gene, ref_allele in refGenes.items():
         Alts[gene] = get_alts(Genes[gene][ref_allele],
-                              get_allele_vars(Var_list[gene], Links), 
+                              get_allele_vars(Var_list[gene], Links),
                               Vars[gene],
                               Var_list[gene])
     print("Alts Done")
+
+
+def readPair(*args):
+    num_reads      = 0
+    num_pairs      = 0
+    prev_read_id   = None
+    prev_read_lr   = 0
+    prev_line_l    = None
+    prev_line_r    = None
+    prev_cmp_l     = None
+    prev_cmp_r     = None
+
+    for line, cmp_list in readBam(*args):
+        num_reads += 1
+        read_id, flag = line.split()[:2]
+
+        # Clear
+        if read_id != prev_read_id:
+            prev_read_id  = read_id
+            prev_read_lr  = 0
+
+        # save left or right read
+        is_left_read = int(flag) & 0x40 != 0
+        if is_left_read:
+            prev_read_lr |= 1
+            prev_line_l   = line
+            prev_cmp_l    = cmp_list
+        else:
+            prev_read_lr |= 2
+            prev_line_r   = line
+            prev_cmp_r    = cmp_list
+
+        if prev_read_lr == 3:
+            num_pairs += 1
+            yield prev_line_l, prev_line_r, prev_cmp_l, prev_cmp_r
+
+    # summary
+    print("Reads:", num_reads, "Pairs:", num_pairs)
 
 
 def hisatTyping(gene):
@@ -62,7 +104,6 @@ def hisatTyping(gene):
     ref_seq             = Genes[gene][ref_allele]
     gene_names          = Genes[gene].keys()
     # ref_seq = ATCG...
-    # print(Genes["KIR"].keys())
     # ['KIR', 'KIR3DS1*078', 'KIR3DS1*013']
 
     # List of nodes that represent alleles
@@ -91,9 +132,9 @@ def hisatTyping(gene):
 
     # --------------------------------
     # --- hisat-kir Functions --------
-    # ----- Modified from add_count 
+    # ----- Modified from add_count
     # --------------------------------
-    def add_allele_count(ht, add):
+    def count_allele_pn(ht):
         """
         Transfer ht to allele by .link file and using AND
 
@@ -162,7 +203,7 @@ def hisatTyping(gene):
             for allele in count_per_read.keys():
                 count_per_read[allele] = add
             return
-        
+
         orig_ht = ht
         ht = ht.split('-')
 
@@ -201,18 +242,18 @@ def hisatTyping(gene):
             if (var_left >= left and var_left <= right) \
                     or (var_right >= left and var_right <= right):
                 tmp_alleles |= set(Links[var_id])
-            var_idx -= 1                        
+            var_idx -= 1
         alleles -= tmp_alleles
         alleles &= set(count_per_read.keys())
-        
+
         for allele in alleles:
             count_per_read[allele] += add
 
         return len(alleles)
 
-    def add_stat(Gene_cmpt, 
-                 Gene_counts, 
-                 Gene_count_per_read, 
+    def add_stat(Gene_cmpt,
+                 Gene_counts,
+                 Gene_count_per_read,
                  include_alleles = set()):
         """
         Find the max of count in Gene_count_per_read
@@ -230,8 +271,8 @@ def hisatTyping(gene):
             if len(include_alleles) > 0 \
                     and allele not in include_alleles:
                 continue
-            
-            cur_cmpt.add(allele)                    
+
+            cur_cmpt.add(allele)
             if allele not in Gene_counts:
                 Gene_counts[allele] = 1
             else:
@@ -254,25 +295,25 @@ def hisatTyping(gene):
                     elif allele == alleles[1]:
                         allele2_found = True
                 if allele1_found != allele2_found:
-                    print((alleles[0], 
-                           Gene_count_per_read[alleles[0]]), 
+                    print((alleles[0],
+                           Gene_count_per_read[alleles[0]]),
                           file=sys.stderr)
-                    print((alleles[1], 
-                           Gene_count_per_read[alleles[1]]), 
+                    print((alleles[1],
+                           Gene_count_per_read[alleles[1]]),
                           file=sys.stderr)
                     if allele1_found:
-                        print("%s\tread_id %s - %d vs. %d]" 
-                               % (alleles[0], 
-                                  prev_read_id, 
-                                  max_count, 
-                                  Gene_count_per_read[alleles[1]]), 
+                        print("%s\tread_id %s - %d vs. %d]"
+                               % (alleles[0],
+                                  prev_read_id,
+                                  max_count,
+                                  Gene_count_per_read[alleles[1]]),
                               file=sys.stderr)
                     else:
-                        print("%s\tread_id %s - %d vs. %d]" 
-                               % (alleles[1], 
-                                  prev_read_id, 
-                                  max_count, 
-                                  Gene_count_per_read[alleles[0]]), 
+                        print("%s\tread_id %s - %d vs. %d]"
+                               % (alleles[1],
+                                  prev_read_id,
+                                  max_count,
+                                  Gene_count_per_read[alleles[0]]),
                               file=sys.stderr)
 
         cur_cmpt = sorted(list(cur_cmpt))
@@ -336,146 +377,9 @@ def hisatTyping(gene):
         # l ['3512'] r ['hv1841-hv1842-hv1843-hv1844-hv1845-hv1846-hv1847-hv1848-hv1850-hv1851-hv1852-hv1853-hv1854-hv1855-3816', '3814'] c ['hv1723', 'hv1725', 'hv1726', 'hv1727', 'hv1728', 'hv1729', 'hv1730', 'hv1732', 'hv1733', 'hv1736', 'hv1738', 'hv1739', 'hv1740', 'hv1742', 'hv1743', 'hv1744', 'hv1745', 'hv1746', 'hv1747', 'hv1757', 'hv1827']
         return cmp_left_alts, mid_ht, cmp_right_alts
 
-
-    # ----------------------
-    # --- main ---
-    # ----------------------
-    for i in set(map(lambda i: i.split("*")[0], allele_vars.keys())):
-        print(f"@RG\tID:{i}", file=bam_group_f)
-
-    alignview_proc = get_bam_proc(alignment_fname, ref_locus, bam_sorted=False)
-    mpileup_cmd    = get_mpileup_cmd(alignment_fname, ref_locus)
-    mpileup        = typing_common.get_mpileup(mpileup_cmd, ref_seq, base_locus,
-                                               gene_vars, False)  # , allow_discordant)
-    Gene_counts    = defaultdict(int)
-    Gene_cmpt      = {}
-    num_reads      = 0
-    num_pairs      = 0
-    # read_stat      = defaultdict(int)
-    allele_stat    = defaultdict(int)
-    prev_read_id   = None
-    prev_read_lr   = 0
-    prev_line      = None
-    all_reads      = []
-    allele_count_p = defaultdict(int)
-    allele_count_n = defaultdict(int)
-
-    print("Start reading each record in Bam")
-    for line, cmp_list in readBam(alignview_proc, gene_vars, gene_var_list,
-                                  ref_seq, mpileup, base_locus):
-        # Count the number of reads aligned uniquely with some constraints
-        read_id, flag = line.split()[:2]
-        # print(read_id)
-        is_left_read = int(flag) & 0x40 != 0
-        num_reads += 1
-
-        if read_id != prev_read_id:
-            if (prev_read_lr == 2 and not allow_nonpair) or \
-               (prev_read_lr and allow_nonpair):
-                # ------------------------------
-                # --- Processing Paired-read ---
-                # ------------------------------
-                num_pairs += 1
-                allele_count_p = defaultdict(int)
-                allele_count_n = defaultdict(int)
-                for positive_ht in left_positive_hts | right_positive_hts:
-                    add_allele_count(positive_ht, 1)
-                # linnil1
-                allele_count_p_sort = sorted(allele_count_p.items(), key=lambda i: -i[1])
-                allele_count_n_sort = sorted(allele_count_n.items(), key=lambda i: -i[1])
-                print(line     , file=bam_group_f)
-                print(prev_line, file=bam_group_f)
-
-                all_reads.append({'p': allele_count_p_sort,
-                                  'n': allele_count_n_sort})
-                """
-                for j in allele_count_n:
-                    allele_count_p[j] -= allele_count_n[j]
-                allele_count_pn_sort = sorted(allele_count_p.items(), key=lambda i: -i[1])
-                allele_count_pn_sort_bk = allele_count_pn_sort
-                allele_count_pn_sort = list(filter(lambda i: i[1] > 0, allele_count_pn_sort))
-                # print("tot_pos", allele_count_p_sort)
-                # print("tot_neg", allele_count_n_sort)
-                # print("tot_sub", allele_count_pn_sort)
-                if len(allele_count_pn_sort):
-                    max_allele = allele_count_pn_sort[0]
-                    second_count = 0
-                    if len(allele_count_pn_sort) > 1:
-                        second_count = allele_count_pn_sort[1][1]
-
-                    if max_allele[1] > second_count * 1.2:
-                        read_stat["ok"] += 1
-                        Gene_counts[max_allele[0]] += 1
-                        print(line + "\tRG:Z:" + max_allele[0], file=bam_group_f)
-                        print(prev_line + "\tRG:Z:" + max_allele[0], file=bam_group_f)
-                    else:
-                        read_stat["Cannot Determine"] += 1
-                else:
-                    read_stat["No allele found"] += 1
-                """
-
-                for positive_ht in left_positive_hts | right_positive_hts:
-                    # primary_exon_hts \
-                    #     = get_exon_haplotypes(positive_ht,
-                    #                           ref_primary_exons)
-                    # for exon_ht in primary_exon_hts:
-                    #     add_count(Gene_primary_exons_count_per_read,
-                    #               exon_ht,
-                    #               1)
-                    # exon_hts = get_exon_haplotypes(positive_ht,
-                    # for exon_ht in exon_hts:
-                    #     add_count(Gene_exons_count_per_read,
-                    #               exon_ht,
-                    #               1)
-                    num_allele = add_count(Gene_count_per_read,
-                                           positive_ht,
-                                           1)
-                    # read_stat[num_allele] += 1
-
-                cur_cmpt = add_stat(Gene_cmpt,
-                                    Gene_counts,
-                                    Gene_count_per_read)
-                if cur_cmpt:
-                    # print(cur_cmpt)
-                    allele_stat[len(cur_cmpt.split('-'))] += 1
-                    # if len(cur_cmpt.split('-')) == 1:
-                    #     print(line + "\tRG:Z:" + cur_cmpt, file=bam_group_f)
-                    #     print(prev_line + "\tRG:Z:" + cur_cmpt, file=bam_group_f)
-                else:
-                    allele_stat[0] += 1
-                # for read_id_, read_id_i, read_node in read_nodes:
-                #     asm_graph.add_node(read_id_,
-                #                        read_id_i,
-                #                        read_node,
-                #                        simulation)
-                # clear
-                # read_nodes    = []
-                # read_var_list = []
-
-            # clear
-            # Positive evidence for left and right reads
-            prev_read_lr        = 1
-            left_positive_hts   = set()
-            right_positive_hts  = set()
-            Gene_count_per_read = {}
-            # Gene_primary_exons_count_per_read = {}
-            # Gene_exons_count_per_read         = {}
-            for allele in gene_names:
-                if allele.find("BACKBONE") != -1:
-                    continue
-                if base_fname == "genome" and allele.find("GRCh38") != -1:
-                    continue
-                # if allele in primary_exon_allele_rep_set:
-                #     Gene_primary_exons_count_per_read[allele] = 0
-                # if allele in allele_rep_set:
-                #     Gene_exons_count_per_read[allele] = 0
-                Gene_count_per_read[allele] = 0
-        else:
-            prev_read_lr += 1
-
-        # Add read on left or right
+    def cmp_to_hts(cmp_list):
+        positive_hts   = set()
         cmp_left_alts, mid_ht, cmp_right_alts = cmp_to_alt(cmp_list)
-
         for left_id in range(len(cmp_left_alts)):
             left_ht = cmp_left_alts[left_id].split('-')
             left_ht += mid_ht
@@ -485,29 +389,105 @@ def hisatTyping(gene):
                 if len(ht) <= 0:
                     continue
                 ht_str = '-'.join(ht)
-                if is_left_read:
-                    left_positive_hts.add(ht_str)
-                else:
-                    right_positive_hts.add(ht_str)
+                positive_hts.add(ht_str)
+        return positive_hts
 
-        # last command
-        prev_read_id = read_id
-        prev_line = line
-        continue
+    # ----------------------
+    # --- main ---
+    # ----------------------
+    for i in set(map(lambda i: i.split("*")[0], allele_vars.keys())):
+        print(f"@RG\tID:{i}", file=bam_group_f)
+
+    Gene_counts    = defaultdict(int)
+    Gene_cmpt      = {}
+    allele_stat    = defaultdict(int)
+    all_reads      = []
+
+    print("Start reading each record in Bam")
+
+    for line_l, line_r, cmp_list_l, cmp_list_r in \
+        readPair(alignment_fname, gene_vars, gene_var_list, ref_locus, ref_seq, base_locus):
+        print(line_l, file=bam_group_f)
+        print(line_r, file=bam_group_f)
+
+        # ------------------------------
+        # --- Processing Paired-read ---
+        # ------------------------------
+        left_positive_hts  = cmp_to_hts(cmp_list_l)
+        right_positive_hts = cmp_to_hts(cmp_list_r)
+
+        # linnil1 hisat-kir methods
+        allele_count_p = defaultdict(int)
+        allele_count_n = defaultdict(int)
+        for positive_ht in left_positive_hts | right_positive_hts:
+            count_allele_pn(positive_ht)
+        allele_count_p_sort = sorted(allele_count_p.items(), key=lambda i: -i[1])
+        allele_count_n_sort = sorted(allele_count_n.items(), key=lambda i: -i[1])
+        all_reads.append({'p': allele_count_p_sort,
+                          'n': allele_count_n_sort})
+        # linnil1 method Done
+
+        # hisat method
+        Gene_count_per_read = {}
+        # Gene_primary_exons_count_per_read = {}
+        # Gene_exons_count_per_read         = {}
+        for allele in gene_names:
+            if allele.find("BACKBONE") != -1:
+                continue
+            if base_fname == "genome" and allele.find("GRCh38") != -1:
+                continue
+            # if allele in primary_exon_allele_rep_set:
+            #     Gene_primary_exons_count_per_read[allele] = 0
+            # if allele in allele_rep_set:
+            #     Gene_exons_count_per_read[allele] = 0
+            Gene_count_per_read[allele] = 0
+        for positive_ht in left_positive_hts | right_positive_hts:
+            # primary_exon_hts \
+            #     = get_exon_haplotypes(positive_ht,
+            #                           ref_primary_exons)
+            # for exon_ht in primary_exon_hts:
+            #     add_count(Gene_primary_exons_count_per_read,
+            #               exon_ht,
+            #               1)
+            # exon_hts = get_exon_haplotypes(positive_ht,
+            # for exon_ht in exon_hts:
+            #     add_count(Gene_exons_count_per_read,
+            #               exon_ht,
+            #               1)
+            num_allele = add_count(Gene_count_per_read,
+                                   positive_ht,
+                                   1)
+
+        cur_cmpt = add_stat(Gene_cmpt,
+                            Gene_counts,
+                            Gene_count_per_read)
+        if cur_cmpt:
+            # print(cur_cmpt)
+            allele_stat[len(cur_cmpt.split('-'))] += 1
+            # if len(cur_cmpt.split('-')) == 1:
+            #     print(line + "\tRG:Z:" + cur_cmpt, file=bam_group_f)
+            #     print(prev_line + "\tRG:Z:" + cur_cmpt, file=bam_group_f)
+        else:
+            allele_stat[0] += 1
+        # for read_id_, read_id_i, read_node in read_nodes:
+        #     asm_graph.add_node(read_id_,
+        #                        read_id_i,
+        #                        read_node,
+        #                        simulation)
+        # clear
+        # read_nodes    = []
+        # read_var_list = []
 
     # if not num_reads:
     #     raise Exception("Cannot read bam file")
 
-    print(gene)
-    print("Reads:", num_reads, "Pairs:", num_pairs)
-    # print(sorted(read_stat.items(),   key=lambda i: i[1], reverse=True)[:10])
     # print(sorted(allele_stat.items(), key=lambda i: i[1], reverse=True)[:10])
-    json.dump(all_reads, open(typing_tmp_fname + f".{gene}.json", "w"))
 
     # Counting abundance (Same in hisat2)
-    # print(Gene_counts)
+    # Gene_counts = {"KIR2DL1*001": 12}
     Gene_counts = [[allele, count] for allele, count in Gene_counts.items()]
     Gene_counts = sorted(Gene_counts, key=lambda x: x[1], reverse=True)
+    print(gene)
     for count_i in range(len(Gene_counts)):
         count = Gene_counts[count_i]
         print("%d %s (count: %d)" % (count_i + 1, count[0], count[1]))
@@ -525,6 +505,9 @@ def hisatTyping(gene):
         print("%d ranked %s (abundance: %.2f%%)" % (prob_i + 1, prob[0] , prob[1] * 100.0), file=report_f)
         if prob_i >= 50:
             break
+
+    # linnli1 method save tmp results
+    json.dump(all_reads, open(typing_tmp_fname + f".{gene}.json", "w"))
 
 
 def typingAllGene(alignment_bam_fname):
@@ -566,4 +549,4 @@ if __name__ == "__main__":
         print("Fail to read ", alignment_fname)
         sys.exit()
     hisatdataInit(full_gg_path)
-    typingAllGene(alignment_fname)
+    # typingAllGene(alignment_fname)

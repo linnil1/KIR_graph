@@ -3,22 +3,31 @@ import random
 import os
 from Bio import SeqIO
 from collections import defaultdict
+import copy
+
+# config
+N = 10
+output_name = "linnil1_syn"
+output_name = "linnil1_syn_full"
+folder = output_name + "/"
+file_sequence = "kir_merge_sequences.fa"
+file_sequence = "kir_merge_full_sequences.fa"
 
 # read haplo
 data = pd.read_csv("PING/ping_paper_scripts/synthetic_sequence/KIR_gene_haplotypes.csv")
 data.index = data['hapID']
 
 # read sequences
-seqs = SeqIO.to_dict(SeqIO.parse("kir_merge_sequences.fa", "fasta"))
+seqs = SeqIO.to_dict(SeqIO.parse(file_sequence, "fasta"))
 gene_map_allele = defaultdict(list)
 for name in seqs:
-    # gene_map_allele[name.split("*")[0]].append(name)
     # allele group
-    gene_map_allele[name[:7]].append(name)
-
-# config
-N = 10
-folder = "linnil1_syn1/"
+    if len(seqs[name]) > 4200:  # remove exon-only sequence, min 3DP1 4240
+        # Note 2DL5A 2DLB are treat as 2DL5
+        # gene_map_allele[name.split("*")[0]].append(name)
+        gene_map_allele[name[:7]].append(name)
+    else:
+        print(f"remove {name} (len={len(seqs[name])})")
 
 # run random
 random.seed(444)
@@ -33,7 +42,7 @@ for i in range(N):
         print(name, num)
         alleles.extend(random.choices(gene_map_allele[name], k=num))
 
-    id = f"linnil1_syn.{i:02d}"
+    id = f"{output_name}.{i:02d}"
     ans.append({
         'id': id,
         'haplo': sorted(haplo),
@@ -43,7 +52,16 @@ for i in range(N):
 # save fasta
 os.makedirs(folder, exist_ok=True)
 for a in ans:
-    SeqIO.write([seqs[i] for i in a['allele']], f"{folder}/{a['id']}.fa", "fasta")
+    real_seqs = []
+    allele_cn = defaultdict(int)
+    for allele_name in a['allele']:
+        allele_cn[allele_name] += 1
+        seq = copy.deepcopy(seqs[allele_name])
+        seq.id = f"{seq.id}-{allele_cn[allele_name]}"
+        seq.description = ""
+        real_seqs.append(seq)
+
+    SeqIO.write(real_seqs, f"{folder}/{a['id']}.fa", "fasta")
 
     # '-ef',  # error free
     """

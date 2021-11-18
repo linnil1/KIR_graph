@@ -5,18 +5,30 @@ from concurrent.futures import ThreadPoolExecutor
 import re
 from matplotlib.ticker import MaxNLocator
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, Counter
 from Bio import SeqIO
+import json
+
+
+def samtools(cmd, name):
+    cmd = f"docker run -it --rm --name {name.replace('/', '_')} -v $PWD:/app -w /app samtools samtools {cmd} {name}"
+    print(name, cmd)
+    a = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+    return a.stdout.decode().split("\n")
 
 
 def getPairNum(name):
+    """
     cmd = f"docker run -it --rm --name {name.replace('/', '_')} -v $PWD:/app -w /app samtools samtools flagstat {name}"
     print(name, cmd)
     a = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
     # print(a.stdout)
+    for i in a.stdout.decode().split("\n"):
+    """
     num_pair = 0
     num_total = 0
-    for i in a.stdout.decode().split("\n"):
+    num_second = 0
+    for i in samtools("flagstat", name):
         # 122050 + 0 properly paired (100.00% : N/A)
         # 122050 + 0 in total (QC-passed reads + QC-failed reads)
         # 0 + 0 secondary
@@ -29,50 +41,338 @@ def getPairNum(name):
     return num_total - num_second, num_second, num_pair
 
 
-def plot_bam_mapping():
-    perc_secd = []
-    perc_pair = []
+def calc_bam_mapping():
+    stat = []
     n = 10
 
     exc = []
     with ThreadPoolExecutor(max_workers=50) as executor:
         # tot, sec, pair = getPairNum(name)
         for i in range(n):
-            name = f"data/linnil1_syn.{i:02d}.merge.sam"
+            name = f"data/linnil1_syn_full.{i:02d}.merge.sam"
             exc.append(executor.submit(getPairNum, name))
             # exc.append(getPairNum(name))
 
-            name = f"data/linnil1_syn.{i:02d}.split.sam"
+        for i in range(n):
+            name = f"data/linnil1_syn_full.{i:02d}.split.sam"
             exc.append(executor.submit(getPairNum, name)) # exc.append(getPairNum(name))
 
-            name = f"data/linnil1_syn.{i:02d}.linear.sam"
+        for i in range(n):
+            name = f"data/linnil1_syn_full.{i:02d}.linear.sam"
             exc.append(executor.submit(getPairNum, name))
             # exc.append(getPairNum(name))
 
-            name = f"data/linnil1_syn.{i:02d}.full.sam"
+        for i in range(n):
+            name = f"PING/PING/linnil1_syn_full_result/gc_bam_files/linnil1_syn_full.{i:02d}.read..bam"
             exc.append(executor.submit(getPairNum, name))
             # exc.append(getPairNum(name))
 
         for job in exc:
             # tot, sec, pair = getPairNum(name)
             tot, sec, pair = job.result()
-            # tot, sec, pair = job
-            perc_pair.append(pair / tot)
-            perc_secd.append(sec / tot)
+            stat.append((tot, sec, pair))
 
 
+    json.dump({'stat': stat}, open(f'tmp_bam_count.json', 'w'))
+
+
+def plot_bam_mapping():
     # plt.subplot(1, 3, 1)
+    data = json.load(open('tmp_bam_count.json'))['stat']
+    perc_pair = [pair / tot for (tot, sec, pair) in data]
+    perc_secd = [sec / tot for (tot, sec, pair) in data]
+    n = 10
+
+    methods = ['hisat-merge', 'hisat-split', 'linear', 'PING(full)']
     plt.title("Proper Paired percetage")
-    plt.boxplot([perc_pair[0::4], perc_pair[1::4], perc_pair[2::4], perc_pair[3::4]])
-    plt.gca().set_xticklabels(['merge', 'split', 'linear', 'full'])
+    plt.boxplot([perc_pair[0:n], perc_pair[n:n*2], perc_pair[n*2:n*3], perc_pair[n*3:n*4]])
+    plt.ylabel("Primary paired number / Total reads (%)")
+    plt.gca().set_xticklabels(methods)
+    plt.savefig("tmp_bam_count_paired.png")
     plt.show()
+
+    print("Mean of perper paired percetage")
+    for i in range(len(methods)):
+        print(f"{methods[i]:15s} {np.mean(perc_pair[n*i:n*i+n]):.2f}")
 
     # plt.subplot(1, 3, 2)
-    plt.title("Secondary percetage")
-    plt.boxplot([perc_secd[0::4], perc_secd[1::4], perc_secd[2::4], perc_secd[3::4]])
-    plt.gca().set_xticklabels(['merge', 'split', 'linear', 'full'])
+    plt.title("Secondary ratio")
+    plt.ylabel("Secondary amount / Total reads")
+    plt.boxplot([perc_secd[n*0:n*1], perc_secd[n*1:n*2], perc_secd[n*2:n*3], perc_secd[n*3:n*4]])
+    plt.gca().set_xticklabels(methods)
+    plt.savefig("tmp_bam_count_secondary.png")
     plt.show()
 
+    print("Mean of secondary ratio")
+    for i in range(len(methods)):
+        print(f"{methods[i]:15s} {np.mean(perc_secd[n*i:n*i+n]):.2f}")
+
+
+def getMissRead(name, all_reads):
+    # read all bam/sam
+    miss_reads = set()
+    reads = set()
+    for line in samtools("view", name):
+        if not line.strip():
+            continue
+        fields = line.split()
+        if len(fields) < 4:
+            print(name)
+            print(line)
+            continue
+        reads.add(fields[0])
+
+        # mate unmapped for read unmapped
+        flag = int(fields[1])
+        if (flag & 4) or (flag & 8):
+            miss_reads.add(fields[0])
+    # maybe the bam file did not save unmapped reads
+    miss_reads.update(all_reads - reads)
+    miss_count = Counter([i.split("*")[0] for i in miss_reads])
+    all_read_count = Counter([i.split("*")[0] for i in all_reads])
+    norm_miss_count = {gene: count / all_read_count[gene] for gene, count in miss_count.items()}
+    return norm_miss_count
+
+
+def missRead():
+    n = 10
+    sample_all_reads = []
+    for i in range(n):
+        # read all read id
+        name = f"data/linnil1_syn_full.{i:02d}.read1.fastq"
+        all_reads = set()
+        for line in open(name):
+            if line.startswith("@"):
+                all_reads.add(line.split()[0][1:-2])
+        sample_all_reads.append(all_reads)
+    sample_all_reads_gene_count = [Counter([i.split("*")[0] for i in all_reads]) for all_reads in sample_all_reads]
+
+    exc = []
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        names = []
+        names.extend([f"data/linnil1_syn_full.{i:02d}.merge.sam" for i in range(n)])
+        names.extend([f"data/linnil1_syn_full.{i:02d}.split.sam" for i in range(n)])
+        names.extend([f"data/linnil1_syn_full.{i:02d}.linear.sam" for i in range(n)])
+        names.extend([f"PING/PING/linnil1_syn_full_result/gc_bam_files/linnil1_syn_full.{i:02d}.read..bam" for i in range(n)])
+        for i, name in enumerate(names):
+            # miss_reads = getMissRead(name)
+            i = i % n
+            exc.append(executor.submit(getMissRead, name, sample_all_reads[i]))
+
+        sample_miss = []
+        for i in exc:
+            norm_miss_count = i.result()
+            print(norm_miss_count)
+            sample_miss.append(norm_miss_count)
+
+    json.dump({'miss': sample_miss, 'sum': sample_all_reads_gene_count}, open(f'tmp_bam_miss.json', 'w'))
+
+
+def missPlot():
+    import pandas as pd
+    import plotly.express as px
+    n = 10
+    sample_miss = json.load(open(f'tmp_bam_miss.json'))['miss']
+    a = []
+    methods = ['hisat-merge', 'hisat-split', 'linear', 'PING(full)']
+    for i, miss in enumerate(sample_miss):
+        for k, v in miss.items():
+            a.append({'sample': i, 'gene': k, 'percetage': v, "method": methods[i // n]})
+    df = pd.DataFrame(a)
+    fig = px.box(df, x="gene", y="percetage", color="method")
+    fig.update_layout(title="Missed reads belong to",
+                      yaxis_title="Missed_reads / total_read_counts in that gene")
+    fig.write_image("tmp_bam_miss_plot.png")
+    fig.show()
+
+
+def getSecRead(name, all_reads):
+    # read all bam/sam
+    miss_reads = set()
+    reads = set()
+    for line in samtools("view", name):
+        if not line.strip():
+            continue
+        fields = line.split()
+        if len(fields) < 4:
+            print(name)
+            print(line)
+            continue
+        reads.add(fields[0])
+
+        # mate unmapped for read unmapped
+        flag = int(fields[1])
+        if (flag & 256):
+            miss_reads.add(fields[0])
+    # maybe the bam file did not save unmapped reads
+    miss_count = Counter([i.split("*")[0] for i in miss_reads])
+    all_read_count = Counter([i.split("*")[0] for i in all_reads])
+    norm_miss_count = {gene: count / all_read_count[gene] for gene, count in miss_count.items()}
+    return norm_miss_count
+
+
+def secdRead():
+    n = 10
+    sample_all_reads = []
+    for i in range(n):
+        # read all read id
+        name = f"data/linnil1_syn_full.{i:02d}.read1.fastq"
+        all_reads = set()
+        for line in open(name):
+            if line.startswith("@"):
+                all_reads.add(line.split()[0][1:-2])
+        sample_all_reads.append(all_reads)
+    sample_all_reads_gene_count = [Counter([i.split("*")[0] for i in all_reads]) for all_reads in sample_all_reads]
+
+    exc = []
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        names = []
+        names.extend([f"data/linnil1_syn_full.{i:02d}.merge.sam" for i in range(n)])
+        names.extend([f"data/linnil1_syn_full.{i:02d}.split.sam" for i in range(n)])
+        names.extend([f"data/linnil1_syn_full.{i:02d}.linear.sam" for i in range(n)])
+        names.extend([f"PING/PING/linnil1_syn_full_result/gc_bam_files/linnil1_syn_full.{i:02d}.read..bam" for i in range(n)])
+        for i, name in enumerate(names):
+            # miss_reads = getMissRead(name)
+            i = i % n
+            exc.append(executor.submit(getSecRead, name, sample_all_reads[i]))
+
+        sample_miss = []
+        for i in exc:
+            norm_miss_count = i.result()
+            print(norm_miss_count)
+            sample_miss.append(norm_miss_count)
+
+    json.dump({'secd': sample_miss, 'sum': sample_all_reads_gene_count}, open(f'tmp_bam_secd.json', 'w'))
+
+
+def secdPlot():
+    import pandas as pd
+    import plotly.express as px
+    n = 10
+    sample_miss = json.load(open(f'tmp_bam_secd.json'))['secd']
+    a = []
+    methods = ['hisat-merge', 'hisat-split', 'linear', 'PING(full)']
+    for i, miss in enumerate(sample_miss):
+        for k, v in miss.items():
+            a.append({'sample': i, 'gene': k, 'percetage': v, "method": methods[i // n]})
+    df = pd.DataFrame(a)
+    fig = px.box(df, x="gene", y="percetage", color="method")
+    fig.update_layout(title="Secondary reads belong to",
+                      yaxis_title="Secondary_reads / total_read_counts in that gene")
+    fig.write_image("tmp_bam_secd_plot.png")
+    fig.show()
+
+
+def getPrimaryRead(name):
+    # read all bam/sam
+    read_mapped_on = defaultdict(list)
+    read_mapped_on_secd = defaultdict(list)
+    for line in samtools("view", name):
+    # for line in open(name):
+        if line.startswith("@"):
+            continue
+        if not line.strip():
+            continue
+        fields = line.split()
+        if len(fields) < 4:
+            print(name)
+            print(line)
+            continue
+        flag = int(fields[1])
+        if (flag & 2) and not (flag & 4) and not (flag & 8):
+            if not (flag & 256):  # pair
+                read_mapped_on[fields[0]].append(fields[2])
+            else:
+                read_mapped_on_secd[fields[0]].append(fields[2])
+
+    for k, v in read_mapped_on.items():
+        if len(v) != 2:
+            print(k, v)
+        elif v[0] != v[1]:
+            print(k, v)
+    for k, v in read_mapped_on_secd.items():
+        if len(v) % 2:
+            print(k, v)
+    return read_mapped_on, read_mapped_on_secd
+
+
+def primaryAcc():
+    n = 10
+    names = []
+
+    all_read_primary = []
+    all_read_secondary = []
+    names.extend([f"data/linnil1_syn_full.{i:02d}.split.sam" for i in range(n)])
+    names.extend([f"data/linnil1_syn_full.{i:02d}.linear.sam" for i in range(n)])
+    names.extend([f"PING/PING/linnil1_syn_full_result/gc_bam_files/linnil1_syn_full.{i:02d}.read..bam" for i in range(n)])
+    exc = []
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        for name in names:
+            exc.append(executor.submit(getPrimaryRead, name))
+            all_read_primary.append(read_primary)
+            all_read_secondary.append(read_secondary)
+
+        for i in exc:
+            # read_primary, read_secondary = getPrimaryRead(name)
+            read_primary, read_secondary = i.result()
+            all_read_primary.append(read_primary)
+            all_read_secondary.append(read_secondary)
+
+    json.dump({'prim': all_read_primary, 'secd': all_read_secondary}, open(f'tmp_bam_mapped_on.json', 'w'))
+
+
+def readAccPlot():
+    print("Reading")
+    import pandas as pd
+    import plotly.express as px
+    data = json.load(open(f'tmp_bam_mapped_on.json'))
+    methods = ['hisat-split', 'linear', 'PING(full)']
+    n = 10
+
+    stat = []
+    i = 0
+    for read_primary, read_secondary in zip(data['prim'], data['secd']):
+        print("Primary", len(read_primary))
+        print("Secondary", len(read_secondary))
+
+        acc_prim, acc_secd, tot = 0, 0, 0
+        for k, v in read_primary.items():
+            if k.split("*")[0] == v[0].split("*")[0]:
+                acc_prim += 1
+        for k, v in read_secondary.items():
+            tot += 1
+            if k.split("*")[0] in [i.split("*")[0] for i in v] \
+               or k.split("*")[0] == read_primary[k][0].split("*")[0]:
+                acc_secd += 1
+        for k in read_primary.keys() - read_secondary.keys():
+            tot += 1
+            if k.split("*")[0] == read_primary[k][0].split("*")[0]:
+                acc_secd += 1
+
+        stat.append({
+            'read': 'primary',
+            'value': acc_prim / len(read_primary),
+            'method': methods[i // n],
+        })
+        stat.append({
+            'read': 'primary+secondary',
+            'value': acc_secd / tot,
+            'method': methods[i // n],
+        })
+        i += 1
+
+    stat = pd.DataFrame(stat)
+    print(stat.groupby(["method", "read"]).mean())
+
+    # plot
+    fig = px.box(stat, x="method", y="value", color="read")
+    fig.update_layout(title="Gene-level Accuracy (per paired read)",
+                      yaxis_title="Correct_reads_mapping_on / total_read_counts")
+    fig.write_image("tmp_bam_mapped_on.png")
+    fig.show()
+
+
+# TODO: clean below codes
 
 def plot_full_acc():
     arr_acc = []
@@ -187,12 +487,15 @@ def plotSplitAcc():
 
 
 def plotAnsDepth():
-    seqs = SeqIO.parse("kir_merge_sequences.fa", "fasta")
+    # name = "linnil1_syn"
+    name = "linnil1_syn_full"
+    # seqs = SeqIO.parse("kir_merge_sequences.fa", "fasta")
+    seqs = SeqIO.parse("kir_split_full_sequences.fa", "fasta")
     seq_len = {seq.id: len(seq.seq) for seq in seqs}
 
     for i in range(10):
         allele_count = defaultdict(int)
-        for line in open(f"linnil1_syn/linnil1_syn.{i:02d}.read..sam"):
+        for line in open(f"{name}/{name}.{i:02d}.read..sam"):
             if line[0] == "@":
                 continue
             row = line.split()
@@ -202,19 +505,39 @@ def plotAnsDepth():
         plotDepth(sorted(alleles, key=lambda j: -j[2]))
 
 
+def plotAnsGeneDepth():
+    # name = "linnil1_syn"
+    name = "linnil1_syn_full"
+    # seqs = SeqIO.parse("kir_merge_sequences.fa", "fasta")
+    seqs = SeqIO.parse("kir_split_full_backbone.fa", "fasta")
+    seq_len = {seq.id: len(seq.seq) for seq in seqs}
+
+    for i in range(10):
+        allele_count = defaultdict(int)
+        for line in open(f"{name}/{name}.{i:02d}.read..sam"):
+            if line[0] == "@":
+                continue
+            row = line.split()
+            allele_count[row[0].split("*")[0]] += 1
+
+        alleles = [(a, b, b / seq_len[a + "*BACKBONE"] * 150) for a, b in allele_count.items()]
+        plotDepth(sorted(alleles, key=lambda j: -j[2]))
+
+
 def plotAnsDepthWithMulti():
     seqs = SeqIO.parse("kir_merge_sequences.fa", "fasta")
     seq_len = {seq.id: len(seq.seq) for seq in seqs}
 
     alleles_set = []
     i = 0
-    for line in open(f"linnil1_syn/linnil1_syn.{i:02d}.read..sam"):
+    name = "linnil1_syn"
+    for line in open(f"{name}/{name}.{i:02d}.read..sam"):
         if line[:3] == "@SQ":
             alleles_set.append(line.split("\t")[1][3:])
     alleles_set = set(alleles_set)
 
     allele_count = defaultdict(int)
-    pair_map = read_full_pair(f"data/linnil1_syn.{i:02d}.full.sam", strict=True)
+    pair_map = read_full_pair(f"data/{name}.{i:02d}.full.sam", strict=True)
     for id, alleles in pair_map.items():
         ans_alleles = alleles_set & alleles
         for i in ans_alleles:
@@ -246,8 +569,46 @@ def plotDepth(alleles, need_sort=False):
     plt.show()
 
 
+def evaluateHisatMapPlot():
+    from pipeline_hisat_kir import HisatTyping
+    i = 0
+    names = []
+    for i in range(1, 10):
+        names.append(f"data/linnil1_syn.0{i}.merge.pair.tmp")
+    # names = names[:1]
+    typ = HisatTyping()
+
+    acc_and_arr, acc_sum_arr = [], []
+
+    for name in names:
+        # typ.mainPerSample(name)
+        typ.name = name
+        typ.gene = "KIR"
+        typ.readBam()
+        acc_and, acc_sum = typ.evaluateHisatMap()
+        acc_and_arr.append(acc_and)
+        acc_sum_arr.append(acc_sum)
+
+    plt.title("Allele Accuracy for Hisat2 mapping")
+    plt.boxplot([acc_and_arr, acc_sum_arr])
+    plt.ylabel("Accuracy")
+    plt.gca().set_xticklabels(['AND', 'SUM'])
+    plt.show()
+
+
 if __name__ == "__main__":
+    # calc_bam_mapping()
     # plot_bam_mapping()
+    # missRead()
+    # missPlot()
+    # secdRead()
+    # secdPlot()
+    # primaryAcc()
+    # readAccPlot()
+
+    # tmp
+    # evaluateHisatMapPlot()
     # plot_full_acc()
-    plotAnsDepth() 
+    # plotAnsDepth() 
+    # plotAnsGeneDepth() 
     # plotAnsDepthWithMulti() 

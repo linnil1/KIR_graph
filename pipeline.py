@@ -12,10 +12,14 @@ import pandas as pd
 from Bio import SeqIO, AlignIO
 from Bio.SeqRecord import SeqRecord
 from pyHLAMSA import KIRmsa, Genemsa
+from collections import defaultdict
 
 # this require hisat2 docker
-# import pipeline_to_hisat
-# import pipeline_typing
+try:  # temp
+    import pipeline_to_hisat
+    import pipeline_typing
+except:
+    pass
 
 # setup logger to stdout
 logger = logging.getLogger("pyHLAMSA")
@@ -47,14 +51,17 @@ def run(cmd):
     os.system(cmd)
 
 
-def extract_main_allele(gene):
+def extract_main_allele(gene, allele_group=True):
     """ consensus among each gene sub-group """
     gene_name = gene.gene_name
     gene_sh = Genemsa(gene_name, "gen",
                       gene.blocks, gene.labels)
 
-    consenus_names = map(lambda i: i.split("*")[0] + "*" + i.split("*")[1][:3],
-                         gene.alleles.keys())
+    if allele_group:
+        consenus_names = map(lambda i: i.split("*")[0] + "*" + i.split("*")[1][:3],
+                             gene.alleles.keys())
+    else:
+        consenus_names = gene.alleles.keys()
 
     for consenus_name in sorted(set(consenus_names)):
         print(consenus_name)
@@ -155,7 +162,7 @@ def msa_for_chunk(kir_chunk):
     return kir_align
 
 
-def kir_to_msa():
+def kir_to_msa(name="kir_merge", allele_group=True):
     """ Main function """
     # read
     kir = KIRmsa(filetype=["gen"])
@@ -163,7 +170,7 @@ def kir_to_msa():
     # shrink
     kir_sh = {}
     for gene_name in kir.genes:
-        kir_sh[gene_name] = extract_main_allele(kir.genes[gene_name])
+        kir_sh[gene_name] = extract_main_allele(kir.genes[gene_name], allele_group)
     summary(kir_sh)
 
     # align for gene, fill the imcomplete
@@ -193,7 +200,7 @@ def kir_to_msa():
             kir_biomsa = kir_align[chunk_name]
 
     # MultipleSeqAlignment -> GeneMSA
-    SeqIO.write(kir_biomsa, "kir_merge.fa", "fasta")
+    SeqIO.write(kir_biomsa, f"{name}.fa", "fasta")
     kir_msa_align = Genemsa.from_MultipleSeqAlignment(kir_biomsa)
     kir_msa_align.blocks = blocks
     kir_msa_align.labels = next(iter(kir_draft.values())).labels
@@ -201,10 +208,10 @@ def kir_to_msa():
     # save to other types
     kir_msa_align.add("KIR*BACKBONE",
                       kir_msa_align.get_consensus(include_gap=False))
-    kir_msa_align.save_fasta("kir_merge.consensus.fa", gap=False)
-    kir_msa_align.save_bam("kir_merge.bam", "KIR*BACKBONE")
-    kir_msa_align.save_gff("kir_merge.gff")
-    kir_msa_align.save_msa("kir_merge.save.fa", "kir_merge.save.gff")
+    kir_msa_align.save_fasta(f"{name}.consensus.fa", gap=False)
+    kir_msa_align.save_bam(f"{name}.bam", "KIR*BACKBONE")
+    kir_msa_align.save_gff(f"{name}.gff")
+    kir_msa_align.save_msa(f"{name}.save.fa", f"{name}.save.gff")
 
 
 def kir_to_multi_msa():
@@ -236,18 +243,8 @@ def download_data():
     run("cat giab_hg002/D1_S1_L001_R2_0* > merge_D1_S1_L001_R2.fastq.gz")
 
 
-def hisat2_split():
-    index = "kir_split"
-    for name in samples:
-        f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
-        run(f"""\
-            hisat2 --threads {thread} -x {index}.graph -1 {f1} -2 {f2} \
-            --no-spliced-alignment --max-altstried 64 --haplotype \
-            > {name}{suffix}.sam""")
 
-
-def hisat2_merge():
-    index = "kir_merge"
+def hisat2(index="kir_merge"):
     for name in samples:
         f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
         # run(f"hisat2 --threads 25 -x {index}.graph -1 {f1} -2 {f2} --no-unal --no-spliced-alignment --max-altstried 64 --haplotype > {name}.sam")
@@ -258,9 +255,8 @@ def hisat2_merge():
         """)
 
 
-def bowtie2():
+def bowtie2(index="kir_split.linear"):
     # dk quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0
-    index = "kir_split.linear"
     for name in samples:
         f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
         # run(f"bowtie2 --threads 25 -x {index}.linear -1 {f1} -2 {f2} --no-unal  > {name}.linear.sam")
@@ -273,7 +269,7 @@ def bowtie2Ping():
     for name in samples:
         f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
         # run(f"bowtie2 --threads 25 -x {index}.linear -1 {f1} -2 {f2} --no-unal  > {name}.linear.sam")
-        # '--no-unal', 
+        # '--no-unal',
         run(f"bowtie2 --threads 25 -x {index} -1 {f1} -2 {f2} " + \
             " ".join(['-5 0', '-3 6', '-N 0', '--end-to-end', '--score-min L,-2,-0.08', '-I 75', '-X 1000', '-a','--np 1', '--mp 2,2', '--rdg 1,1', '--rfg 1,1']) + \
             f"-S  {name}{suffix}.sam")
@@ -289,7 +285,7 @@ def bowtie2Full():
     index = "kir_full"
     for name in samples:
         f1, f2 = name + ".read1" + fastq_suffix, name + ".read2" + fastq_suffix
-        # '--no-unal', 
+        # '--no-unal',
         run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
                f"bowtie2 --threads 25 -x {index} -1 {f1} -2 {f2} -X 1000 -a --end-to-end -S {name}.full.sam")
 
@@ -298,6 +294,16 @@ def bowtie2Build():
     index = "kir_split.linear"
     run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
            f"bowtie2-build kir_split_backbone.fa {index} --threads 30")
+
+def bowtie2BuildNotgroup():
+    index = "kir_split_full.linear"
+    run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+           f"bowtie2-build kir_split_full_backbone.fa {index} --threads 30")
+
+def bowtie2BuildFull():
+    index = "kir_split_full.linear"
+    run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+           f"bowtie2-build kir_split_full_backbone.fa {index} --threads 30")
 
 
 def samtobam():
@@ -323,19 +329,32 @@ def hisatTyping(index):
             executor.submit(pipeline_typing.typingAllGene, f"{sample}{suffix}.pair.bam")
 
 
+def linkFastq():
+    for i in range(10):
+        name = "linnil1_syn_full"
+        os.system(f"ln -fs ../{name}/{name}.{i:02d}.read.1.fq data/{name}.{i:02d}.read1.fastq")
+        os.system(f"ln -fs ../{name}/{name}.{i:02d}.read.2.fq data/{name}.{i:02d}.read2.fastq")
+
+
 if __name__ == "__main__":
     # download()
     # download_data()
     samples = sorted(map(lambda i: i.split(".read")[0], glob.glob("data/synSeq.*.read1.fastq")))
+
+
+    # create my sample
+    # python3 pipeline_generate_syn.py
     samples = ["data/synSeq.hiseq.dp50.rl150.1"]
     samples = [f"data/linnil1_syn.0{i}" for i in range(10)]
-    sample = samples[0]
+    samples = [f"data/linnil1_syn_full.0{i}" for i in range(10)]
+    # samples = samples[1:2]
 
     # kir_merge
-    # kir_to_msa() # pipeline_to_hisat.main("kir_merge")
+    # kir_to_msa()
+    # pipeline_to_hisat.main("kir_merge")
     # pipeline_to_hisat.build("kir_merge")
     suffix = ".merge"
-    # hisat2_merge()
+    # hisat2()
     # samtobam()
     # hisatTyping("./kir_merge")
 
@@ -347,20 +366,40 @@ if __name__ == "__main__":
 
     suffix = ".linear"
     # bowtie2Build()
-    bowtie2()
+    # bowtie2()
     # samtobam()
 
     suffix = ".full"
     # bowtie2BuildFull()
-    bowtie2Full()
+    # bowtie2Full()
     # samtobam()
 
     suffix = ".split"
-    # hisat2_split()
+    # hisat2("kir_split")
     # samtobam()
     # pipeline_typing.hisatdataInit("./kir_split", f"{samples[0]}{suffix}.pair.bam")
     # pipeline_typing.typingAllGene()
 
+    suffix = ".merge"
+    # kir_to_msa("kir_merge_full", allele_group=False)
+    # pipeline_to_hisat.main("kir_merge_full")
+    # pipeline_to_hisat.build("kir_merge_full")
+    # os.system("python3 pipeline_generate_syn.py")
+    # hisat2("kir_merge_full")
+    # samtobam()
+    # hisatTyping("./kir_merge_full")
+
+    suffix = ".split"
+    # pipeline_to_hisat.main("kir_split_full")
+    # pipeline_to_hisat.build("kir_split_full")
+    # hisat2("kir_split_full")
+    # samtobam()
+    # hisatTyping("./kir_split_full")
+
+    suffix = ".linear"
+    # bowtie2BuildNotgroup()
+    bowtie2()
+    # samtobam()
 
 """
 Tips:

@@ -431,11 +431,11 @@ def groupHaplo(Vars):
 
 
 def gene2hisat(gene, msa):
+    msa = msa.shrink()
     print(msa.blocks)
     print(msa.labels)
 
     print(f"[{gene}] Calculate consensus", file=sys.stderr)
-    msa.shrink()
     backbone_freq = msa.calculate_frequency()
     if f"{gene}*BACKBONE" not in msa.alleles:
         msa.add(f"{gene}*BACKBONE", msa.get_consensus(include_gap=False))
@@ -669,13 +669,14 @@ def main(name):
     pool = concurrent.futures.ProcessPoolExecutor(threads)
 
     # linnil1: another variable?
-    if base_fullpath_name == "kir_merge":
-        msa = Genemsa.load_msa("kir_merge.save.fa", "kir_merge.save.gff")
+    if base_fullpath_name.startswith("kir_merge"):
+        msa = Genemsa.load_msa(f"{base_fullpath_name}.save.fa", f"{base_fullpath_name}.save.gff")
         msa.seq_type = "gen"
-        msa.gene_name = "kir_merge"
+        msa.gene_name = base_fullpath_name
         pool_gene = [gene2hisat("KIR", msa)]
-    elif base_fullpath_name == "kir_split":
-        msa = Genemsa.load_msa("kir_merge.save.fa", "kir_merge.save.gff")
+    elif base_fullpath_name.startswith("kir_split"):
+        merge_name = base_fullpath_name.replace("split", "merge")
+        msa = Genemsa.load_msa(f"{merge_name}.save.fa", f"{merge_name}.save.gff")
         msa.seq_type = "gen"
         msa.gene_name = "kir_merge"
         pool_gene = []

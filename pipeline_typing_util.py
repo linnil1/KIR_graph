@@ -5,29 +5,57 @@ import subprocess
 
 import hisatgenotype_typing_common as typing_common
 from hisatgenotype_typing_core import (
-        read_Gene_vars_genotype_genome,
-        read_backbone_alleles,
-        read_Gene_alleles_from_vars,
-        get_exonic_vars,
-        get_rep_alleles
+    read_Gene_vars_genotype_genome,
+    read_backbone_alleles,
+    read_Gene_alleles_from_vars,
+    get_exonic_vars,
+    get_rep_alleles
 )
 
-get_exonic_vars = get_exonic_vars
-get_rep_alleles = get_rep_alleles
-debug = False
+
+def get_bam_proc(alignment_fname, ref_locus, bam_sorted=True):
+    # get bam file samtools command line
+    alignview_cmd = ["samtools", "view", alignment_fname]
+    _, chr, left, right = ref_locus[:4]
+    alignview_cmd += ["%s:%d-%d" % (chr, left + 1, right + 1)]
+
+    # samtools
+    bamview_proc = subprocess.Popen(alignview_cmd,
+                                    universal_newlines=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=open("/dev/null", 'w'))
+    if bam_sorted:  # sort by name
+        return bamview_proc
+    sort_read_cmd = ["sort", "-k", "1,1", "-s"]  # -s for stable sorting
+    alignview_proc = subprocess.Popen(sort_read_cmd,
+                                      universal_newlines=True,
+                                      stdin=bamview_proc.stdout,
+                                      stdout=subprocess.PIPE,
+                                      stderr=open("/dev/null", 'w'))
+    return alignview_proc
 
 
-def debug_print(*arg):
-    if debug:
-        print(*arg)
+def get_mpileup_cmd(alignment_fname, ref_locus):
+    alignview_cmd = ["samtools", "view", alignment_fname]
+    _, chr, left, right = ref_locus[:4]
+    alignview_cmd += ["%s:%d-%d" % (chr, left + 1, right + 1)]
+    return alignview_cmd
 
 
-def readBam(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base_locus=0):
+def readBam(alignment_fname, gene_vars, gene_var_list, ref_locus, ref_seq, base_locus=0):
+    alignview_proc = get_bam_proc(alignment_fname, ref_locus, bam_sorted=False)
+    mpileup_cmd    = get_mpileup_cmd(alignment_fname, ref_locus)
+    mpileup        = typing_common.get_mpileup(mpileup_cmd, ref_seq, base_locus,
+                                               gene_vars, False)  # , allow_discordant)
+    return readBamCore(alignview_proc.stdout, gene_vars, gene_var_list, ref_seq, mpileup, base_locus)
+
+
+def readBamCore(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base_locus=0):
     # parameters
     num_editdist     = 5
     allow_discordant = False
     verbose          = 0
-    simulation       = False
+    simulation       = False  # legency
     error_correction = False
     base_fname       = "kir"
 
@@ -38,8 +66,12 @@ def readBam(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base_loc
     var_count        = {}
     novel_var_count  = 0
 
+    def debug_print(*arg):
+        if verbose >= 2:
+            print(*arg)
+
     # read line in bamfile
-    for line in alignview_proc.stdout:
+    for line in alignview_proc:
         line = line.strip()
         cols = line.split()
         read_id, flag, chr, pos, mapQ, cigar_str = cols[:6]
@@ -58,7 +90,7 @@ def readBam(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base_loc
 
         # Unalined? Insurance that nonmaped reads will not be processed
         if flag & 0x4 != 0:
-            if simulation and verbose >= 2:
+            if simulation:
                 debug_print("Unaligned")
                 debug_print("\t", line)
             continue
@@ -585,32 +617,3 @@ primary_exon_allele_rep_set \
 read_nodes    = []
 read_var_list = []
 """
-
-
-def get_bam_proc(alignment_fname, ref_locus, bam_sorted=True):
-    # get bam file samtools command line
-    alignview_cmd = ["samtools", "view", alignment_fname]
-    _, chr, left, right = ref_locus[:4]
-    alignview_cmd += ["%s:%d-%d" % (chr, left + 1, right + 1)]
-
-    # samtools
-    bamview_proc = subprocess.Popen(alignview_cmd,
-                                    universal_newlines=True,
-                                    stdout=subprocess.PIPE,
-                                    stderr=open("/dev/null", 'w'))
-    if bam_sorted:  # sort by name
-        return bamview_proc
-    sort_read_cmd = ["sort", "-k", "1,1", "-s"]  # -s for stable sorting
-    alignview_proc = subprocess.Popen(sort_read_cmd,
-                                      universal_newlines=True,
-                                      stdin=bamview_proc.stdout,
-                                      stdout=subprocess.PIPE,
-                                      stderr=open("/dev/null", 'w'))
-    return alignview_proc
-
-
-def get_mpileup_cmd(alignment_fname, ref_locus):
-    alignview_cmd = ["samtools", "view", alignment_fname]
-    _, chr, left, right = ref_locus[:4]
-    alignview_cmd += ["%s:%d-%d" % (chr, left + 1, right + 1)]
-    return alignview_cmd

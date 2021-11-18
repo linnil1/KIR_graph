@@ -13,7 +13,6 @@ from pipeline_plot import plotDepth
 
 
 # Per index per sample per gene
-
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -27,12 +26,13 @@ class MyEncoder(json.JSONEncoder):
 
 
 class HisatTyping:
-    def __init__(self):
+    def __init__(self, index="kir_merge"):
         # sequences length (for normalize)
-        seqs = SeqIO.parse("kir_merge_sequences.fa", "fasta")
-        self.seq_len = {seq.id: len(seq.seq) for seq in seqs}
-
-        # groups = []
+        self.index = index
+        for seq in SeqIO.parse(f"{self.index}_sequences.fa", "fasta")
+            self.seq_len[seq.id] = len(seq.seq)
+        for seq in SeqIO.parse(f"{self.index}_backbone.fa", "fasta"):
+            self.seq_len[seq.id] = len(seq.seq)
 
     def calcProbPerPair(self):
         print(f"Read {self.name}.{self.gene}.json")
@@ -75,6 +75,10 @@ class HisatTyping:
         id_map = self.id_map
         top_n = 10    # reduce computation
         save_n = 100  # reduce data
+        if "merge" in self.index:
+            max_iter = 40
+        elif "split" in self.index:
+            max_iter = 5
         self.allele_prob_n_iter = []
 
         # one allele
@@ -102,12 +106,11 @@ class HisatTyping:
         ]
         for iter_i in range(1):
         """
-        for iter_i in range(40):
+        for iter_i in range(max_iter):
             print(f"Iter {iter_i}")
             allele_prob_all_prev_list = self.allele_prob_n_iter[-1]
             first_n = min(10, len(allele_prob_all_prev_list))
             # max
-            """
             allele_prob_all_now = np.array([
                 np.max([allele_prob_per_read[:, id_map[j]] for j in i[1]], axis=0)
                             for i in allele_prob_all_prev_list[:first_n]]).T
@@ -122,16 +125,18 @@ class HisatTyping:
             allele_prob_all_now = np.sum([
                 np.tile(allele_prob_per_read[:, None, :], [first_n,   1]),
                 np.tile(allele_prob_all_now[:, :, None   ], [1, len(id_map)])], axis=0)
+            """
             # all
             allele_prob_all_now = np.log(allele_prob_all_now + 1e-100).sum(axis=0) \
                                 / len(allele_prob_per_read)
+            # Note: ignore duplicated
             allele_prob_all_now_list = [
                     (allele_prob_all_now[v1, v2],
                      sorted([*allele_prob_all_prev_list[v1][1], k3])) \
                         for v1 in range(first_n) \
                             for k3, v2 in id_map.items() \
-                                if not k3.endswith("BACKBONE")]
-            allele_prob_all_now_list = list(map(list, 
+                                if not k3.endswith("BACKBONE") and k3 not in allele_prob_all_prev_list[v1][1]]
+            allele_prob_all_now_list = list(map(list,
                 sorted(allele_prob_all_now_list, key=lambda i:-i[0])))
             pprint(allele_prob_all_now_list[:2])
             self.allele_prob_n_iter.append(allele_prob_all_now_list[:save_n])
@@ -188,10 +193,11 @@ class HisatTyping:
             # log(likelihood) -> All < 0
             # larger better e.g. -3 > -5
             if prev_loss > loss * 1.01 and np.min(tpm / np.median(tpm)) < 0.6:
-                print("Fail")
+                print(f"{len(alleles)} Fail")
                 pprint(alleles_abundance)
                 break
             else:
+                print(f"{len(alleles)} OK (medium={np.median(tpm)})")
                 # ok
                 prev_loss = loss
                 prev_tpm = tpm
@@ -236,10 +242,28 @@ class HisatTyping:
             allele_list = allele_iter[0]
             loss.append(allele_list[0])
             num.append(len(allele_list[1]))
-        plt.plot(num, loss, '.-')
+        print(np.array(loss))
+        plt.plot(num, loss, '.-', label="linnil1")
         plt.ylabel("log likelihood")
         plt.xlabel("Number of allele")
+        plt.legend()
         plt.show()
+
+    def likehoodReport(self):
+        allele_list = []
+        for i in open("data/linnil1_syn_full.00.merge.pair.report"):
+            if "ranked" in i:
+                allele_list.append(i.split()[2])
+
+        loss = []
+        for i in range(1, len(allele_list)):
+            loss.append(
+                np.log(1e-100 + \
+                       self.allele_prob_per_read[:, [self.id_map[j] for j in allele_list[:i]]]
+                           .sum(axis=1))
+                  .mean())
+        print(np.array(loss))
+        plt.plot(range(1, len(allele_list)), loss, '.-', label="report")
 
     def alleleDistPlot(self):
         arr_dists = []
@@ -276,6 +300,7 @@ class HisatTyping:
             plt.bar(range(len(alleles)), [i[2] for i in alleles])
             num += 1
         plt.show()
+        return
 
         # plot specific distribution
         for dist in arr_dists[29:33]:
@@ -287,6 +312,7 @@ class HisatTyping:
 
     def mainPerGene(self):
         print(f"Typing for {self.gene} in {self.name}")
+        # self.evaluateHisatMap()
 
         if os.path.exists(f'{self.name}.{self.gene}.tmpprob.npz'):
             v = np.load(f'{self.name}.{self.gene}.tmpprob.npz', allow_pickle=True)
@@ -299,14 +325,14 @@ class HisatTyping:
             self.allele_prob_n_iter = json.load(open(f'{self.name}.{self.gene}.em.json'))
         else:
             self.calcProbAlleles()
+        # self.evaluateByName()
+        # self.likehoodReport()  # run this beofre likehoodPlot
         # self.likehoodPlot()
         # self.alleleDistPlot()
         called_allele, assign_allele = self.cutProbThreshold()
-        # self.evaluateByName()
-        # data, assign_allele = umap_typing(json.load(open(name + f'.{gene}.json')))
 
         # save to summary allele
-        self.summary_allele = called_allele
+        self.summary_allele.extend(called_allele)
 
         # save to bam tmp array
         for i in set(called_allele):
@@ -317,19 +343,56 @@ class HisatTyping:
             self.bam_new.append(self.bam_records_per_gene[self.gene][i * 2    ] + "\tRG:Z:" + allele_name + "\n")
             self.bam_new.append(self.bam_records_per_gene[self.gene][i * 2 + 1] + "\tRG:Z:" + allele_name + "\n")
 
+    def readCounts(self):
+        num_read_per_gene = {}
+        for gene, reads in self.bam_records_per_gene.items():
+            num_read_per_gene[gene] = len(reads)
+        num_read_per_gene = sorted(num_read_per_gene.items(), key=lambda i: -i[1])
+        pprint(num_read_per_gene)
+
+        plt.subplot(1, 2, 1)
+        plt.title("Read count")
+        plt.bar(range(len(num_read_per_gene)), [i[1] for i in num_read_per_gene])
+        ax = plt.gca()
+        ax.set_xticks(range(len(num_read_per_gene)))
+        ax.set_xticklabels([i[0] for i in num_read_per_gene], rotation=90)
+
+        num_read_per_gene = {}
+        for gene, reads in self.bam_records_per_gene.items():
+            num_read_per_gene[gene] = len(reads) / self.seq_len[gene + "*BACKBONE"]
+        num_read_per_gene = sorted(num_read_per_gene.items(), key=lambda i: -i[1])
+        pprint(num_read_per_gene)
+
+        plt.subplot(1, 2, 2)
+        plt.title("Read count / length")
+        plt.bar(range(len(num_read_per_gene)), [i[1] for i in num_read_per_gene])
+        ax = plt.gca()
+        ax.set_xticks(range(len(num_read_per_gene)))
+        ax.set_xticklabels([i[0] for i in num_read_per_gene], rotation=90)
+        plt.show()
+
+
     def mainPerSample(self, name):
         self.name = name
 
         # split mode
-        genes  = ["KIR2DL1", "KIR2DL2", "KIR2DL3", "KIR2DL4", "KIR2DL5",
-                  "KIR2DP1", "KIR2DS1", "KIR2DS2", "KIR2DS3", "KIR2DS4",
-                  "KIR2DS5", "KIR3DL1", "KIR3DL2", "KIR3DL3", "KIR3DP1",
-                  "KIR3DS1"]
+        if "split" in self.index:
+            genes  = ["KIR2DL1", "KIR2DL2", "KIR2DL3", "KIR2DL4", "KIR2DL5A", "KIR2DL5B",
+                      "KIR2DP1", "KIR2DS1", "KIR2DS2", "KIR2DS3", "KIR2DS4",
+                      "KIR2DS5", "KIR3DL1", "KIR3DL2", "KIR3DL3", "KIR3DP1",
+                      "KIR3DS1"]
         # merge mode
-        genes  = ["KIR"]
+        elif "merge" in self.index:
+            genes  = ["KIR"]
+        else:
+            raise "Not in split or merge mode"
 
         # reads bam
         self.readBam()
+        self.summary_allele = []
+
+        self.readCounts()  # split mode
+        exit()
 
         # main
         for gene in genes:
@@ -372,22 +435,179 @@ class HisatTyping:
 
     def evaluateByName(self):
         # data = pd.read_csv("ping_syn_data/synSeq.info.txt", sep="\t", header=None)
-        allele = self.allele_prob_n_iter[30][0]
-        pos_names = self.allelesAssign(allele[1], map_name=True)
-        tot, acc, acc_gene = len(pos_names), 0, 0
-        for i in range(len(pos_names)):
-            if self.bam_records_per_gene[self.gene][i * 2].split("-")[0] in pos_names[i]:
-                acc += 1
-            if self.bam_records_per_gene[self.gene][i * 2].split("*")[0] in set(
-                    [j.split("*")[0] for j in pos_names[i]]):
-                acc_gene += 1
-        print("Allele ACC:", acc / tot)
-        print("Gene ACC:", acc_gene / tot)
+        for allele_cands in self.allele_prob_n_iter[20:35]:
+            allele = allele_cands[0]
+            pos_names = self.allelesAssign(allele[1], map_name=True)
+            tot, acc, acc_gene = len(pos_names), 0, 0
+            for i in range(len(pos_names)):
+                if self.bam_records_per_gene[self.gene][i * 2].split("-")[0] in pos_names[i]:
+                    acc += 1
+                if self.bam_records_per_gene[self.gene][i * 2].split("*")[0] in set(
+                        [j.split("*")[0] for j in pos_names[i]]):
+                    acc_gene += 1
+            print("Alleles", len(allele[1]))
+            print("Allele ACC:", acc / tot)
+            print("Gene ACC:", acc_gene / tot)
 
-    def evalute(self):
-        data = pd.read_csv("linnil1_syn/summary.csv", sep="\t", header=None)
+    def evalute(self, id, predict_list):
+        data = pd.read_csv("linnil1_syn_full/summary.csv", sep="\t", header=None)
         data = list(data[2].str.split("_"))
-        print(data)
+        ans_list = sorted(data[id])
+        predict_list = sorted(predict_list)
+        match_pair = []
+
+        for gene in set([i.split('*')[0] for i in ans_list + predict_list]):
+            match_pair.extend(
+                    self.evaluteList([i for i in ans_list if i.startswith(gene)],
+                                     [i for i in predict_list if i.startswith(gene)]))
+        match_pair.sort(key=lambda i: i[1] or i[2])
+        for t, a, b in match_pair:
+            if t == "Match":
+                print(f"{a:18} OK {b:18}")
+            elif t == "Mismatch":
+                print(f"{a:18} <3 {b:18}")
+            elif t == "FN":
+                print(f"{a:18} <-")
+            elif t == "FP":
+                print(f"{'':18} -> {b:18}")
+
+    def evaluteList(self, a, b):
+        match_pair = []
+        i = 0
+        for allele in list(b):
+            if allele in a:
+                a.remove(allele)
+                b.remove(allele)
+                match_pair.append(("Match", allele, allele))
+
+        for allele_b in list(b):
+            for allele_a in a:
+                if allele_a[:allele_a.index("*") + 3] == allele_b[:allele_b.index("*") + 3]:
+                    a.remove(allele_a)
+                    b.remove(allele_b)
+                    match_pair.append(("Mismatch", allele_a, allele_b))
+                    break
+
+        for allele in a:
+            match_pair.append(("FN", allele, None))
+        for allele in b:
+            match_pair.append(("FP", None, allele))
+        return match_pair
+
+    def evaluateHisatMap(self):
+        print("Read mapping...")
+        allele_count_per_read = json.load(open(f'{self.name}.{self.gene}.json'))
+        tot = 0
+        posneg_and_acc = 0
+        posneg_max_acc = 0
+        posneg_maxsec_acc = 0
+
+        print_seq = True
+        if print_seq:
+            from pyHLAMSA import Genemsa
+            msa = Genemsa.load_msa(f"{self.index}.save.fa", f"{self.index}.save.gff")
+            ans_sam = open("linnil1_syn/linnil1_syn_full.00.read..sam")
+            # ans_pos = defaultdict(list)
+                    # ans_pos[rec[0]].append(int(rec[3]))
+            ans_pos = {}
+            ans_pos_rev = {}
+            for line in ans_sam:
+                if line.startswith("@"):
+                    continue
+                rec = line.split()
+                if (int(rec[1]) & 16) != 0:
+                    ans_pos[rec[0]] = int(rec[3])
+                else:
+                    ans_pos_rev[rec[0]] = int(rec[3])
+
+        for i in range(len(allele_count_per_read)):
+            tot += 1
+            p, n = allele_count_per_read[i]['p'], allele_count_per_read[i]['n']
+            allele_and = set([i[0] for i in p]) - set([i[0] for i in n])
+            allele_sum = dict(p)
+            for name, count in n:
+                if name not in allele_sum:
+                    allele_sum[name] = -count
+                else:
+                    allele_sum[name] += -count
+            if len(p):
+                max_count = max(allele_sum.values())
+                allele_sum_sec = set([name for name, count in allele_sum.items() if count >= max_count - 1])
+                allele_sum = set([name for name, count in allele_sum.items() if count == max_count])
+            else:
+                allele_sum = set()
+                allele_sum_sec = set()
+            ans_allele = self.bam_records_per_gene[self.gene][i * 2].split('-')[0]
+            if ans_allele in allele_and:
+                posneg_and_acc += 1
+            if ans_allele in allele_sum:
+                posneg_max_acc += 1
+            else:
+                # save in tmp4
+                print(self.bam_records_per_gene[self.gene][i * 2])
+                print(self.bam_records_per_gene[self.gene][i * 2 + 1])
+                print("Predict", allele_sum)
+
+                if print_seq:
+                    # real length to msa length
+                    count = 0
+                    pos_map = {}
+                    pos_map_back = {}
+                    for msa_pos, c in enumerate(msa.get(ans_allele)):
+                        if c != "-":
+                            pos_map[count] = msa_pos
+                            pos_map_back[msa_pos] = count
+                            count += 1
+                        else:
+                            pos_map_back[msa_pos] = count
+
+                    allele_sum.add(ans_allele)
+                    select_msa = msa.select_allele("|".join(allele_sum).replace("*", r"\*"))
+
+                    rec = self.bam_records_per_gene[self.gene][i * 2].split()
+                    rec_rev = self.bam_records_per_gene[self.gene][i * 2 + 1].split()
+                    if (int(rec[1]) & 16) == 0:
+                        rec, rec_rev = rec_rev, rec
+
+                    # + strand
+                    print(" Read+              ", end="")
+                    for j in range(0, len(rec[9]), 10):
+                        print(rec[9][j:j+10], end=' ')
+                    print("")
+
+                    pos = int(rec[3]) - 1
+                    pos1 = pos_map[min(pos_map_back[pos] + 149, count - 1)] + 1
+                    print(" Pos                ", pos + 1, pos1)  # included
+                    print(select_msa[pos:pos1].format_alignment_diff(ans_allele))
+                    if pos != pos_map[ans_pos[rec[0]]] - 1:
+                        pos = pos_map[ans_pos[rec[0]]] - 1
+                        pos1 = pos_map[min(ans_pos[rec[0]] + 148, count - 1)] + 1
+                        print(" Real Map           ")
+                        print(" Pos                ", pos + 1, pos1)  # included
+                        print(select_msa[pos:pos1].format_alignment_diff(ans_allele))
+
+                    # - strand
+                    print(" Read+              ", end="")
+                    for j in range(0, len(rec_rev[9]), 10):
+                        print(rec_rev[9][j:j+10], end=' ')
+                    print("")
+
+                    pos = int(rec_rev[3]) - 1
+                    pos1 = pos_map[min(pos_map_back[pos] + 149, count - 1)] + 1
+                    print(" Pos                ", pos + 1, pos1)  # included
+                    print(select_msa[pos:pos1].format_alignment_diff(ans_allele))
+
+                    break
+
+            if ans_allele in allele_sum_sec:
+                posneg_maxsec_acc += 1
+
+        posneg_and_acc /= tot
+        posneg_max_acc /= tot
+        print("Read Mapping Allele Acc(AND)", posneg_and_acc)
+        print("Read Mapping Allele Acc(SUM)", posneg_max_acc)
+        print("Read Mapping Allele Acc(SUM)(allow 1 error)", posneg_maxsec_acc / tot)
+        return posneg_and_acc, posneg_max_acc
 
 
 if __name__ == "__main__":
@@ -395,55 +615,22 @@ if __name__ == "__main__":
     # name = f"data/synSeq.hiseq.dp50.rl150.1.split.pair.tmp"
     # name = sys.argv[1]
     # name = f"data/synSeq.hiseq.dp50.rl150.1.merge.pair.tmp"
+
     i = 0
-    for i in range(1, 10):
-        name = f"data/linnil1_syn.0{i}.merge.pair.tmp"
-        typ = HisatTyping()
+    names = []
+    for i in range(10):
+        # names.append(f"data/linnil1_syn.0{i}.merge.pair.tmp")
+        # names.append(f"data/linnil1_syn_full.0{i}.merge.pair.tmp")
+        names.append(f"data/linnil1_syn_full.0{i}.split.pair.tmp")
+
+    names = names[:1]
+    typ = HisatTyping("kir_merge_full")
+    # typ = HisatTyping("kir_split_full")
+    for name in names:
         typ.mainPerSample(name)
 
+    '''
     with open("tmp.summary.txt", "w") as f:
-        f.writelines([open(f"data/linnil1_syn.{i:02d}.merge.pair.tmp.group.txt") for i in range(1, 10)])
-
-
-def umap_typing(allele_count_per_read):
-    print("Start typing")
-    assign_allele = []
-    if not len(allele_count_per_read):
-        return [], []
-    if len(allele_count_per_read) < 100:  # min reads
-        return [], []
-    id_map = set()
-    for j in allele_count_per_read:
-        id_map = id_map | dict(j['p']).keys() | dict(j['n']).keys()
-    id_map = {i: ind for ind, i in enumerate(id_map)}
-
-    allele_prob_per_read = []
-    for j in allele_count_per_read:
-        p, n = dict(j['p']), dict(j['n'])
-        arr = np.ones(len(id_map))
-        for i in p:
-            arr[id_map[i]] *= 0.999 ** p[i]
-        for i in n:
-            arr[id_map[i]] *= 0.001 ** n[i]
-        allele_prob_per_read.append(arr)
-
-    allele_prob_per_read = np.array(allele_prob_per_read)
-    print("Per seq probility Done")
-
-    """
-    import matplotlib.pyplot as plt
-    import umap
-    reducer = umap.UMAP()
-    embedding = reducer.fit_transform(allele_prob_per_read)
-    plt.scatter(
-        embedding[:, 0],
-        embedding[:, 1])
-    plt.gca().set_aspect('equal', 'datalim')
-    plt.title('UMAP projection of the allele prob dataset', fontsize=24)
-    plt.show()
-    """
-    """
-    import seaborn
-    seaborn.clustermap(allele_prob_per_read)
-    plt.plot()
-    """
+        summarys = [open(f"{name}.group.txt") for name in names]
+        f.writelines(summarys)
+    '''
