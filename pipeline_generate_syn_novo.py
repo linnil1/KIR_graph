@@ -1,3 +1,37 @@
+# TODO
+from pyHLAMSA import Genemsa
+import random
+
+
+def readMSA():
+    index = "kir_merge_full"
+    msa = Genemsa.load_msa(f"{index}.save.fa", f"{index}.save.gff")
+    msa.gene_name = "KIR"
+    return msa
+
+
+def selectGene(msa, gene_name):
+    return list(filter(lambda i: i.startswith(gene_name + "*"), msa.alleles.keys()))
+
+
+def getRandomIntronPos(msa):
+    gen_pos = msa._calculate_position()
+    return list(zip([i[1] for i in msa.labels if i[0] != 'exon'], gen_pos[:-1], gen_pos[1:]))
+
+
+def setDenovo(msa, gene, seq):
+    pos = getRandomIntronPos(msa)
+
+
+random.seed(44)
+msa = readMSA()
+print(getRandomIntronPos(msa))
+# print(random.choices(selectGene(msa, "KIR2DL1"), k=1))
+
+
+'''
+
+
 import pandas as pd
 import random
 import os
@@ -93,3 +127,4 @@ ans = pd.DataFrame(ans)
 ans['haplo'] = ans['haplo'].str.join("_")
 ans['allele'] = ans['allele'].str.join("_")
 ans.to_csv(f"{folder}/summary.csv", sep="\t", header=False, index=False)
+'''

@@ -58,6 +58,7 @@ def readBamCore(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base
     simulation       = False  # legency
     error_correction = False
     base_fname       = "kir"
+    no_NH            = False
 
     # setup
     cigar_re         = re.compile(r'\d+\w')  # Cigar regular expression
@@ -118,8 +119,8 @@ def readBamCore(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base
             continue
 
         # Only consider unique alignment
-        # linnil1: This doesn't affect alot
-        if NH > 1:
+        # linnil1: This affect alot in KIR raed-count
+        if (not no_NH) and NH > 1:
             debug_print("Read not unique aligned")
             continue
 

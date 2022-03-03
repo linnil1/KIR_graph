@@ -9,7 +9,7 @@ import os
 import re
 from Bio import SeqIO
 import pandas as pd
-from pipeline_plot import plotDepth
+from pipeline_plot import plotDepth, plotOnDash
 
 
 # Per index per sample per gene
@@ -29,7 +29,8 @@ class HisatTyping:
     def __init__(self, index="kir_merge"):
         # sequences length (for normalize)
         self.index = index
-        for seq in SeqIO.parse(f"{self.index}_sequences.fa", "fasta")
+        self.seq_len = {}
+        for seq in SeqIO.parse(f"{self.index}_sequences.fa", "fasta"):
             self.seq_len[seq.id] = len(seq.seq)
         for seq in SeqIO.parse(f"{self.index}_backbone.fa", "fasta"):
             self.seq_len[seq.id] = len(seq.seq)
@@ -293,7 +294,7 @@ class HisatTyping:
         # plot distructibon per iteration
         json.dump(arr_dists, open(f'tmp.json', 'w'))
         num = 1
-        for alleles in arr_dists[30-8:30+8]:
+        for alleles in arr_dists[24-8:24+8]:
             alleles = sorted(alleles, key=lambda i: -i[2])
             plt.subplot(4, 4, num)
             plt.title(len(alleles))
@@ -312,7 +313,7 @@ class HisatTyping:
 
     def mainPerGene(self):
         print(f"Typing for {self.gene} in {self.name}")
-        # self.evaluateHisatMap()
+        # self.evaluateHisatMap("00")
 
         if os.path.exists(f'{self.name}.{self.gene}.tmpprob.npz'):
             v = np.load(f'{self.name}.{self.gene}.tmpprob.npz', allow_pickle=True)
@@ -325,11 +326,12 @@ class HisatTyping:
             self.allele_prob_n_iter = json.load(open(f'{self.name}.{self.gene}.em.json'))
         else:
             self.calcProbAlleles()
-        # self.evaluateByName()
+        self.evaluateByName()
         # self.likehoodReport()  # run this beofre likehoodPlot
         # self.likehoodPlot()
-        # self.alleleDistPlot()
+        self.alleleDistPlot()
         called_allele, assign_allele = self.cutProbThreshold()
+        self.evalute(0, called_allele)
 
         # save to summary allele
         self.summary_allele.extend(called_allele)
@@ -343,13 +345,55 @@ class HisatTyping:
             self.bam_new.append(self.bam_records_per_gene[self.gene][i * 2    ] + "\tRG:Z:" + allele_name + "\n")
             self.bam_new.append(self.bam_records_per_gene[self.gene][i * 2 + 1] + "\tRG:Z:" + allele_name + "\n")
 
-    def readCounts(self):
+    def readCounts(self, id):
         num_read_per_gene = {}
         for gene, reads in self.bam_records_per_gene.items():
             num_read_per_gene[gene] = len(reads)
-        num_read_per_gene = sorted(num_read_per_gene.items(), key=lambda i: -i[1])
-        pprint(num_read_per_gene)
+        # num_read_per_gene = sorted(num_read_per_gene.items(), key=lambda i: -i[1])
+        # pprint(num_read_per_gene)
 
+        # ans
+        num_read_per_gene_ans = defaultdict(int)
+        for i in open(f"linnil1_syn_full/linnil1_syn_full.{id}.read..sam"):
+            if i[0] != "@":
+                gene = re.findall("\t(KIR.*?)\*", i)[0]
+                num_read_per_gene_ans[gene] += 1
+
+        df = pd.merge(pd.DataFrame.from_dict(num_read_per_gene, orient='index'),
+                      pd.DataFrame.from_dict(num_read_per_gene_ans, orient='index'),
+                      how='outer', left_index=True, right_index=True)
+        df.fillna(0, inplace=True)
+        df.columns = ['kir-split', 'ans']
+        print(df)
+        print(sum(df['kir-split']) / sum(df['ans']))
+
+        import plotly.express as px
+        fig = px.bar(df, barmode="group", category_orders={'index': sorted(set(df.index))})
+        fig.update_layout(xaxis_title="KIR gene",
+                          yaxis_title="Read Count")
+        # fig.show()
+        # fig.write_image("images/kirsplit_read_count_correct.png")
+
+
+        length = {gene: self.seq_len[gene + "*BACKBONE"] for gene, reads in self.bam_records_per_gene.items()}
+        length = pd.DataFrame.from_dict(length, orient='index')
+        length.columns = ['length']
+        print("length")
+        df = pd.merge(df, length, left_index=True, right_index=True)
+        print(df)
+        for i in df.columns:
+            df[i] = df[i] / df['length']
+        del df['length']
+        df = df.sort_values(by=df.columns[0], ascending=False)
+
+        fig1 = px.bar(df, barmode="group", category_orders={'index': sorted(set(df.index))})
+        fig1.update_layout(xaxis_title="KIR gene",
+                           yaxis_title="Read Count / Gene Length")
+        plotOnDash([fig, fig1])
+        # fig.write_image("images/kirsplit_read_count_correct_norm.png")
+        # fig.show()
+
+        """
         plt.subplot(1, 2, 1)
         plt.title("Read count")
         plt.bar(range(len(num_read_per_gene)), [i[1] for i in num_read_per_gene])
@@ -370,6 +414,7 @@ class HisatTyping:
         ax.set_xticks(range(len(num_read_per_gene)))
         ax.set_xticklabels([i[0] for i in num_read_per_gene], rotation=90)
         plt.show()
+        """
 
 
     def mainPerSample(self, name):
@@ -391,8 +436,8 @@ class HisatTyping:
         self.readBam()
         self.summary_allele = []
 
-        self.readCounts()  # split mode
-        exit()
+        # self.readCounts("00")  # split mode
+        # exit()
 
         # main
         for gene in genes:
@@ -482,7 +527,7 @@ class HisatTyping:
 
         for allele_b in list(b):
             for allele_a in a:
-                if allele_a[:allele_a.index("*") + 3] == allele_b[:allele_b.index("*") + 3]:
+                if allele_a[:allele_a.index("*") + 4] == allele_b[:allele_b.index("*") + 4]:
                     a.remove(allele_a)
                     b.remove(allele_b)
                     match_pair.append(("Mismatch", allele_a, allele_b))
@@ -494,7 +539,7 @@ class HisatTyping:
             match_pair.append(("FP", None, allele))
         return match_pair
 
-    def evaluateHisatMap(self):
+    def evaluateHisatMap(self, id):
         print("Read mapping...")
         allele_count_per_read = json.load(open(f'{self.name}.{self.gene}.json'))
         tot = 0
@@ -506,7 +551,7 @@ class HisatTyping:
         if print_seq:
             from pyHLAMSA import Genemsa
             msa = Genemsa.load_msa(f"{self.index}.save.fa", f"{self.index}.save.gff")
-            ans_sam = open("linnil1_syn/linnil1_syn_full.00.read..sam")
+            ans_sam = open(f"linnil1_syn/linnil1_syn_full.{id}.read..sam")
             # ans_pos = defaultdict(list)
                     # ans_pos[rec[0]].append(int(rec[3]))
             ans_pos = {}
@@ -621,7 +666,8 @@ if __name__ == "__main__":
     for i in range(10):
         # names.append(f"data/linnil1_syn.0{i}.merge.pair.tmp")
         # names.append(f"data/linnil1_syn_full.0{i}.merge.pair.tmp")
-        names.append(f"data/linnil1_syn_full.0{i}.split.pair.tmp")
+        # names.append(f"data/linnil1_syn_full.0{i}.split.pair.tmp")
+        names.append(f"data/linnil1_syn_full.0{i}.merge.pair.noNH.tmp")
 
     names = names[:1]
     typ = HisatTyping("kir_merge_full")

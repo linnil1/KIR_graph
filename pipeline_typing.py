@@ -34,7 +34,6 @@ def hisatdataInit(path):
 
     print("Alts")
     Alts = {}
-    """
     for gene, ref_allele in refGenes.items():
         Alts[gene] = [[],[],[],[]]
     """
@@ -43,6 +42,7 @@ def hisatdataInit(path):
                               get_allele_vars(Var_list[gene], Links),
                               Vars[gene],
                               Var_list[gene])
+    """
     print("Alts Done")
 
 
@@ -63,6 +63,8 @@ def readPair(*args):
         # Clear
         if read_id != prev_read_id:
             prev_read_id  = read_id
+            if prev_read_lr != 3:
+                print("Not paired read! remove it")
             prev_read_lr  = 0
 
         # save left or right read
@@ -517,10 +519,12 @@ def typingAllGene(alignment_bam_fname):
 
     # open files
     global alignment_fname, typing_tmp_fname, bam_group_f, report_f
+    args = ""
+    # args = ".noNH"  # set pipeline_typing_util no_NH=True
     alignment_fname     = alignment_bam_fname
-    typing_tmp_fname    = alignment_fname[:-4] + ".tmp"
-    bam_group_fname     = alignment_fname[:-4] + ".tmp.sam"
-    report_fname        = alignment_fname[:-4] + ".report"
+    typing_tmp_fname    = alignment_fname[:-4] + args + ".tmp"
+    bam_group_fname     = alignment_fname[:-4] + args + ".tmp.sam"
+    report_fname        = alignment_fname[:-4] + args + ".report"
     os.system(f"samtools view -H {alignment_fname} > {bam_group_fname}")
     report_f            = open(report_fname, "w")
     bam_group_f         = open(bam_group_fname, "a")
@@ -549,4 +553,4 @@ if __name__ == "__main__":
         print("Fail to read ", alignment_fname)
         sys.exit()
     hisatdataInit(full_gg_path)
-    # typingAllGene(alignment_fname)
+    typingAllGene(alignment_fname)

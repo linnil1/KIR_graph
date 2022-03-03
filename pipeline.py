@@ -15,6 +15,10 @@ from pyHLAMSA import KIRmsa, Genemsa
 from collections import defaultdict
 
 # this require hisat2 docker
+import sys
+sys.path.append('./hisat-genotype/hisatgenotype_modules')
+os.environ["PATH"] = os.environ["PATH"] + ":./"
+
 try:  # temp
     import pipeline_to_hisat
     import pipeline_typing
@@ -322,11 +326,11 @@ def fastqc():
 
 def hisatTyping(index):
     pipeline_typing.hisatdataInit(index)
-    # for sample in samples:
-    #     pipeline_typing.typingAllGene(f"{sample}{suffix}.pair.bam")
-    with ProcessPoolExecutor(max_workers=thread) as executor:
-        for sample in samples:
-            executor.submit(pipeline_typing.typingAllGene, f"{sample}{suffix}.pair.bam")
+    for sample in samples:
+        pipeline_typing.typingAllGene(f"{sample}{suffix}.pair.bam")
+    # with ProcessPoolExecutor(max_workers=thread) as executor:
+    #     for sample in samples:
+    #         executor.submit(pipeline_typing.typingAllGene, f"{sample}{suffix}.pair.bam")
 
 
 def linkFastq():
@@ -341,13 +345,12 @@ if __name__ == "__main__":
     # download_data()
     samples = sorted(map(lambda i: i.split(".read")[0], glob.glob("data/synSeq.*.read1.fastq")))
 
-
     # create my sample
     # python3 pipeline_generate_syn.py
     samples = ["data/synSeq.hiseq.dp50.rl150.1"]
     samples = [f"data/linnil1_syn.0{i}" for i in range(10)]
     samples = [f"data/linnil1_syn_full.0{i}" for i in range(10)]
-    # samples = samples[1:2]
+    samples = samples[:1]
 
     # kir_merge
     # kir_to_msa()
@@ -377,8 +380,8 @@ if __name__ == "__main__":
     suffix = ".split"
     # hisat2("kir_split")
     # samtobam()
-    # pipeline_typing.hisatdataInit("./kir_split", f"{samples[0]}{suffix}.pair.bam")
-    # pipeline_typing.typingAllGene()
+    # pipeline_typing.hisatdataInit("./kir_split")
+    # pipeline_typing.typingAllGene(f"{samples[0]}{suffix}.pair.bam")
 
     suffix = ".merge"
     # kir_to_msa("kir_merge_full", allele_group=False)
@@ -387,18 +390,18 @@ if __name__ == "__main__":
     # os.system("python3 pipeline_generate_syn.py")
     # hisat2("kir_merge_full")
     # samtobam()
-    # hisatTyping("./kir_merge_full")
+    hisatTyping("./kir_merge_full")
 
     suffix = ".split"
     # pipeline_to_hisat.main("kir_split_full")
     # pipeline_to_hisat.build("kir_split_full")
     # hisat2("kir_split_full")
     # samtobam()
-    # hisatTyping("./kir_split_full")
+    hisatTyping("./kir_split_full")
 
     suffix = ".linear"
     # bowtie2BuildNotgroup()
-    bowtie2()
+    # bowtie2()
     # samtobam()
 
 """

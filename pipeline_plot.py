@@ -8,6 +8,7 @@ import numpy as np
 from collections import defaultdict, Counter
 from Bio import SeqIO
 import json
+import pandas as pd
 
 
 def samtools(cmd, name):
@@ -76,14 +77,90 @@ def calc_bam_mapping():
     json.dump({'stat': stat}, open(f'tmp_bam_count.json', 'w'))
 
 
+
+def plot_bam_mapping_fig(df, target):
+    import plotly.graph_objects as go
+    # Figure: Proper Paired Perecetage
+    fig = go.Figure()
+    methods = ['hisat-merge', 'hisat-split', 'linear', 'PING(full)']
+
+    for i in range(len(methods)):
+        fig.add_trace(go.Box(y=list(df[df['method'] == methods[i]][target]), name=methods[i]))
+
+    for i in range(len(methods)):
+        value = np.mean(df[df['method'] == methods[i]][target])
+        # fig.add_annotation(text=f"{value:.3f}", x=i, y=1.05, xref="paper", yref="paper", showarrow=False)
+        fig.add_annotation(text=f"mean={value:.3f}",
+                           x=i, y=max(df[df['method'] == methods[i]][target]),
+                           yanchor='bottom', font_size=12, showarrow=False)
+
+    fig.update_layout(
+        title="Proper Paired Percetage",
+        yaxis_title="Primary paired number / Total reads (%)",
+        width=800,
+        height=800,
+        legend=dict(
+            x=0.99,
+            y=0.01,
+            xanchor="right",
+            yanchor="bottom",
+        ),
+        # yaxis_range=[0.8,1],
+    )
+    return fig
+
+
+def plotOnDash(figs):
+    import dash
+    from dash import dcc, html
+    app = dash.Dash(__name__)
+    app.layout = html.Div(children=[dcc.Graph(figure=fig) for fig in figs])
+    app.run_server(debug=True)
+
+
 def plot_bam_mapping():
     # plt.subplot(1, 3, 1)
     data = json.load(open('tmp_bam_count.json'))['stat']
     perc_pair = [pair / tot for (tot, sec, pair) in data]
     perc_secd = [sec / tot for (tot, sec, pair) in data]
+    methods = ['hisat-merge', 'hisat-split', 'linear', 'PING(full)']
     n = 10
 
-    methods = ['hisat-merge', 'hisat-split', 'linear', 'PING(full)']
+    df = pd.DataFrame(perc_pair, columns=['precision'])
+    df['secondary'] = perc_secd
+    df['method'] = [method for method in methods for i in range(n)]
+    print(df)
+
+
+    fig = plot_bam_mapping_fig(df, 'precision')
+    fig.update_layout(
+        title="Proper Paired Percetage",
+        yaxis_title="Primary paired number / Total reads (%)",
+    )
+
+    # Figure: Secondary Paired Perecetage
+    fig1 = plot_bam_mapping_fig(df, 'secondary')
+    fig1.update_layout(
+        title="Secondary Percetage",
+        yaxis_title="Secondary amount / Total reads",
+    )
+
+    plotOnDash([fig, fig1])
+    # fig.show()
+
+    """
+    import plotly.express as px
+    fig = px.box(df, x="method", y="precision")
+    fig.update_layout(title="Proper Paired Percetage",
+                      yaxis_title="Primary paired number / Total reads (%)")
+
+    fig = px.box(df, x="method", y="secondary")
+    fig.update_layout(title="Secondary Percetage",
+                      yaxis_title="Secondary amount / Total reads")
+    fig.show()
+    """
+
+    """
     plt.title("Proper Paired percetage")
     plt.boxplot([perc_pair[0:n], perc_pair[n:n*2], perc_pair[n*2:n*3], perc_pair[n*3:n*4]])
     plt.ylabel("Primary paired number / Total reads (%)")
@@ -91,9 +168,6 @@ def plot_bam_mapping():
     plt.savefig("tmp_bam_count_paired.png")
     plt.show()
 
-    print("Mean of perper paired percetage")
-    for i in range(len(methods)):
-        print(f"{methods[i]:15s} {np.mean(perc_pair[n*i:n*i+n]):.2f}")
 
     # plt.subplot(1, 3, 2)
     plt.title("Secondary ratio")
@@ -102,6 +176,11 @@ def plot_bam_mapping():
     plt.gca().set_xticklabels(methods)
     plt.savefig("tmp_bam_count_secondary.png")
     plt.show()
+    """
+
+    print("Mean of perper paired percetage")
+    for i in range(len(methods)):
+        print(f"{methods[i]:15s} {np.mean(perc_pair[n*i:n*i+n]):.2f}")
 
     print("Mean of secondary ratio")
     for i in range(len(methods)):
@@ -113,11 +192,11 @@ def getMissRead(name, all_reads):
     miss_reads = set()
     reads = set()
     for line in samtools("view", name):
-        if not line.strip():
+        line = line.strip()
+        if not line:
             continue
         fields = line.split()
         if len(fields) < 4:
-            print(name)
             print(line)
             continue
         reads.add(fields[0])
@@ -179,11 +258,13 @@ def missPlot():
         for k, v in miss.items():
             a.append({'sample': i, 'gene': k, 'percetage': v, "method": methods[i // n]})
     df = pd.DataFrame(a)
-    fig = px.box(df, x="gene", y="percetage", color="method")
+    print(sorted(set(df['gene'])))
+    fig = px.box(df, x="gene", y="percetage", color="method", category_orders={'gene': sorted(set(df['gene']))})
     fig.update_layout(title="Missed reads belong to",
                       yaxis_title="Missed_reads / total_read_counts in that gene")
-    fig.write_image("tmp_bam_miss_plot.png")
-    fig.show()
+    plotOnDash([fig])
+    # fig.write_image("tmp_bam_miss_plot.png")
+    # fig.show()
 
 
 def getSecRead(name, all_reads):
@@ -256,11 +337,12 @@ def secdPlot():
         for k, v in miss.items():
             a.append({'sample': i, 'gene': k, 'percetage': v, "method": methods[i // n]})
     df = pd.DataFrame(a)
-    fig = px.box(df, x="gene", y="percetage", color="method")
+    fig = px.box(df, x="gene", y="percetage", color="method", category_orders={'gene': sorted(set(df['gene']))})
     fig.update_layout(title="Secondary reads belong to",
                       yaxis_title="Secondary_reads / total_read_counts in that gene")
-    fig.write_image("tmp_bam_secd_plot.png")
-    fig.show()
+    plotOnDash([fig])
+    # fig.write_image("tmp_bam_secd_plot.png")
+    # fig.show()
 
 
 def getPrimaryRead(name):
@@ -300,6 +382,7 @@ def primaryAcc():
     n = 10
     names = []
 
+    # Make usre bam files didn't remove singleton and missing
     all_read_primary = []
     all_read_secondary = []
     names.extend([f"data/linnil1_syn_full.{i:02d}.split.sam" for i in range(n)])
@@ -334,15 +417,17 @@ def readAccPlot():
     for read_primary, read_secondary in zip(data['prim'], data['secd']):
         print("Primary", len(read_primary))
         print("Secondary", len(read_secondary))
-
+        tot_prim, tot_secd = 0, 0
         acc_prim, acc_secd, tot = 0, 0, 0
         for k, v in read_primary.items():
+            tot_prim += len(v)
             if k.split("*")[0] == v[0].split("*")[0]:
                 acc_prim += 1
         for k, v in read_secondary.items():
             tot += 1
-            if k.split("*")[0] in [i.split("*")[0] for i in v] \
-               or k.split("*")[0] == read_primary[k][0].split("*")[0]:
+            tot_secd += len(v)
+            if (k.split("*")[0] == read_primary[k][0].split("*")[0] \
+                or k.split("*")[0] in [i.split("*")[0] for i in v]):
                 acc_secd += 1
         for k in read_primary.keys() - read_secondary.keys():
             tot += 1
@@ -353,11 +438,13 @@ def readAccPlot():
             'read': 'primary',
             'value': acc_prim / len(read_primary),
             'method': methods[i // n],
+            'tot': tot_prim,
         })
         stat.append({
             'read': 'primary+secondary',
             'value': acc_secd / tot,
             'method': methods[i // n],
+            'tot': tot_prim + tot_secd,
         })
         i += 1
 
@@ -368,8 +455,27 @@ def readAccPlot():
     fig = px.box(stat, x="method", y="value", color="read")
     fig.update_layout(title="Gene-level Accuracy (per paired read)",
                       yaxis_title="Correct_reads_mapping_on / total_read_counts")
-    fig.write_image("tmp_bam_mapped_on.png")
-    fig.show()
+
+    # TODO
+    """
+    ('PING(full)', 'primary') 0.8766862714629227 54669.6 123
+    ('PING(full)', 'primary+secondary') 0.9996833664520878 54669.6 123
+    ('hisat-split', 'primary') 0.8566461611724234 54564.6 123
+    ('hisat-split', 'primary+secondary') 0.9951793052557456 54564.6 123
+    ('linear', 'primary') 0.8340483198512473 47049.0 123
+    ('linear', 'primary+secondary') 0.9621157981826187 47049.0 123
+    """
+    ind_map = {'PING(full)': 1, 'hisat-split': -1, 'linear': 0, 'primary': -1, 'primary+secondary': 1}
+    for i in sorted(stat.groupby(["method", "read"]).mean().itertuples()):
+        fig.add_annotation(# text=f"total reads={i.tot:.0f}",
+                           text=f"reads={i.tot:.0f}",
+                           xref='x domain', yref='y domain',
+                           x=ind_map[i.Index[0]] * 0.35 + ind_map[i.Index[1]] * 0.05 + 0.5, y=1,
+                           xanchor='center', yanchor='bottom',
+                           font_size=12, showarrow=False)
+    plotOnDash([fig])
+    # fig.write_image("tmp_bam_mapped_on.png")
+    # fig.show()
 
 
 # TODO: clean below codes
@@ -596,6 +702,46 @@ def evaluateHisatMapPlot():
     plt.show()
 
 
+def checkSecondIsPair():
+    i = 0
+    def getName():
+        for i in range(10):
+            yield f"PING/PING/linnil1_syn_full_result/gc_bam_files/linnil1_syn_full.{i:02d}.read..bam"
+            yield f"data/linnil1_syn_full.{i:02d}.split.sam"
+            yield f"data/linnil1_syn_full.{i:02d}.linear.sam"
+
+    for name in getName():
+        # read all bam/sam
+        secd_read = 0
+        reads = 0
+        bad_secd = 0
+        reads_id = set()
+        for line in samtools("view", name):
+            line = line.strip()
+            if line.startswith("@"):
+                continue
+            if not line:
+                continue
+            fields = line.split()
+            if len(fields) < 4:
+                print(line)
+                continue
+            flag = int(fields[1])
+            reads += 1
+            reads_id.add(fields[0])
+
+            if (flag & 4) or (flag & 8):
+                continue
+            if (flag & 256):
+                # four flag is proper pair with 256(secdonary)
+                if flag not in [355, 403, 339, 419]:
+                    # There is still a very little 337 353
+                    # print(line)
+                    bad_secd += 1
+                secd_read += 1
+        print(len(reads_id), reads, secd_read, bad_secd)
+
+
 if __name__ == "__main__":
     # calc_bam_mapping()
     # plot_bam_mapping()
@@ -605,6 +751,7 @@ if __name__ == "__main__":
     # secdPlot()
     # primaryAcc()
     # readAccPlot()
+    # checkSecondIsPair()
 
     # tmp
     # evaluateHisatMapPlot()
@@ -612,3 +759,4 @@ if __name__ == "__main__":
     # plotAnsDepth() 
     # plotAnsGeneDepth() 
     # plotAnsDepthWithMulti() 
+    pass
