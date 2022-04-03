@@ -1,6 +1,11 @@
-# TODO
-from pyHLAMSA import Genemsa
+from collections import defaultdict
+import os
 import random
+import pandas as pd
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from pyHLAMSA import Genemsa
 
 
 def readMSA():
@@ -10,121 +15,137 @@ def readMSA():
     return msa
 
 
-def selectGene(msa, gene_name):
-    return list(filter(lambda i: i.startswith(gene_name + "*"), msa.alleles.keys()))
-
-
-def getRandomIntronPos(msa):
+def getPos(msa):
     gen_pos = msa._calculate_position()
-    return list(zip([i[1] for i in msa.labels if i[0] != 'exon'], gen_pos[:-1], gen_pos[1:]))
+    exon_pos   = list(zip([i[1] for i in msa.labels if i[0] == 'exon'], gen_pos[:-1], gen_pos[1:]))
+    intron_pos = list(zip([i[1] for i in msa.labels if i[0] != 'exon'], gen_pos[:-1], gen_pos[1:]))
+    return exon_pos, intron_pos
 
 
-def setDenovo(msa, gene, seq):
-    pos = getRandomIntronPos(msa)
+def getGene(msa):
+    return sorted(set(map(lambda i: i.split("*")[0], msa.alleles.key())))
 
 
-random.seed(44)
-msa = readMSA()
-print(getRandomIntronPos(msa))
-# print(random.choices(selectGene(msa, "KIR2DL1"), k=1))
+def getAllele(msa, gene):
+    allele_names = filter(lambda i: not i.endswith("KIR*BACKBONE"), msa.alleles.keys())
+    allele_names = filter(lambda i: i.startswith(gene + "*"), allele_names)
+    return list(allele_names)
 
 
-'''
+def setDenovo(msa, gene=None, allele=None, region="intron", pos=None):
+    exon_pos, intron_pos = getPos(msa)
+
+    if gene is None:
+        gene = random.choice(getGene(msa))
+
+    # allele name
+    if allele is None:
+        allele = random.choice(getAllele(msa, gene))
+
+    while True:
+        # intron pos
+        if region == "intron":
+            block = random.choice(intron_pos)
+        elif region == "exon":
+            block = random.choice(intron_pos)
+        else:
+            raise "region should be intron or exon"
+
+        if pos is None:
+            pos = random.randint(block[1], block[2])
+
+        # replace
+        if msa.alleles[allele][pos] == '-':
+            pos = None
+            continue
+        new_seq = msa.alleles[allele]
+        ori_nt = new_seq[pos]
+        nt = random.choice(list(set("ATCG") - set(ori_nt)))
+        new_seq = f"{new_seq[:pos]}{nt}{new_seq[pos]}"
+
+        # check no same sequence
+        if new_seq in msa.alleles.values():
+            continue
+
+        new_name = f"{allele}:{pos}:{ori_nt}>{nt}"
+        print(new_name)
+        return new_name, new_seq
 
 
-import pandas as pd
-import random
-import os
-from Bio import SeqIO
-from collections import defaultdict
-import copy
-
-# config
-N = 100
-output_name = "linnil1_syn"
-output_name = "linnil1_syn_full"  # m = 200, N=10, seed=444
-output_name = "linnil1_syn_wide"  # m = 400, N=100, seed=44
-folder = output_name + "/" 
-file_sequence = "kir_merge_sequences.fa"
-file_sequence = "kir_merge_full_sequences.fa"
-
-# read haplo
-data = pd.read_csv("PING/ping_paper_scripts/synthetic_sequence/KIR_gene_haplotypes.csv")
-data.index = data['hapID']
-
-# read sequences
-seqs = SeqIO.to_dict(SeqIO.parse(file_sequence, "fasta"))
-gene_map_allele = defaultdict(list)
-for name in seqs:
-    # allele group
-    if len(seqs[name]) > 4200:  # remove exon-only sequence, min 3DP1 4240
-        # Note 2DL5A 2DLB are treat as 2DL5
-        # gene_map_allele[name.split("*")[0]].append(name)
-        gene_map_allele[name[:7]].append(name)
-    else:
-        print(f"remove {name} (len={len(seqs[name])})")
-
-# run random
-random.seed(44)
-ans = []
-for i in range(N):
-    haplo = random.sample(list(data.index), k=2)
-    alleles = []
-    print(haplo)
-    print(data.loc[haplo, :])
-
-    for name, num in data.loc[haplo, :].iloc[:, 1:].sum().items():
-        print(name, num)
-        alleles.extend(random.choices(gene_map_allele[name], k=num))
-
-    id = f"{output_name}.{i:02d}"
-    ans.append({
-        'id': id,
-        'haplo': sorted(haplo),
-        'allele': sorted(alleles),
-    })
-
-# save fasta
-os.makedirs(folder, exist_ok=True)
-for a in ans:
-    real_seqs = []
-    allele_cn = defaultdict(int)
-    for allele_name in a['allele']:
-        allele_cn[allele_name] += 1
-        seq = copy.deepcopy(seqs[allele_name])
-        seq.id = f"{seq.id}-{allele_cn[allele_name]}"
-        seq.description = ""
-        real_seqs.append(seq)
-
-    SeqIO.write(real_seqs, f"{folder}/{a['id']}.fa", "fasta")
-
-    # '-ef',  # error free
+def generateFastq(name):
+    cmd = f"""
+        PING/ping_paper_scripts/art_bin_MountRainier/art_illumina \
+        -ss HS25 -na \
+        -i {name}.fa \
+        -l 150 \
+        -f 50  \
+        -m 400 \
+        -s 10  \
+        -sam -M \
+        -rs 444 \
+        -o {name}.read.
     """
-    -l length
-    -f depth
-    -m left + insert + right
-    -s lenght devation
-    -rs randomseed
-    -sam -M  Output sam
-    """
-    cmd = f"""\
-    PING/ping_paper_scripts/art_bin_MountRainier/art_illumina \
-    -ss HS25 -na \
-    -i {folder}/{a['id']}.fa \
-    -l 150 \
-    -f 50  \
-    -m 400 \
-    -s 10  \
-    -sam -M \
-    -rs 444 \
-    -o {folder}/{a['id']}.read."""
-
     print(cmd)
     os.system(cmd)
 
-# save summary
-ans = pd.DataFrame(ans)
-ans['haplo'] = ans['haplo'].str.join("_")
-ans['allele'] = ans['allele'].str.join("_")
-ans.to_csv(f"{folder}/summary.csv", sep="\t", header=False, index=False)
-'''
+
+def writeFasta(msa, allele_list, output_name):
+    real_seqs = []
+    allele_cn = defaultdict(int)
+    for allele_name in allele_list:
+        if not allele_cn[allele_name]:
+            name_dup = allele_name
+        else:
+            name_dup = f"{allele_name}-{allele_cn[allele_name]}"
+        real_seqs.append(
+            SeqRecord(Seq(msa.alleles[allele_name].replace('-', '')),
+                      id=name_dup,
+                      description="")
+        )
+        allele_cn[allele_name] += 1
+    SeqIO.write(real_seqs, f"{output_name}.fa", "fasta")
+
+
+def writeAll(name, allele_list):
+    summary.append({
+        'id': name,
+        'allele': '_'.join(sorted(allele_list)),
+    })
+    writeFasta(msa, allele_list, f"{folder}/{name}")
+    generateFastq(f"{folder}/{name}")
+
+
+
+# init
+output_name = "linnil1_syn_novo"  # m = 400, N=100, seed=44
+folder = output_name + "/" 
+os.makedirs(folder, exist_ok=True)
+random.seed(44)
+summary = []
+msa = readMSA()
+
+# sample
+name = output_name + ".1"
+framework_1 = random.choice(getAllele(msa, "KIR3DL3"))
+framework_2 = random.choice(getAllele(msa, "KIR3DL3"))
+new_allele, new_seq = setDenovo(msa, gene="KIR2DL3")
+msa.alleles[new_allele] = new_seq
+normal_allele = random.choice(getAllele(msa, "KIR2DL3"))
+alleles = [framework_1, framework_2, new_allele, normal_allele]
+writeAll(name, alleles)
+
+# sample2
+name = output_name + ".2"
+alleles = [framework_1, framework_2, new_allele, new_allele]
+writeAll(name, alleles)
+
+# sample3
+name = output_name + ".3"
+new_allele_exon, new_seq_exon = setDenovo(msa, region="exon", gene="KIR2DL3")
+msa.alleles[new_allele_exon] = new_seq_exon
+alleles = [framework_1, framework_2, new_allele_exon, normal_allele]
+writeAll(name, alleles)
+
+# summary
+summary = pd.DataFrame(summary)
+summary.to_csv(f"{folder}/summary.csv", sep="\t", header=False, index=False)

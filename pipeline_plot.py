@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import re
 from matplotlib.ticker import MaxNLocator
 import numpy as np
@@ -9,6 +10,7 @@ from collections import defaultdict, Counter
 from Bio import SeqIO
 import json
 import pandas as pd
+from pyHLAMSA import Genemsa
 
 
 def samtools(cmd, name):
@@ -72,10 +74,7 @@ def calc_bam_mapping():
             # tot, sec, pair = getPairNum(name)
             tot, sec, pair = job.result()
             stat.append((tot, sec, pair))
-
-
     json.dump({'stat': stat}, open(f'tmp_bam_count.json', 'w'))
-
 
 
 def plot_bam_mapping_fig(df, target):
@@ -115,7 +114,23 @@ def plotOnDash(figs):
     from dash import dcc, html
     app = dash.Dash(__name__)
     app.layout = html.Div(children=[dcc.Graph(figure=fig) for fig in figs])
-    app.run_server(debug=True)
+    app.run_server(port=8051, debug=True)
+
+def plotOnDashTable(figs):
+    # multiple line
+    import dash
+    from dash import dcc, html
+    import dash_bootstrap_components as dbc
+    from jupyter_dash import JupyterDash
+    # app = dash.Dash(__name__)
+    app = JupyterDash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+    app.layout = html.Div([
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=f)) for f in fig
+        ])
+        for fig in figs
+    ])
+    app.run_server(port=8051, debug=True)
 
 
 def plot_bam_mapping():
@@ -742,6 +757,249 @@ def checkSecondIsPair():
         print(len(reads_id), reads, secd_read, bad_secd)
 
 
+def mappingRatePerStage():
+    def getBam():
+        for i in range(1):
+            yield {
+                'method': "ans",
+                'sample': f"linnil1_syn_full/linnil1_syn_full.{i:02d}.read..sam",
+            }
+            """
+            yield {
+                'method': "hisat-noab",
+                'sample': f"data/linnil1_syn_full.{i:02d}.noab.pair.bam",
+            }
+            yield {
+                'method': "hisat-noab-typing",
+                'sample': f"data/linnil1_syn_full.{i:02d}.noab.pair.tmp.sam",
+            }
+            """
+            yield {
+                'method': "hisat-noab-sec",
+                'sample': f"data/linnil1_syn_full.{i:02d}.noab.sec_pair.bam",
+            }
+            yield {
+                'method': "hisat-noab-typing",
+                'sample': f"data/linnil1_syn_full.{i:02d}.noab.sec_pair.tmp.sam",
+            }
+            yield {
+                'method': "hisat-noab-typing-sec-noNH",
+                'sample': f"data/linnil1_syn_full.{i:02d}.noab.sec_pair.noNH.tmp.sam",
+            }
+            yield {
+                'method': "hisat-noab-typing-sec-noNH-avg",
+                'sample': f"data/linnil1_syn_full.{i:02d}.noab.sec_pair.noNH.tmp.sam",
+                'weighted': True,
+            }
+            """
+            yield {
+                'method': "hisat-merge",
+                'sample': f"data/linnil1_syn_full.{i:02d}.merge.pair.bam",
+            }
+            yield {
+                'method': "hisat-merge-typing",
+                'sample': f"data/linnil1_syn_full.{i:02d}.merge.pair.tmp.sam"
+            }
+            yield {
+                'method': "hisat-merge-typing-noNH",
+                'sample': f"data/linnil1_syn_full.{i:02d}.merge.pair.noNH.tmp.group.sam"
+            }
+            yield {
+                'method': "hisat-split",
+                'sample': f"data/linnil1_syn_full.{i:02d}.split.pair.bam",
+            }
+            yield {
+                'method': "hisat-split-typing",
+                'sample': f"data/linnil1_syn_full.{i:02d}.split.pair.tmp.sam",
+            }
+            yield {
+                'method': "hisat-split-typing-noNH",
+                'sample': f"data/linnil1_syn_full.{i:02d}.split.pair.noNH.tmp.sam",
+            }
+            """
+
+    def countGene(f):
+        return Counter(map(lambda i: i.split('*')[0], filter(lambda i: i.strip(), samtools("view", f))))
+
+    def countGeneWithWeight(f):
+        count_gene = defaultdict(int)
+        lines = filter(lambda i: i.strip(), samtools("view", f))
+        for i in lines:
+            NH = re.findall("NH\:i\:(\d+)", i)
+            if NH:
+                weight = 1/int(NH[0])
+            else:
+                weight = 1
+            count_gene[i.split('*')[0]] += weight # shoudl /2 bcz pair but fine
+        return count_gene
+
+    num_per_file = []
+    for data in getBam():
+        if data.get("weighted"):
+            data.update(**countGeneWithWeight(data['sample'].replace("full", "wide")))
+        else:
+            data.update(**countGene(data['sample'].replace("full", "wide")))
+        # data.update(**countGene(data['sample']))
+        num_per_file.append(data)
+
+    df = pd.DataFrame(num_per_file)
+    df = df.drop(columns=['weighted'])
+    df = pd.melt(df, id_vars=["method", "sample"], 
+                 var_name="gene", value_name="read_count")
+    print(df)
+
+
+    df1 = df
+    df['percetage'] = df.apply(lambda i: float(i['read_count']) / float(df[ (df['method'] == "ans")  & (df['gene'] == i['gene'])]['read_count']), axis=1)
+
+    # plot
+    import plotly.express as px
+    # color should be same for each catelog
+    # colors = px.colors.qualitative.Dark24
+    # color_map = { method: colors[i] for i, method in enumerate(sorted(set(df["method"]))) }
+
+    figs = []
+    figs.append(px.bar(df, x="gene", y="read_count", color="method", barmode="group", category_orders={'gene': sorted(set(df['gene']))}))
+    # df1 = df[df['method'] != "ans"]
+    figs.append(px.box(df, x="gene", y="percetage", color="method", category_orders={'gene': sorted(set(df['gene']))}))
+    plotOnDash(figs)
+
+
+def diffBetweenAllele(msa, title):
+    import plotly.express as px
+    figs = []
+    bs = msa.get_variantion_base()
+    print(title)
+    print("Total length", msa.get_length())
+    print("Total base diff", len(bs))
+    print("Continuous base diff", len(re.findall(r"gDNA\s+(\d+)", msa.format_alignment_diff())))
+    df = pd.DataFrame(bs, columns = ['pos'])
+    figs.append( px.histogram(df, x='pos', title=title, width=600, height=800) )
+    figs.append( px.histogram(df, x='pos', title=title, width=600, height=800, histnorm='probability').update_layout(yaxis_tickformat = '.2%') )
+    return figs
+
+
+def plotDiffBetweenPair():
+    figs = []
+    msa = Genemsa.load_msa(f"kir_merge_full.save.fa", f"kir_merge_full.save.gff")
+
+    # gene = "KIR2DS1"
+    # base_gene = "KIR2DL1"
+    # gene = "KIR2DL2"
+    # base_gene = "KIR2DL3"
+    gene = "KIR2DS3"
+    base_gene = "KIR2DS5"
+
+    # All genes
+    # for g in set(map(lambda i: i.split("*")[0], msa.alleles.keys())):
+    for g in [gene, base_gene]:
+        submsa = msa.select_allele(f"({g})|({base_gene})").shrink()
+        figs.append(diffBetweenAllele(submsa, f"{base_gene} vs {g}"))
+
+    # diff variant of two = all variant - variant1 - variant2
+    submsa = msa.select_allele(f"({gene})|({base_gene})").shrink()
+    submsa_base0 = submsa.get_variantion_base()
+    submsa_base1 = submsa.select_allele(f"({gene})").get_variantion_base()
+    submsa_base2 = submsa.select_allele(f"({base_gene})").get_variantion_base()
+    bases = set(submsa_base0) - set(submsa_base1) - set(submsa_base2)
+
+    # plot diff base
+    """
+    merged_bases = []
+    right = 5
+    for b in sorted(bases):
+        if len(merged_bases) and merged_bases[-1][1] + right * 2 >= b:
+            merged_bases[-1][1] = b
+        else:
+            merged_bases.append([b, b])
+    for b_left, b_right in merged_bases:
+        print(submsa.format_alignment_from_center(b_left, right=b_right - b_left + right))
+    """
+
+    # plot
+    title = f"Different between {base_gene} and {gene} (exclude internal variant)"
+    print(title, len(bases))
+    import plotly.express as px
+    # .update_layout(yaxis_range=[0,70])
+    df = pd.DataFrame(bases, columns = ['pos'])
+    figs.append([px.histogram(df, x='pos', title=title, width=600, height=800),
+                 px.histogram(df, x='pos', title=title, width=600, height=800, histnorm='probability').update_layout(yaxis_tickformat = '.2%') ])
+    plotOnDashTable(figs)
+
+def getBase(msa, reg):
+    return set(msa.select_allele(reg).get_variantion_base())
+
+def plotDiffBetweenGene():
+    figs = []
+    msa = Genemsa.load_msa(f"kir_merge_full.save.fa", f"kir_merge_full.save.gff")
+    del msa.alleles['KIR*BACKBONE']
+    del msa.alleles['KIR2DS4*0010103']
+ 
+    # remove 2DL5 short sequences
+    for i in map(lambda i: i[0], filter(lambda i: len(i[1].replace("-", "")) < 3000, msa.select_allele("KIR2DL5A.*").alleles.items())):
+        print(f"delete {i}")
+        del msa.alleles[i]
+    for i in map(lambda i: i[0], filter(lambda i: len(i[1].replace("-", "")) < 3000, msa.select_allele("KIR2DL5B.*").alleles.items())):
+        print(f"delete {i}")
+        del msa.alleles[i]
+ 
+
+    genes = sorted(set(map(lambda i: i.split("*")[0], msa.alleles.keys())))
+    # genes.remove("KIR3DL3")
+    genes.remove("KIR3DP1")
+    # genes.remove("KIR2DL5A")
+    # genes.remove("KIR2DL5B")
+    gene_id = {gene: id for id, gene in enumerate(genes)}
+
+    bases = {}
+    for gene in genes:
+        bases[gene] = set(msa.select_allele(f"{gene}").get_variantion_base())
+
+    diff_genes = []
+
+    exes = {}
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        # run concurrent
+        for gene1 in genes:
+            for gene2 in genes:
+                if gene1 != gene2:
+                    exes[(gene1, gene2)] = executor.submit(getBase, msa, f"({gene1})|({gene2})")
+
+        # gene1 vs gene2
+        for gene1 in genes:
+            for gene2 in genes:
+                if gene1 != gene2:
+                    print(gene1, gene2)
+                    b = exes[(gene1, gene2)].result()
+                    diff_genes.append({'from': gene1, 'to': gene2, 'value': len(b - bases[gene1] - bases[gene2])})
+                else:
+                    diff_genes.append({'from': gene1, 'to': gene2, 'value': len(bases[gene1])})
+    diff_genes_df = pd.DataFrame(diff_genes)
+
+    # pandas to 2d array
+    data = np.zeros((len(genes), len(genes)))
+    for d in diff_genes:
+        data[gene_id[d['from']], gene_id[d['to']]] = d['value']
+
+    import plotly.express as px
+    import plotly.graph_objects as go
+    figs.append(px.imshow(data, text_auto=True, color_continuous_scale='RdBu_r',
+                          width=1200, height=1200,
+                          labels=dict(color="Base"),
+                          x=list(gene_id.keys()), y=list(gene_id.keys())
+                ).update_xaxes(side="top")
+    )
+
+    # dash cannot show text on image
+    # figs[0].write_image("genes_diff_all.png")
+    # figs[0].write_image("genes_diff.png")  # no 3DP1
+    figs[0].write_image("genes_diff_noshort.png")  # no 3DP1 + no 2DL5 short
+    plotOnDash(figs)
+
+    # exc.append(executor.submit(self.batchInsertVariant, data, check_exist))
+    # for res in tqdm(as_completed(exc), total=len(exc)):
+    #     insert_count, total = res.result()
+
 if __name__ == "__main__":
     # calc_bam_mapping()
     # plot_bam_mapping()
@@ -752,6 +1010,9 @@ if __name__ == "__main__":
     # primaryAcc()
     # readAccPlot()
     # checkSecondIsPair()
+    # mappingRatePerStage()
+    # plotDiffBetweenGene()
+    # plotDiffBetweenPair()
 
     # tmp
     # evaluateHisatMapPlot()

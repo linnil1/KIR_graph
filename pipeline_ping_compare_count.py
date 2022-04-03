@@ -42,9 +42,16 @@ def readCount():
 
 def geneOrder(all_data, gene):
     pindex = all_data['method'] == "PING"
-    all_data.loc[pindex, 'order'] = all_data[pindex][gene].rank()
+    rank = list(all_data[pindex][gene].rank(method='min'))
+    rank_set = set()
+    for i, num in enumerate(rank):
+        while num in rank_set:
+            num += 1
+        rank_set.add(num)
+        rank[i] = num
+    all_data.loc[pindex, 'order'] = rank
     for _, data in all_data[pindex].iterrows():
-        all_data.loc[ (all_data['sample'] == data['sample']) & (all_data['method'] == "ANS"), 'order' ] = data['order']
+        all_data.loc[ (all_data['sample'] == data['sample']) & (all_data['method'] == "ANS"), 'order' ] = data['order'] - 0.1
     all_data.loc[(all_data['method'] == "ANS"), gene ] /= 2
     return all_data
 

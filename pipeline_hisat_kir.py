@@ -1,6 +1,6 @@
 import numpy as np
 import json
-from collections import defaultdict
+from collections import defaultdict, Counter
 from pprint import pprint
 import matplotlib.pyplot as plt
 import glob
@@ -10,6 +10,10 @@ import re
 from Bio import SeqIO
 import pandas as pd
 from pipeline_plot import plotDepth, plotOnDash
+from scipy.stats import norm
+import plotly.express as px
+import plotly.graph_objects as go
+import pipeline_evalute_ping
 
 
 # Per index per sample per gene
@@ -34,6 +38,11 @@ class HisatTyping:
             self.seq_len[seq.id] = len(seq.seq)
         for seq in SeqIO.parse(f"{self.index}_backbone.fa", "fasta"):
             self.seq_len[seq.id] = len(seq.seq)
+        self.remove_duplicate_in_typing = False
+        self.remove_duplicate_in_typing = True
+        self.name = ""
+        self.assign_allele_per_gene = {}
+
 
     def calcProbPerPair(self):
         print(f"Read {self.name}.{self.gene}.json")
@@ -68,7 +77,6 @@ class HisatTyping:
         # save it
         self.id_map = id_map
         self.allele_prob_per_read = np.array(allele_prob_per_read)
-        np.savez(f'{self.name}.{self.gene}.tmpprob.npz',  read=self.allele_prob_per_read, idmap=self.id_map)
 
     def calcProbAlleles(self):
         print(f"Calculate the probility of all reads for all alleles")
@@ -80,6 +88,8 @@ class HisatTyping:
             max_iter = 40
         elif "split" in self.index:
             max_iter = 5
+        elif "noab" in self.index:
+            max_iter = 6
         self.allele_prob_n_iter = []
 
         # one allele
@@ -142,8 +152,6 @@ class HisatTyping:
             pprint(allele_prob_all_now_list[:2])
             self.allele_prob_n_iter.append(allele_prob_all_now_list[:save_n])
 
-        # save
-        json.dump(self.allele_prob_n_iter, open(f'{self.name}.{self.gene}.em.json', 'w'), cls=MyEncoder)
 
     def allelesAssign(self, alleles, normalize=True, map_name=False):
         """
@@ -266,6 +274,25 @@ class HisatTyping:
         print(np.array(loss))
         plt.plot(range(1, len(allele_list)), loss, '.-', label="report")
 
+    def allelesAssignEvaluation(self, reads_prob):
+        gene_ans_match_called_count = defaultdict(lambda : defaultdict(int))
+        alleles_called = self.allelesAssign(reads_prob, map_name=True)
+        for i in range(len(alleles_called)):
+            allele_called = alleles_called[i]
+            allele_ans = self.bam_records_per_gene[self.gene][i].split('-', 1)[0].strip()
+            gene_called = list(map(lambda i: i.split('*')[0], allele_called))
+            gene_ans = allele_ans.split('*')[0]
+
+            # ans's gene match called gene ?
+            gene_ans_match_called_count[gene_ans]['total'] += 1
+            if gene_ans in gene_called:
+                gene_ans_match_called_count[gene_ans]['match'] += len([i == gene_ans for i in gene_called]) / len(gene_called)
+            else:
+                gene_ans_match_called_count[gene_ans]['miss'] += 1
+            # print(allele_called, allele_ans)
+        pprint(gene_ans_match_called_count)
+        return []
+
     def alleleDistPlot(self):
         arr_dists = []
 
@@ -273,6 +300,7 @@ class HisatTyping:
         for allele_prob_all_now_list in self.allele_prob_n_iter:
             allele = allele_prob_all_now_list[0]
             max_pos = self.allelesAssign(allele[1])
+            self.allelesAssignEvaluation(allele[1])
             count = max_pos.sum(axis=0)
 
             read_len = 150 * 2
@@ -287,9 +315,9 @@ class HisatTyping:
             arr_dists.append(alleles)
             arr_multialigns.append([len(i) for i in self.allelesAssign(allele[1], map_name=True)])
 
-        plt.title("Number of Multple Allele Assignment per reads")
-        plt.boxplot(arr_multialigns, showfliers=False)
-        plt.show()
+        # plt.title("Number of Multple Allele Assignment per reads")
+        # plt.boxplot(arr_multialigns, showfliers=False)
+        # plt.show()
 
         # plot distructibon per iteration
         json.dump(arr_dists, open(f'tmp.json', 'w'))
@@ -321,17 +349,45 @@ class HisatTyping:
             self.id_map = json.loads(v['idmap'].__str__().replace("'", '"'))
         else:
             self.calcProbPerPair()
+            np.savez(f'{self.name}.{self.gene}.tmpprob.npz',  read=self.allele_prob_per_read, idmap=self.id_map)
 
-        if os.path.exists(f'{self.name}.{self.gene}.em.json'):
-            self.allele_prob_n_iter = json.load(open(f'{self.name}.{self.gene}.em.json'))
+        em_filename = f'{self.name}.{self.gene}.em'
+        if self.remove_duplicate_in_typing:
+            em_filename += ".nodup"
+            # remove duplication
+            self.allele_prob_per_read = np.array(
+                [self.allele_prob_per_read[i] for i in range(len(self.allele_prob_per_read)) if getNH(self.bam_records_per_gene[self.gene][i * 2]) == 1 ])
+            self.bam_records_per_gene[self.gene] = [
+                    i for i in self.bam_records_per_gene[self.gene] if getNH(i) == 1 ]
+            if len(self.allele_prob_per_read) == 0:
+                return
+        if os.path.exists(f'{em_filename}.json'):
+            self.allele_prob_n_iter = json.load(open(f'{em_filename}.json'))
         else:
             self.calcProbAlleles()
-        self.evaluateByName()
+            json.dump(self.allele_prob_n_iter, open(f'{em_filename}.json', 'w'), cls=MyEncoder)
+
+        # self.evaluateByName()
         # self.likehoodReport()  # run this beofre likehoodPlot
         # self.likehoodPlot()
-        self.alleleDistPlot()
-        called_allele, assign_allele = self.cutProbThreshold()
-        self.evalute(0, called_allele)
+        # self.alleleDistPlot()
+        # exit()
+        # called_allele, assign_allele = self.cutProbThreshold()
+        print(f"{self.gene} {self.gene_cn_predict[self.gene]}")
+        called_allele = []
+        if self.gene_cn_predict[self.gene]:
+            print(self.allele_prob_n_iter[self.gene_cn_predict[self.gene] - 1][0])
+            called_allele = self.allele_prob_n_iter[self.gene_cn_predict[self.gene] - 1][0][1]
+            assign_allele = self.allelesAssign(called_allele, map_name=True)
+        else:
+            return
+
+
+        # remove multiple allele align read pair
+        self.assign_allele_per_gene[self.gene] = assign_allele
+        assign_allele = [i[0]  if len(i) == 1 else None for i in assign_allele]
+
+        # self.evalute(0, called_allele)
 
         # save to summary allele
         self.summary_allele.extend(called_allele)
@@ -342,6 +398,8 @@ class HisatTyping:
         if len(assign_allele) > 0:
             assert len(self.bam_records_per_gene[self.gene]) == 2 * len(assign_allele)
         for i, allele_name in enumerate(assign_allele):
+            if allele_name is None:
+                continue
             self.bam_new.append(self.bam_records_per_gene[self.gene][i * 2    ] + "\tRG:Z:" + allele_name + "\n")
             self.bam_new.append(self.bam_records_per_gene[self.gene][i * 2 + 1] + "\tRG:Z:" + allele_name + "\n")
 
@@ -426,6 +484,11 @@ class HisatTyping:
                       "KIR2DP1", "KIR2DS1", "KIR2DS2", "KIR2DS3", "KIR2DS4",
                       "KIR2DS5", "KIR3DL1", "KIR3DL2", "KIR3DL3", "KIR3DP1",
                       "KIR3DS1"]
+        elif "noab" in self.index:
+            genes  = ["KIR2DL1", "KIR2DL2", "KIR2DL3", "KIR2DL4", "KIR2DL5",
+                      "KIR2DP1", "KIR2DS1", "KIR2DS2", "KIR2DS3", "KIR2DS4",
+                      "KIR2DS5", "KIR3DL1", "KIR3DL2", "KIR3DL3", "KIR3DP1",
+                      "KIR3DS1"]
         # merge mode
         elif "merge" in self.index:
             genes  = ["KIR"]
@@ -440,6 +503,11 @@ class HisatTyping:
         # exit()
 
         # main
+        if "merge" not in self.index:
+            bam_read_count = self.getWeightedReadCount()
+            base, base_dev, loss = getSplitBaseCount(bam_read_count)
+            self.gene_cn_predict = assignSplitGeneCN(bam_read_count, base, base_dev)
+
         for gene in genes:
             self.gene = gene
             self.mainPerGene()
@@ -463,6 +531,8 @@ class HisatTyping:
     def writeBam(self):
         # Write all things into one bam
         newname = f"{self.name}.group"
+        if self.remove_duplicate_in_typing:
+            newname += '.nodup'
         print(f"Write to {newname}.bam")
         f_sam = open(f"{newname}.sam", "w")
         f_sam.writelines(self.bam_headers)
@@ -474,6 +544,8 @@ class HisatTyping:
     def writeSummary(self):
         # Write all things into one bam
         newname = f"{self.name}.group.txt"
+        if self.remove_duplicate_in_typing:
+            newname = newname.rsplit('.', 1)[0] + '.nodup.' + newname.rsplit('.', 1)[1]
         print(f"Write to {newname}")
         with open(newname, "w") as f:
             f.write(f"{self.name}," + ",".join(self.summary_allele) + "\n")
@@ -654,6 +726,181 @@ class HisatTyping:
         print("Read Mapping Allele Acc(SUM)(allow 1 error)", posneg_maxsec_acc / tot)
         return posneg_and_acc, posneg_max_acc
 
+    def plotSplitConfustion(self, name, title=""):
+        if "merge" in self.index:
+            return
+
+        if self.name != name:
+            self.name = name
+            self.readBam()
+
+        # read reference length
+        gene_length = defaultdict(list)
+        for k,v in self.seq_len.items():
+            gene_length[k.split("*")[0]].append(v)
+        gene_avg_length = {k: np.mean(v) for k,v in gene_length.items()}
+
+        # gene count
+        gene_from_to = []
+        for gene in self.bam_records_per_gene:
+            for record in self.bam_records_per_gene[gene]:
+                gene_from_to.append((record.split("*")[0], gene, getNH(record)))
+
+        # weighted
+        gene_from_to_count = defaultdict(int)
+        for gene_from, gene_to, weighted in gene_from_to:
+            gene_from_to_count[(gene_from, gene_to)] += weighted
+        # gene_from_to_count = Counter(gene_from_to)
+
+        # create dataframe
+        gene_from_to = []
+        for (gfrom, gto), count in gene_from_to_count.items():
+            gene_from_to.append({'from': gfrom, 'to': gto, 'value': count, 'from_length': gene_avg_length[gfrom], 'to_length': gene_avg_length[gto]})
+        df = pd.DataFrame(gene_from_to)
+        df['norm_value_from'] = df['value'] / df['from_length']
+        df['norm_value_to'] = df['value'] / df['to_length']
+        print(df)
+
+        return drawConfustion(df, title)
+
+    def plotAssignConfusion(self, name, mult=False):
+        if "merge" in self.index:
+            return
+
+        allele_from_to_count = defaultdict(int)
+        for gene in self.assign_allele_per_gene:
+            allele_from = self.bam_records_per_gene[gene][::2]
+            allele_to = self.assign_allele_per_gene[gene]
+            for record, atos in zip(allele_from, allele_to):
+                afrom = record.split("-")[0]
+                if mult:
+                    # weighted align
+                    for ato in atos:
+                        allele_from_to_count[(afrom, ato)] += 1 / len(atos)
+                else:
+                    # only unique align
+                    if len(atos) == 1:
+                        ato = atos[0]
+                        allele_from_to_count[(afrom, ato)] += 1
+
+
+        allele_from_to = []
+        for (afrom, ato), count in allele_from_to_count.items():
+            allele_from_to.append({'from': afrom, 'to': ato, 'value': count, 'from_length': self.seq_len[afrom], 'to_length': self.seq_len[ato]})
+        df = pd.DataFrame(allele_from_to)
+        df['norm_value_from'] = df['value'] / df['from_length']
+        df['norm_value_to'] = df['value'] / df['to_length']
+
+        print(df)
+        title = "allele level"
+        if not mult:
+            title += " (remove duplicated)"
+        return drawConfustion(df, title)
+
+    def getWeightedReadCount(self):
+        bam_read_count = {}
+        gene_length = defaultdict(list)
+        for k,v in self.seq_len.items():
+            gene_length[k.split("*")[0]].append(v)
+        gene_avg_length = {k: np.mean(v) for k,v in gene_length.items()}
+
+        for gene in self.bam_records_per_gene:
+            # weighted_count = len(self.bam_records_per_gene[gene])
+            weighted_count = sum(map(getNH, self.bam_records_per_gene[gene]))
+            bam_read_count[gene] =  weighted_count / gene_avg_length[gene]
+        pprint(bam_read_count)
+        return bam_read_count
+
+    def plotCNCut(self, name):
+        if self.name != name:
+            self.name = name
+            self.readBam()
+        bam_read_count = self.getWeightedReadCount()
+
+        # get optimal 1-CN
+        base, base_dev, loss = getSplitBaseCount(bam_read_count)
+
+        # plot
+        fig = px.line(x=loss[:, 0], y=loss[:, 1])
+        fig2 = go.Figure(data=go.Scatter(x=[base], y=[loss[np.argmax(loss[:, 1]), 1]], mode='markers', name="Max"))
+        fig_overall = go.Figure(data=fig.data + fig2.data)
+
+        fig_dist = go.Figure()
+        fig_dist.add_trace(go.Scatter(x=list(bam_read_count.values()),
+                                      y=[0 for i in bam_read_count],
+                                      mode='markers', name="Observed"))
+
+        # plot
+        x = np.linspace(0, 1.5, 500)
+        space = 1.5 / 500
+        y = getDist(x, base, base_dev) * space
+        for n in range(len(y)):
+            if n * base < 1.5:
+                fig_dist.add_trace(go.Scatter(x=x, y=y[n], name=f"cn={n}"))
+
+        # get predition
+        gene_cn_predict = assignSplitGeneCN(bam_read_count, base, base_dev)
+        pprint(gene_cn_predict)
+        return [fig_overall, fig_dist]
+
+
+def drawConfustion(df, title=""):
+    import plotly.express as px
+    figs = []
+    order = {'from': sorted(set(df['from'])), 'to': sorted(set(df['to']))}
+    figs.append(px.bar(df, x="from", y="value",           color="to",   text='to',   category_orders=order, title=title))
+    figs.append(px.bar(df, x="to",   y="value",           color="from", text='from', category_orders=order,))
+    figs.append(px.bar(df, x="from", y="norm_value_from", color="to",   text='to',   category_orders=order,))
+    figs.append(px.bar(df, x="to",   y="norm_value_to",   color="from", text='from', category_orders=order,))
+    return figs
+
+
+def getNH(sam_info):
+    NH_re = re.findall(r"NH:i:(\d+)", sam_info)
+    if NH_re:
+        return 1 / int(NH_re[0])
+    else:
+        return 1
+
+
+def getDist(x, base, base_dev):
+    cn = np.arange(1, 10)
+    y0 = norm.pdf(x, loc=base*0.2, scale=base_dev*5)
+    y = np.stack([y0, *[norm.pdf(x, loc=base*(n+0.2), scale=base_dev*n) for n in cn]])
+    return y
+
+
+def getSplitBaseCount(bam_read_count):
+    bam_read_count = list(bam_read_count.items())
+    space = 1.5 / 500
+    base, base_dev = 0.34, 0.08
+    out = []  # loss
+
+    for base in np.arange(0, 1, 0.01):
+        x = np.linspace(0, 1.5, 500)
+        y = getDist(x, base, base_dev) * space
+        y = y.max(axis=0)
+        pred_cn, _ = np.histogram([i[1] for i in bam_read_count], bins=500, range=(0, 1.5))
+        out.append((base, np.sum( np.log(y) * pred_cn )))
+
+    out = np.array(out)
+    max_point = out[np.argmax(out[:, 1]), :]
+    base = max_point[0]
+    return base, base_dev, out
+
+
+def assignSplitGeneCN(bam_read_count, base, base_dev):
+    space = 1.5 / 500
+    x = np.linspace(0, 1.5, 500)
+    y = getDist(x, base, base_dev) * space
+    y_cn = y.argmax(axis=0)
+    gene_cn_predict = {}
+    for gene, cn in bam_read_count.items():
+        pred_cn, _ = np.histogram([cn], bins=500, range=(0, 1.5))
+        gene_cn_predict[gene] = y_cn[pred_cn == 1][0]
+    return gene_cn_predict
+        
+
 
 if __name__ == "__main__":
     # names = list(set(map(lambda i: i.split(".KIR")[0], glob.glob("data/synSeq.hiseq.dp50.rl150.*pair.tmp.*.json"))))
@@ -663,20 +910,46 @@ if __name__ == "__main__":
 
     i = 0
     names = []
+    suffix = "noab.sec_pair.noNH.tmp"
+    suffix = "noabmsa.sec_pair.noNH.tmp"
     for i in range(10):
         # names.append(f"data/linnil1_syn.0{i}.merge.pair.tmp")
         # names.append(f"data/linnil1_syn_full.0{i}.merge.pair.tmp")
         # names.append(f"data/linnil1_syn_full.0{i}.split.pair.tmp")
-        names.append(f"data/linnil1_syn_full.0{i}.merge.pair.noNH.tmp")
+        # names.append(f"data/linnil1_syn_full.0{i}.split.pair.noNH.tmp")
+        # names.append(f"data/linnil1_syn_wide.0{i}.split.pair.noNH.tmp")
+        # names.append(f"data/linnil1_syn_wide.0{i}.noab.pair.tmp")
+        names.append(f"data/linnil1_syn_wide.{i:02d}.{suffix}")
+        # names.append(f"data/linnil1_syn_wide.{i:02d}.noabmsa.sec_pair.noNH.tmp")
+        # names.append(f"data/linnil1_syn_wide.0{i}.merge.pair.noNH.tmp")
+        # names.append(f"data/linnil1_syn_full.0{i}.merge.pair.noNH.tmp")
 
+    # names = names[:1]
     names = names[:1]
-    typ = HisatTyping("kir_merge_full")
+    # typ = HisatTyping("kir_merge_full")
     # typ = HisatTyping("kir_split_full")
-    for name in names:
-        typ.mainPerSample(name)
+    # typ = HisatTyping("kir_noab")
+    typ = HisatTyping("kir_noab_msa")
 
-    '''
-    with open("tmp.summary.txt", "w") as f:
-        summarys = [open(f"{name}.group.txt") for name in names]
-        f.writelines(summarys)
-    '''
+
+    figs = [] 
+    for name in names:
+        # for figure plot
+        # Determine read by comparsion read count across gene
+        figs.extend(typ.plotCNCut(name))
+        figs.extend(typ.plotSplitConfustion(name, title="With multiple alignment"))
+        typ.mainPerSample(name)
+        id = name.split(".")[1]
+        result_suffix = suffix + ".group"
+        # with ProcessPoolExecutor(max_workers=self.thread) as executor:
+        if typ.remove_duplicate_in_typing:
+            result_suffix += ".nodup"
+        pipeline_evalute_ping.evalute(pipeline_evalute_ping.getSummaryAnswer(id), pipeline_evalute_ping.getHisatKIRResult(id, suffix=result_suffix))
+        figs.extend(typ.plotSplitConfustion(name, title="Without multiple alignment"))
+        figs.extend(typ.plotAssignConfusion(name, mult=True))
+        figs.extend(typ.plotAssignConfusion(name))
+    plotOnDash(figs)
+
+    # with open("tmp.summary.txt", "w") as f:
+    #     summarys = [open(f"{name}.group.txt") for name in names]
+    #     f.writelines(summarys)

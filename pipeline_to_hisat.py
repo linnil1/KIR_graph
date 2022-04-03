@@ -684,6 +684,32 @@ def main(name):
             newmsa = msa.select_allele(gene + ".*")
             newmsa.gene_name = gene
             pool_gene.append(gene2hisat(gene, newmsa))
+
+    elif base_fullpath_name == "kir_noab_msa":
+        fnames = glob(f"{base_fullpath_name}.*.save.fa")
+        pool_gene = []
+        for fname in fnames:
+            gene = fname[len(base_fullpath_name) + 1:].split('.')[0]
+            print(gene)
+            msa = Genemsa.load_msa(f"{base_fullpath_name}.{gene}.save.fa", f"{base_fullpath_name}.{gene}.save.gff")
+            msa.seq_type = "gen"
+            msa.gene_name = gene
+            pool_gene.append(gene2hisat(gene, msa))
+
+    elif base_fullpath_name == "kir_noab":
+        merge_name = base_fullpath_name.replace("noab", "merge_full")
+        msa = Genemsa.load_msa(f"{merge_name}.save.fa", f"{merge_name}.save.gff")
+        msa.seq_type = "gen"
+        msa.gene_name = "kir_merge"
+        pool_gene = []
+
+        # where 2DL5A and 2DL5B will be in the same group
+        genes = set(i[:7] for i in msa.alleles.keys() if "BACKBONE" not in i)
+
+        for gene in genes:
+            newmsa = msa.select_allele(gene + ".*")
+            newmsa.gene_name = gene
+            pool_gene.append(gene2hisat(gene, newmsa))
         """
         pool_gene = []
         for i in glob("kir_split.*.save.fa"):

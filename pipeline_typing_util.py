@@ -58,7 +58,9 @@ def readBamCore(alignview_proc, gene_vars, gene_var_list, ref_seq, mpileup, base
     simulation       = False  # legency
     error_correction = False
     base_fname       = "kir"
-    no_NH            = False
+    no_NH            = False 
+    # set suffix ".noNH" in pipeline_typing.py
+    no_NH            = True
 
     # setup
     cigar_re         = re.compile(r'\d+\w')  # Cigar regular expression

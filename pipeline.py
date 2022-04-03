@@ -18,6 +18,7 @@ from collections import defaultdict
 import sys
 sys.path.append('./hisat-genotype/hisatgenotype_modules')
 os.environ["PATH"] = os.environ["PATH"] + ":./"
+import pipeline_typing
 
 try:  # temp
     import pipeline_to_hisat
@@ -227,9 +228,9 @@ def kir_to_multi_msa():
     for gene_name, kir_msa_align in kir.genes.items():
         kir_msa_align.add(f"{gene_name}*BACKBONE",
                           kir_msa_align.get_consensus(include_gap=False))
-        kir_msa_align.save_bam(f"kir_split.{gene_name}.bam", f"{gene_name}*BACKBONE")
-        kir_msa_align.save_gff(f"kir_split.{gene_name}.gff")
-        kir_msa_align.save_msa(f"kir_split.{gene_name}.save.fa", f"kir_split.{gene_name}.save.gff")
+        kir_msa_align.save_bam(f"kir_noab_msa.{gene_name}.bam", f"{gene_name}*BACKBONE")
+        kir_msa_align.save_gff(f"kir_noab_msa.{gene_name}.gff")
+        kir_msa_align.save_msa(f"kir_noab_msa.{gene_name}.save.fa", f"kir_noab_msa.{gene_name}.save.gff")
 
 
 def download():
@@ -318,6 +319,14 @@ def samtobam():
         run(f"samtools index {name}.pair.bam")
 
 
+def samtobamWithSecond():
+    for name in samples:
+        name += suffix
+        run(f"samtools sort {name}.sam -o {name}.bam")
+        run(f"samtools view {name}.bam -f 0x2 -o {name}.sec_pair.bam")
+        run(f"samtools index {name}.sec_pair.bam")
+
+
 def fastqc():
     run_dk("docker.io/biocontainers/fastqc:v0.11.9_cv7",
            f"clustalo --infile {name}.fa -o {name}.aln.fa "
@@ -331,6 +340,10 @@ def hisatTyping(index):
     # with ProcessPoolExecutor(max_workers=thread) as executor:
     #     for sample in samples:
     #         executor.submit(pipeline_typing.typingAllGene, f"{sample}{suffix}.pair.bam")
+def hisatTypingWithSecond(index):
+    pipeline_typing.hisatdataInit(index)
+    for sample in samples:
+        pipeline_typing.typingAllGene(f"{sample}{suffix}.sec_pair.bam")
 
 
 def linkFastq():
@@ -350,7 +363,9 @@ if __name__ == "__main__":
     samples = ["data/synSeq.hiseq.dp50.rl150.1"]
     samples = [f"data/linnil1_syn.0{i}" for i in range(10)]
     samples = [f"data/linnil1_syn_full.0{i}" for i in range(10)]
-    samples = samples[:1]
+    samples = [f"data/linnil1_syn_wide.{i:02d}" for i in range(100)]
+    # samples = samples[:1]
+    samples = samples[1:10]
 
     # kir_merge
     # kir_to_msa()
@@ -362,7 +377,7 @@ if __name__ == "__main__":
     # hisatTyping("./kir_merge")
 
     # kir_split
-    # kir_to_multi_msa()
+    # kir_to_multi_msa()  # this has been overwrite
     # pipeline_to_hisat.main("kir_split")
     # pipeline_to_hisat.build("kir_split")
     # run("cat kir_split.*.save.gff > kir_split.gff")
@@ -390,19 +405,36 @@ if __name__ == "__main__":
     # os.system("python3 pipeline_generate_syn.py")
     # hisat2("kir_merge_full")
     # samtobam()
-    hisatTyping("./kir_merge_full")
+    # hisatTyping("./kir_merge_full")
 
     suffix = ".split"
     # pipeline_to_hisat.main("kir_split_full")
     # pipeline_to_hisat.build("kir_split_full")
     # hisat2("kir_split_full")
     # samtobam()
-    hisatTyping("./kir_split_full")
+    # hisatTyping("./kir_split_full")
+
+    suffix = ".noab"
+    # pipeline_to_hisat.main("kir_noab")
+    # pipeline_to_hisat.build("kir_noab")
+    # hisat2("kir_noab")
+    # samtobam()
+    # hisatTyping("./kir_noab")
+    # samtobamWithSecond()
+    # hisatTypingWithSecond("./kir_noab")
 
     suffix = ".linear"
     # bowtie2BuildNotgroup()
     # bowtie2()
     # samtobam()
+
+    suffix = ".noabmsa"
+    # kir_to_multi_msa()
+    # pipeline_to_hisat.main("kir_noab_msa")
+    # pipeline_to_hisat.build("kir_noab_msa")
+    # hisat2("kir_noab_msa")
+    # samtobamWithSecond()
+    # hisatTypingWithSecond("./kir_noab_msa")
 
 """
 Tips:
@@ -429,4 +461,16 @@ samtools index giab_merge.pair.bam
 echo KIR*consensus$'\t'18400$'\t'19700 > kir.bed
 bedtools intersect -a giab_merge.pair.bam -b ../kir.bed -v | samtools sort - -o giab_merge.pair.filter.bam
 samtools index giab_merge.filter.bam
+"""
+
+
+"""
+# remap
+samtools view data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.bam -H > data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.bam
+samtools view data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.bam "KIR2DL1*BACKBONE" | grep "KIR2DS1" >> data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.bam
+samtools sort -n data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.bam  -o data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.bam
+samtools fastq data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.bam -1 data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read1.fq -2 data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read2.fq -0 /dev/null -s /dev/null
+hisat2 -x kir_noab.graph -1 data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read1.fq -2 data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read2.fq --no-spliced-alignment --max-altstried 64 --haplotype > data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read.remap.sam
+
+hisat2 -x kir_merge_full.graph -1 data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read1.fq -2 data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read2.fq --no-spliced-alignment --max-altstried 64 --haplotype > data/linnil1_syn_wide.00.noab.sec_pair.noNH.tmp.2DL1.read.remap_merge.sam
 """

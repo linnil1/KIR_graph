@@ -6,6 +6,7 @@ import subprocess
 import json
 import glob
 import sys
+import itertools
 
 # hisat
 # sys.path.insert(0, "/home/linnil1/hisat2/hisat-genotype/hisatgenotype_modules/")
@@ -63,7 +64,7 @@ def readPair(*args):
         # Clear
         if read_id != prev_read_id:
             prev_read_id  = read_id
-            if prev_read_lr != 3:
+            if prev_read_lr in [1, 2]:
                 print("Not paired read! remove it")
             prev_read_lr  = 0
 
@@ -81,6 +82,8 @@ def readPair(*args):
         if prev_read_lr == 3:
             num_pairs += 1
             yield prev_line_l, prev_line_r, prev_cmp_l, prev_cmp_r
+            # this allow multiple alignment
+            prev_read_lr  = 0
 
     # summary
     print("Reads:", num_reads, "Pairs:", num_pairs)
@@ -398,7 +401,7 @@ def hisatTyping(gene):
     # --- main ---
     # ----------------------
     for i in set(map(lambda i: i.split("*")[0], allele_vars.keys())):
-        print(f"@RG\tID:{i}", file=bam_group_f)
+        print(f"@RG\tID:{i}", file=bam_head_f)
 
     Gene_counts    = defaultdict(int)
     Gene_cmpt      = {}
@@ -518,16 +521,18 @@ def typingAllGene(alignment_bam_fname):
              "KIR3DL1", "KIR3DL2", "KIR3DL3", "KIR3DP1", "KIR3DS1"]
 
     # open files
-    global alignment_fname, typing_tmp_fname, bam_group_f, report_f
+    global alignment_fname, typing_tmp_fname, bam_group_f, report_f, bam_head_f
     args = ""
-    # args = ".noNH"  # set pipeline_typing_util no_NH=True
+    args = ".noNH"  # set pipeline_typing_util no_NH=True
     alignment_fname     = alignment_bam_fname
     typing_tmp_fname    = alignment_fname[:-4] + args + ".tmp"
     bam_group_fname     = alignment_fname[:-4] + args + ".tmp.sam"
+    bam_head_fname      = alignment_fname[:-4] + args + ".tmp.head.sam"
     report_fname        = alignment_fname[:-4] + args + ".report"
-    os.system(f"samtools view -H {alignment_fname} > {bam_group_fname}")
+    os.system(f"samtools view -H {alignment_fname} > {bam_head_fname}")
     report_f            = open(report_fname, "w")
-    bam_group_f         = open(bam_group_fname, "a")
+    bam_head_f          = open(bam_head_fname, "a")
+    bam_group_f         = open(bam_group_fname, "w")
 
     # typing for each gene in hisat2
     print("Typing for", alignment_fname)
@@ -535,8 +540,16 @@ def typingAllGene(alignment_bam_fname):
         hisatTyping(gene)
 
     # close files
+    bam_head_f.close()
     bam_group_f.close()
     report_f.close()
+
+    # concat bamfile
+    bam_data = list(itertools.chain(open(bam_head_fname), open(bam_group_fname)))
+    with open(bam_group_fname, 'w') as f:
+        f.writelines(bam_data)
+
+    # os.system(f"cat {bam_head_fname} {bam_group_fname} > {bam_group_fname}")
     print("Report", report_fname)
     print("Postive Negative allele data", typing_tmp_fname)
     print("Postive Negative allele bam", bam_group_fname)
