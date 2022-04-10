@@ -14,6 +14,7 @@ kir_block_name = ["5UTR", "exon1", "intron1", "exon2", "intron2", "exon3",
                   "intron3", "exon4", "intron4", "exon5", "intron5", "exon6",
                   "intron6", "exon7", "intron7", "exon8", "intron8", "exon9",
                   "3UTR"]
+suffix = ""
 
 
 def run_dk(image, cmd):
@@ -41,8 +42,9 @@ def kir_to_multi_msa(split_2DL5=False):
         kir_msa_align = kir_msa_align.shrink()
         kir_msa_align.append(f"{gene_name}*BACKBONE",
                              kir_msa_align.get_consensus(include_gap=False))
-        kir_msa_align.save_bam(f"{index}.{gene_name}.save.bam", ref_allele=f"{gene_name}*BACKBONE")
-        kir_msa_align.save_gff(f"{index}.{gene_name}.save.gff", ref_allele=f"{gene_name}*BACKBONE")
+        kir_msa_align.set_reference(f"{gene_name}*BACKBONE")
+        kir_msa_align.save_bam(f"{index}.{gene_name}.save.bam")
+        kir_msa_align.save_gff(f"{index}.{gene_name}.save.gff")
         kir_msa_align.save_msa(f"{index}.{gene_name}.save.fa", f"{index}.{gene_name}.save.json")
 
 
@@ -61,9 +63,10 @@ def kir_to_single_msa(method="clustalo"):
     # save the msa
     msa = msa.shrink().reset_index()
     msa.append(f"KIR*BACKBONE", msa.get_consensus(include_gap=False))
-    msa.save_bam(f"{index}.save.bam", ref_allele=f"KIR*BACKBONE")
-    msa.save_gff(f"{index}.save.gff", ref_allele=f"KIR*BACKBONE")
-    msa.save_msa(f"{index}.save.fa", f"{index}.save.json")
+    msa.set_reference(f"KIR*BACKBONE")
+    msa.save_bam(f"{index}.KIR.save.bam")
+    msa.save_gff(f"{index}.KIR.save.gff")
+    msa.save_msa(f"{index}.KIR.save.fa", f"{index}.KIR.save.json")
 
 
 def kir_to_single_msa_break_block():
@@ -141,22 +144,12 @@ def kir_to_single_msa_merge_block(ends_with):
                 msa.append(an, '-' * msa.get_length())
 
     # concat together
-    newmsa = Genemsa("KIR", "gen")
+    newmsa = Genemsa("KIR")
     newmsa.alleles = {name: "" for name in allele_names}
     for block_name in kir_block_name:
         msa = block_msa[block_name]
-        """
-        # not need to rename because assume_label is useful
-        msa.blocks[0].name = block_name
-        if "exon" in block_name:
-            msa.blocks[0].type = "exon"
-        elif block_name == "3UTR":
-            msa.blocks[0].type = "three_prime_UTR"
-        elif block_name == "5UTR":
-            msa.blocks[0].type = "five_prime_UTR"
-        """
         newmsa += msa
-    newmsa = newmsa._assume_label().reset_index()
+    newmsa = newmsa.assume_label("gen")
 
     # double check
     kir = KIRmsa(filetype=["gen"], version="2100")
@@ -172,6 +165,7 @@ def samtobam():
         name += f".{index_name}{suffix}"
         run(f"samtools sort {name}.sam -o {name}.bam")
         run(f"samtools index {name}.bam")
+        # run(f"rm {name}.sam")
 
 
 def bamFilter(flag, new_suffix):
@@ -195,6 +189,43 @@ def hisatMap():
     samtobam()
 
 
+def bowtie2BuildFull():
+    # No matter what index, this will be the same
+    old_index = "index/kir_2100_raw.mut01"
+    run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+           f"bowtie2-build {old_index}_sequences.fa {index} --threads {thread}")
+
+
+def bowtie2BuildConsensus(old_index="index/kir_2100_raw.mut01"):
+    run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+           f"bowtie2-build {old_index}_backbone.fa {index} --threads {thread}")
+
+
+def bowtie2():
+    global suffix
+    index_name = index.split("/")[-1]
+    for name in samples:
+        f1, f2 = name + ".read1.fq", name + ".read2.fq"
+        run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+               f"bowtie2 --threads {thread} -x {index} -1 {f1} -2 {f2} -a -S {name}.{index_name}.bowtie2.sam")
+    suffix += '.bowtie2'
+    samtobam()
+
+
+def bowtie2Ping():
+    global suffix
+    index_name = index.split("/")[-1]
+    for name in samples:
+        f1, f2 = name + ".read1.fq", name + ".read2.fq"
+        run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+               f"bowtie2 --threads 25 -x {index} -1 {f1} -2 {f2} " + \
+               " ".join(['-5 0', '-3 6', '-N 0', '--end-to-end', '--score-min L,-2,-0.08',
+                         '-I 75', '-X 1000', '-a','--np 1', '--mp 2,2', '--rdg 1,1', '--rfg 1,1']) + \
+               f" -S  {name}.{index_name}.ping.sam")
+    suffix += '.ping'
+    samtobam()
+
+
 samples = [f"data/linnil1_syn_wide.{i:02d}" for i in range(100)]
 samples = samples[:1]
 
@@ -205,19 +236,34 @@ index = "index/kir_2100_raw"
 # kg_build_index.main(index)
 index += ".mut01"
 # hisatMap()
-bamFilter("-f 0x2", ".nosingle")
-# suffix += ".nosec"
-
-
+# bamFilter("-f 0x2", ".nosingle")
+suffix += ".nosec"
 # bamFilter("-f 0x2 -F 256", ".nosingle")
 
+
+
+index = "index/kir_2100_raw_full"
+suffix = ""
+# bowtie2BuildFull()
+# bowtie2()
+bowtie2Ping()
+
+index = "index/kir_2100_raw_cons"
+# bowtie2BuildConsensus(old_index="index/kir_2100_raw.mut01")
+# bowtie2()
 
 
 index = "index/kir_2100_ab"
 # kir_to_multi_msa(split_2DL5=True)
 
 index = "index/kir_2100_merge"
+suffix = ""
 # kir_to_single_msa()
+# kg_build_index.main(index)
+index += ".mut01"
+# hisatMap()
+# bamFilter("-f 0x2", ".nosingle")
+# suffix += ".nosec"
 
 index = "index/kir_2100_muscle"
 # kir_to_single_msa(method='muscle')
