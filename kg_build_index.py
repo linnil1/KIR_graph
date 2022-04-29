@@ -38,15 +38,15 @@ class Variant:
     count: ClassVar[int] = 0
 
     def __lt__(self, othr):
-        return (self.pos, self.order_type[self.typ], self.val) \
-               < (othr.pos, self.order_type[othr.typ], othr.val)
+        return (self.ref, self.pos, self.order_type[self.typ], self.val) \
+             < (othr.ref, othr.pos, self.order_type[othr.typ], othr.val)
 
     def __eq__(self, othr):
-        return (self.pos, self.typ, self.val) \
-               == (self.pos, self.typ, self.val)
+        return (self.pos, self.ref, self.typ, self.val) \
+            == (self.pos, self.ref, self.typ, self.val)
 
     def __hash__(self):
-        return hash((self.pos, self.typ, self.val))
+        return hash((self.pos, self.ref, self.typ, self.val))
 
 
 def count2freq(base_counts):
@@ -103,14 +103,14 @@ def msa2Variant(msa):
             continue
         variants_per_allele[allele_name] = \
                 get_variants_from_seqs(ref_seq, msa.get(allele_name))
+        # add reference
+        for v in variants_per_allele[allele_name]:
+            v.ref = ref_name
 
     # sort variantion and change it to dict
+    # and add reference
     variants = sorted(set(itertools.chain(*variants_per_allele.values())))
     variants_dict = {v: v for v in variants}
-
-    # add reference
-    for v in variants_dict.values():
-        v.ref = ref_name
 
     # collect allele for the variant
     for allele, allele_variants in variants_per_allele.items():
@@ -233,7 +233,7 @@ def buildHisat(index_out, threads=30):
 
 
 def main(index):
-    index_out = index + ".mut01"
+    index_out = index + ".mut01"  # relate to min_freq_threshold
     threads = 30
 
     # remove old file, because I write file by append not overwrite

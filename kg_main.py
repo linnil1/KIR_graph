@@ -1,5 +1,6 @@
-import uuid
 import os
+import uuid
+import subprocess
 from glob import glob
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
@@ -7,6 +8,7 @@ from pyHLAMSA import KIRmsa, Genemsa
 import pandas as pd
 from Bio import SeqIO, AlignIO
 import kg_build_index
+import kg_typping
 
 
 thread = 30
@@ -99,7 +101,7 @@ def kir_to_single_msa_break_block():
 
 def kir_to_single_msa_realign(method):
     global index, suffix
- 
+
     blocks = glob(f"{index}{suffix}.*.fa")
     with ProcessPoolExecutor(max_workers=thread) as executor:
         for name in blocks:
@@ -168,6 +170,15 @@ def samtobam():
         # run(f"rm {name}.sam")
 
 
+def samtobamdk():
+    index_name = index.split("/")[-1]
+    for name in samples:
+        name += f".{index_name}{suffix}"
+        run_dk("quay.io/biocontainers/samtools:1.10--h9402c20_2", f"samtools sort {name}.sam -o {name}.bam")
+        run_dk("quay.io/biocontainers/samtools:1.10--h9402c20_2", f"samtools index {name}.bam")
+        # run(f"rm {name}.sam")
+
+
 def bamFilter(flag, new_suffix):
     index_name = index.split("/")[-1]
     for name in samples:
@@ -209,7 +220,7 @@ def bowtie2():
         run_dk("quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
                f"bowtie2 --threads {thread} -x {index} -1 {f1} -2 {f2} -a -S {name}.{index_name}.bowtie2.sam")
     suffix += '.bowtie2'
-    samtobam()
+    samtobamdk()
 
 
 def bowtie2Ping():
@@ -223,11 +234,47 @@ def bowtie2Ping():
                          '-I 75', '-X 1000', '-a','--np 1', '--mp 2,2', '--rdg 1,1', '--rfg 1,1']) + \
                f" -S  {name}.{index_name}.ping.sam")
     suffix += '.ping'
-    samtobam()
+    samtobamdk()
+
+
+def hisatTyping():
+    kg_typping.setIndex(index)
+    for sample in samples:
+        kg_typping.main(sample + suffix + ".bam")
+
+
+def addGroupName(bamfile):
+    """ Return {bamfile}.rg.bam """
+    outputfile = os.path.splitext(bamfile)[0] + ".rg.bam"
+    proc1 = subprocess.run(["samtools", "view", "-h", bamfile], stdout=subprocess.PIPE)
+    proc1.check_returncode()
+
+    header = []
+    data = []
+    read_groups = set()
+    for i in proc1.stdout.decode().split("\n"):
+        if not i:
+            continue
+        if i.startswith("@"):
+            header.append(i)
+        else:
+            rg = i.split('*')[0]
+            data.append(i + f"\tRG:Z:{rg}")
+            read_groups.add(rg)
+
+    for rg in read_groups:
+        header.append(f"@RG\tID:{rg}")
+
+    proc2 = subprocess.run(["samtools", "sort", "-", "-o", outputfile],
+                           input="\n".join([*header, *data]).encode())
+    proc2.check_returncode()
+    proc3 = subprocess.run(["samtools", "index", outputfile])
+    proc3.check_returncode()
+    print("Save to", outputfile)
 
 
 samples = [f"data/linnil1_syn_wide.{i:02d}" for i in range(100)]
-samples = samples[:1]
+samples = samples[0:10]
 
 suffix = ""
 # mkdir index
@@ -236,17 +283,17 @@ index = "index/kir_2100_raw"
 # kg_build_index.main(index)
 index += ".mut01"
 # hisatMap()
-# bamFilter("-f 0x2", ".nosingle")
-suffix += ".nosec"
-# bamFilter("-f 0x2 -F 256", ".nosingle")
 
+index_name = index.split("/")[-1]
+suffix += "." + index_name + suffix
+# hisatTyping()
 
 
 index = "index/kir_2100_raw_full"
 suffix = ""
 # bowtie2BuildFull()
 # bowtie2()
-bowtie2Ping()
+# bowtie2Ping()
 
 index = "index/kir_2100_raw_cons"
 # bowtie2BuildConsensus(old_index="index/kir_2100_raw.mut01")
@@ -254,16 +301,30 @@ index = "index/kir_2100_raw_cons"
 
 
 index = "index/kir_2100_ab"
+suffix = ""
 # kir_to_multi_msa(split_2DL5=True)
+# kg_build_index.main(index)
+index += ".mut01"
+index_name = index.split("/")[-1]
+suffix += "." + index_name + suffix
+# hisatMap()
+hisatTyping()
 
 index = "index/kir_2100_merge"
 suffix = ""
 # kir_to_single_msa()
+# addGroupName("index/kir_2100_merge.KIR.save.bam")
 # kg_build_index.main(index)
 index += ".mut01"
 # hisatMap()
-# bamFilter("-f 0x2", ".nosingle")
-# suffix += ".nosec"
+index_name = index.split("/")[-1]
+suffix += "." + index_name + suffix
+# hisatTyping()
 
 index = "index/kir_2100_muscle"
 # kir_to_single_msa(method='muscle')
+
+
+# bamFilter("-f 0x2", ".nosingle")
+# suffix += ".nosec"
+# bamFilter("-f 0x2 -F 256", ".sec")

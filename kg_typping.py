@@ -9,6 +9,8 @@ import subprocess
 from typing import Union, ClassVar
 from collections import defaultdict
 from dataclasses import dataclass, field
+import numpy as np
+from Bio import SeqIO
 
 # sam
 num_editdist = 5
@@ -18,6 +20,8 @@ NH_filtering = False
 diff_threshold = 0.0001
 # em
 iter_max = 100
+# em
+norm_by_length = False
 
 
 @dataclass
@@ -28,6 +32,7 @@ class Variant:
     val: Union[int, str] = None
     allele: list = field(default_factory=list)
     length: int = 1
+    in_exon: bool = False
     id: str = None
 
     # allele: list = field(default_factory=list)
@@ -74,26 +79,27 @@ def readPair(alignment_fname):
         # preocess
         read_id, flag, ref, pos, _, _, next_ref, next_pos = line.split('\t')[:8]
         if next_ref != "=":
-            print("Skip", line)
+            print("Skip")
+            # print(line)
             continue
 
         # If pair read in temp dict -> remote from temp, check and yield
         num_reads += 1
         next_ref = ref
-        next_id = (next_ref, next_pos)
+        next_id = (read_id, next_ref, next_pos)
         if next_id in reads:
             next_line = reads[next_id]
             # is left and right
             if ((int(next_line.split('\t')[1]) | int(flag)) & (64 + 128)) != 64 + 128:
                 print("Strange case", line, next_line)
                 continue
-            # main
+            # success
             del reads[next_id]
             num_pairs += 1
             yield line, next_line
         # if not find -> save in temp
         else:
-            reads[(ref, pos)] = line
+            reads[(read_id, ref, pos)] = line
 
     # summary
     print("Reads:", num_reads, "Pairs:", num_pairs)
@@ -105,7 +111,8 @@ def filterRead(line):
 
     # Concordantly mapped?
     if flag & 2 == 0:
-        print("Not concordantly mapped read")
+        # print("Not concordantly mapped read")
+        # print(line)
         return False
 
     # unmapped(not needed)
@@ -122,10 +129,11 @@ def filterRead(line):
 
     # filter
     if NH_filtering and NH > 1:
-        print("Read not unique aligned")
+        # print("Read not unique aligned")
         return False
     if NM > num_editdist:
-        print("Read > editdist")
+        # print(f"Read > editdist (NM = {NM})")
+        # print(line)
         return False
 
     # secondary
@@ -153,8 +161,6 @@ def readZsMd(cols):
             # MD:Z:43^G19^TGGAGATATGGGCCTGGGTG88
             md = re.findall(r'(\d+|.)', col[5:])
             md = map(lambda i: int(i) if i.isdigit() else i, md)
-            # remove 0
-            md = filter(None, md)
 
     return list(zs), list(md)
 
@@ -274,7 +280,11 @@ def record2Variant(line):
             # read the base
             # * md[md_i] is reference
             # * read_seq[pos] is alt
+
             read_base = read_seq[read_i + md_len]
+            # why cannot remove 0 before: Think about this case MD:Z:7A37A0G55T4^CA0T42
+            if md[md_i] == 0:  # remove 0
+                md_i += 1
             assert md[md_i] in "ACGT"
             assert md[md_i] != read_base
             md_i += 1
@@ -332,6 +342,8 @@ def record2Variant(line):
         # print("ZS", zs, zs_i, zs_pos)
         # print('MD', md, md_i, md_len)
         # print('cmp_list', cmp_list)
+        if md_i < len(md) and md[md_i] == 0:  # remove 0
+            md_i += 1
         if cigar_op == "M":
             cmp_list.extend(mdMatch())
         elif cigar_op == "I":
@@ -354,6 +366,8 @@ def record2Variant(line):
         if cigar_op in "MIS":
             read_i += cigar_length
 
+    if md_i < len(md) and md[md_i] == 0:  # remove 0
+        md_i += 1
     # double check
     assert zs_i == len(zs)
     assert md_i == len(md)
@@ -362,18 +376,60 @@ def record2Variant(line):
     return cmp_list, soft_clip
 
 
+def readLink(index):
+    """ Get related allele for the variant """
+    id_alleles = {}
+    for line in open(index + ".link"):
+        id, alleles = line.strip().split('\t')
+        id_alleles[id] = alleles.split()
+    return id_alleles
+
+
 def readVariants(index):
     """ Read hisat2 index.snp """
-    variants = {}
+    id_alleles = readLink(index)
+    variants = []
     for line in open(index + ".snp"):
         id, var_type, ref, pos, val = line.strip().split('\t')
         v = Variant(typ=var_type,
                     ref=ref,
                     pos=int(pos),
                     id=id,
+                    allele=id_alleles.get(id, []),
                     val=val if var_type != "deletion" else int(val))
-        variants[v] = v
+        variants.append(v)
     return variants
+
+
+def readLocus(index):
+    """ Read hisat2 xx.locus """
+    # locus = 1-base position
+    # variant = 0-base position
+    # KIR2DL1*BACKBONE        KIR2DL1*BACKBONE        0       14761   14761   269-303 1267-1303 2031-2313 3754-4054 5588-5882 9039-9090 13360-13462 13924-13977 14075-14252 +
+    gene_exons = {}
+    for line in open(index + ".locus"):
+        gene, _, _, _, _, exons, _ = line.split('\t')
+        exons = map(lambda i:  list(map(lambda j: int(j) - 1, i.split("-"))), exons.split(' '))
+        gene_exons[gene] = list(exons)
+    return gene_exons
+
+
+def isInExon(exons, variant):
+    """ Is the variant in exon """
+    # TODO: binary search, but naive method is not slow
+    for exon in exons:
+        if exon[0] <= variant.pos < exon[1]:
+            return True
+        if (variant.typ == "deletion" and \
+            variant.pos < exon[0] and variant.pos + variant.val >= exon[0]):
+            return True
+    return False
+
+
+def readAlleleLength(index):
+    return {
+        seq.id: len(seq.seq) for seq in SeqIO.parse(f"{index}_sequences.fa", "fasta")
+    }
 
 
 def findVariantId(variant):
@@ -419,15 +475,6 @@ def findAlts():
     # = typing_common.identify_ambigious_diffs(ref_seq,
 
 
-def readLink(index):
-    """ Get related allele for the variant """
-    assert variants
-    map_id_variant = {v.id: v for v in variants}
-    for line in open(index + ".link"):
-        id, alleles = line.strip().split('\t')
-        map_id_variant[id].allele = alleles.split()
-
-
 def getVariantsBoundary(variant_list):
     """
     Find the lower and upper bound of list of variant
@@ -443,7 +490,7 @@ def getVariantsBoundary(variant_list):
     )
 
 
-def getAlleleFromVariantList(variant_list):
+def getAlleleFromVariantList(variant_list, exon_only=False):
     """ Varinat -> list of allele """
     # Find all variant in the region
     left, right = getVariantsBoundary(variant_list)
@@ -454,12 +501,17 @@ def getAlleleFromVariantList(variant_list):
 
     # positive variation
     positive_var = set(v.id for v in variant_list)
-    positive_allele = [v.allele for v in variant_list]
+    if exon_only:
+        positive_allele = [v.allele for v in variant_list if v.in_exon]
+    else:
+        positive_allele = [v.allele for v in variant_list]
 
     # negative
     negative_allele = []
     for v in variants_sorted_list[left:right]:
         if v.id in positive_var:
+            continue
+        if exon_only and not v.in_exon:
             continue
         negative_allele.append(v.allele)
         # TODO: maybe some deletion is before left
@@ -498,16 +550,7 @@ def hisat2CountAllelePerPair(candidates):
     return max_allele
 
 
-def normalizeProb(prob):
-    """ normalize the allele's probility across all alleles """
-    # TODO normalize by allele length
-    total_prob = sum(prob.values())
-    for allele in prob:
-        prob[allele] /= total_prob
-    return prob
-
-
-def hisatEM(allele_per_read):
+def hisatEMnp(allele_per_read):
     """
     single_abundance in hisat-genotype
 
@@ -516,56 +559,57 @@ def hisatEM(allele_per_read):
     Also, this algorithm is used in Sailfish
     http://www.nature.com/nbt/journal/v32/n5/full/nbt.2862.html
     """
-    def getNextProb(prob_per_allele):
-        prob_next = defaultdict(float)
-        for alleles in allele_per_read:
-            prob_sum = sum(prob_per_allele[allele] for allele in alleles)
-            if prob_sum <= 0.0:
-                continue
-            for allele in alleles:
-                prob_next[allele] += prob_per_allele[allele] / prob_sum
-        return normalizeProb(prob_next)
-
     # init probility (all allele has even probility)
-    prob = defaultdict(float)
+    allele_name = sorted(set(allele for alleles in allele_per_read for allele in alleles))
+    allele_map = dict(zip(allele_name, range(len(allele_name))))
+    if norm_by_length:
+        allele_len = np.array([seq_len[i] for i in allele_name])
+    else:
+        allele_len = np.ones(len(allele_name))
+    allele_select_one = []
     for alleles in allele_per_read:
-        for allele in alleles:
-            prob[allele] += 1.0 / len(alleles)
-    prob = normalizeProb(prob)
+        x = np.zeros(len(allele_map))
+        for i in map(allele_map.get, alleles):
+            x[i] = 1
+        allele_select_one.append(x)
+    allele_select_one = np.array(allele_select_one)
+
+    def getNextProb(prob_per_allele):
+        a = prob_per_allele * allele_select_one
+        b = a.sum(axis=1)[:, None]
+        a = np.divide(a, b,
+                      out=np.zeros(a.shape),
+                      where=b!=0)
+        a /= allele_len
+        a = a.sum(axis=0)
+        return a / a.sum()
 
     # Run EM
+    prob = getNextProb(np.ones(len(allele_map)))
     for iters in range(0, iter_max):
         # SQUAREM
         prob_next = getNextProb(prob)
         prob_next2 = getNextProb(prob_next)
-        v, r = defaultdict(float), defaultdict(float)
-        for allele in prob:
-            r[allele] = prob_next[allele] - prob[allele]
-            v[allele] = prob_next2[allele] - prob_next[allele] - r[allele]
-        r_sum = sum(i ** 2 for i in r.values())
-        v_sum = sum(i ** 2 for i in v.values())
+        r = prob_next - prob
+        v = prob_next2 - prob_next - r
+        r_sum = (r ** 2).sum()
+        v_sum = (v ** 2).sum()
         if v_sum > 0.0:
-            g = -math.sqrt(r_sum / v_sum)
-            prob_next3 = defaultdict(float)
-            for allele in prob:
-                prob_next3[allele] = max(0.0,
-                                         prob[allele]
-                                         - r[allele] * g * 2
-                                         + v[allele] * g ** 2)
-                prob_next = getNextProb(prob_next3)
+            g = -np.sqrt(r_sum / v_sum)
+            prob_next3 = prob - r * g * 2 + v * g ** 2
+            prob_next3 = np.maximum(prob_next3, 0)
+            prob_next = getNextProb(prob_next3)
 
         # Recalculate diff between previous stage
-        diff = 0
-        for allele in prob.keys() | prob_next.keys():
-            diff += abs(prob[allele] - prob_next[allele])
+        diff = np.abs(prob - prob_next).sum()
         if diff <= diff_threshold:
             break
 
         # next
-        print(f"Iter: {iters} Diff: {diff}")
+        # print(f"Iter: {iters} Diff: {diff}")
         prob = prob_next
 
-    return prob
+    return dict(zip(allele_name, prob))
 
 
 def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
@@ -581,7 +625,7 @@ def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
     for i, (allele, c) in enumerate(count[:first_n]):
         print(f"{i+1} {allele} (count: {c})", file=file)
 
-    allele_prob = hisatEM(allele_counts)
+    allele_prob = hisatEMnp(allele_counts)
     allele_prob = sorted(allele_prob.items(), key=lambda i: i[1], reverse=True)
 
     for i, (allele, prob) in enumerate(allele_prob[:first_n]):
@@ -590,65 +634,107 @@ def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
     return count, allele_prob
 
 
-def recordToAllele(record):
-    variant_list, soft_clip = record2Variant(left_record)
+def recordToVariants(record):
+    variant_list, soft_clip = record2Variant(record)
     variant_list = map(findVariantId, variant_list)
-    variant_list = extandMatch(variant_list)
-    return getAlleleFromVariantList(variant_list)
+    variant_list = extandMatch(variant_list)  # remove novel -> extend
+    return variant_list
+
+
+def writeBam(records, filename, filename_out):
+    proc = subprocess.Popen(["samtools", "view", "-H", filename],
+                            universal_newlines=True,
+                            stdout=subprocess.PIPE,
+                            stderr=open("/dev/null", 'w'))
+    with open(filename_out, "w") as f:
+        f.writelines(proc.stdout)
+        f.writelines(records)
 
 
 # index
-variants = readVariants("index/kir_2100_raw.mut01")
-readLink("index/kir_2100_raw.mut01")
-variants_sorted_list = sorted([i for i in variants])
+def setIndex(index):
+    global variants, variants_sorted_list, seq_len
+    exon_region = readLocus(index)
+    variants = readVariants(index)
+    for v in variants:
+        v.in_exon = isInExon(exon_region[v.ref], v)
+    variants = {v: v for v in variants}
+    variants_sorted_list = sorted([i for i in variants])
+    seq_len = readAlleleLength(index)
 
-# out = readBam("data/linnil1_syn_wide.00.kir_2100_raw.mut01.nosingle.bam")
-name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.nosingle.bam"
-name_out = os.path.splitext(name)[1] + ".hisat2"
-pair_reads = readPair(name)
-save_alleles = defaultdict(list)
-tot_pair = 0
-hisat_gene_alleles = defaultdict(list)
-for left_record, right_record in filter(filterPair, pair_reads):
-    tot_pair += 1
-    # if tot_pair > 10000:
-    #     break
 
-    # group read by gene name
-    backbone = left_record.split("\t")[2]
+def main(bam_file):
+    new_suffix = ".hisatgenotype"
+    # if exon_only: new_suffix += ".exon"
+    name_out = os.path.splitext(bam_file)[0] + new_suffix
 
-    # left right positive and negative
-    lp, ln = recordToAllele(left_record)
-    rp, rn = recordToAllele(right_record)
+    # read bam file
+    pair_reads = readPair(bam_file)
+    pair_reads = filter(filterPair, pair_reads)
 
-    # our method
-    save_alleles[backbone].append({
-        'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
-        'left_sam': left_record,
-        'right_sam': right_record,
-    })
+    save_reads = defaultdict(list)
+    hisat_gene_alleles = defaultdict(list)
+    tot_pair = 0
+    for left_record, right_record in pair_reads:
+        tot_pair += 1
+        # if tot_pair > 100:
+        #     break
+
+        # group read by gene name
+        backbone = left_record.split("\t")[2]
+
+        lv = recordToVariants(left_record)
+        rv = recordToVariants(right_record)
+
+        # (left, right) x (positive, negative)
+        lp, ln = getAlleleFromVariantList(lv)
+        rp, rn = getAlleleFromVariantList(rv)
+
+        # save the allele information for the read
+        save_reads[backbone].append({
+            'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
+            'l_sam': left_record,
+            'r_sam': right_record,
+        })
+
+        # hisat2 method
+        hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
+            hisat2getCandidateAllele(lp, ln) +
+            hisat2getCandidateAllele(rp, rn)
+        ))
+
+        # TODO:
+        # * error correction
+        # * typing_common.identify_ambigious_diffs(ref_seq,
+        # print(i, j)
+
+    print("Filterd pairs", tot_pair)
+
+    print(f"Save allele per reads in {name_out}.json")
+    json.dump(dict(save_reads.items()), open(f"{name_out}.json", "w"))
+
+    print(f"Save filtered bam in {name_out}.sam")
+    records = []
+    for reads in save_reads.values():
+        for i in reads:
+            records.append(i['l_sam'])
+            records.append(i['r_sam'])
+    writeBam(records, bam_file, name_out + ".sam")
 
     # hisat2 method
-    hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
-        hisat2getCandidateAllele(lp, ln) +
-        hisat2getCandidateAllele(rp, rn)
-    ))
-    # if tot_pair > 100:
-    #     break
-    # TODO:
-    # * error correction
-    # * typing_common.identify_ambigious_diffs(ref_seq,
-    # * exon prob
-    # * exon cmp
-    # print(i, j)
+    hisat_result = []
+    # hisat_report_f = open(f"{name_out}.report", "w")
+    hisat_report_f = sys.stdout
+    for backbone, hisat_alleles in sorted(hisat_gene_alleles.items(), key=lambda i: i[0]):
+        print(backbone)
+        hisat_result.append(hisat2StatAlleleCount(hisat_alleles, file=hisat_report_f))
 
-print("Filterd pairs", tot_pair)
-json.dump(dict(save_alleles.items()), open(f"{name_out}.json", "w"))
+    print(f"Save hisat-genotype calling in {name_out}.report*")
+    json.dump(hisat_result, open(f"{name_out}.report.json", "w"))
 
-# hisat2 method
-hisat_result = []
-hisat_report_f = open(f"{name_out}.report", "w")
-for backbone, hisat_alleles in sorted(hisat_gene_alleles.items(), key=lambda i: i[0]):
-    print(backbone)
-    hisat_result.append(hisat2StatAlleleCount(hisat_alleles, file=hisat_report_f))
-json.dump(hisat_result, open(f"{name_out}.report.json", "w"))
+
+if __name__ == "__main__":
+    setIndex("index/kir_2100_raw.mut01")
+    # name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.nosingle.bam"
+    name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.bam"
+    main(name)
