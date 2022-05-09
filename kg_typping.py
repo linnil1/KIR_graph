@@ -7,13 +7,13 @@ import json
 import bisect
 import subprocess
 from typing import Union, ClassVar
-from collections import defaultdict
+from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 import numpy as np
 from Bio import SeqIO
 
 # sam
-num_editdist = 5
+num_editdist = 4
 # sam
 NH_filtering = False
 # em
@@ -79,7 +79,7 @@ def readPair(alignment_fname):
         # preocess
         read_id, flag, ref, pos, _, _, next_ref, next_pos = line.split('\t')[:8]
         if next_ref != "=":
-            print("Skip")
+            # print("Skip")
             # print(line)
             continue
 
@@ -494,10 +494,19 @@ def getAlleleFromVariantList(variant_list, exon_only=False):
     """ Varinat -> list of allele """
     # Find all variant in the region
     left, right = getVariantsBoundary(variant_list)
+    pos_right = variant_list[-1].pos + variant_list[-1].length
     assert left <= right
 
-    # remove novel or match
+    # TODO: linnil1
+    # insert or novel deletion = mapping error
+    if any(v.typ == "insertion" for v in variant_list):
+        return [], []
+    if any(v.typ == "deletion" and v.id.startswith("nv") for v in variant_list):
+        return [], []
+    # remove novel
     variant_list = [v for v in variant_list if v.id and not v.id.startswith("nv")]
+    # remove match
+    variant_list = [v for v in variant_list if v.typ != "match"]
 
     # positive variation
     positive_var = set(v.id for v in variant_list)
@@ -505,6 +514,7 @@ def getAlleleFromVariantList(variant_list, exon_only=False):
         positive_allele = [v.allele for v in variant_list if v.in_exon]
     else:
         positive_allele = [v.allele for v in variant_list]
+    # print('positive', variant_list)
 
     # negative
     negative_allele = []
@@ -513,6 +523,11 @@ def getAlleleFromVariantList(variant_list, exon_only=False):
             continue
         if exon_only and not v.in_exon:
             continue
+        # Deletion should not over the right end of read
+        # Because some deletion is ambiguous until last one
+        if v.typ == "deletion" and v.pos + v.val >= pos_right:
+            continue
+        # print('negative', v)
         negative_allele.append(v.allele)
         # TODO: maybe some deletion is before left
         # they use gene_var_maxrights to deal with
@@ -631,11 +646,15 @@ def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
     for i, (allele, prob) in enumerate(allele_prob[:first_n]):
         print(f"{i+1} ranked {allele} (abundance: {prob:.2f})", file=file)
 
-    return count, allele_prob
+    return {
+        'count': count,
+        'prob': allele_prob,
+    }
 
 
-def recordToVariants(record):
+def recordToVariants(record, pileup):
     variant_list, soft_clip = record2Variant(record)
+    variant_list = flatten(map(lambda i: pileupModify(pileup, i), variant_list))
     variant_list = map(findVariantId, variant_list)
     variant_list = extandMatch(variant_list)  # remove novel -> extend
     return variant_list
@@ -663,9 +682,116 @@ def setIndex(index):
     seq_len = readAlleleLength(index)
 
 
+def readPileupBase(bases: str):
+    """ Read mpileup fields[4] """
+    # chrM    1       N       10      ^]G^]G^KG^OG^]G^]G^TG^(G^KG^VG  DDDShDDDDD
+    # chr1    17344300        N       2       A$^]A   <=
+    # strange case: ??
+    # chr1    17351906        N       1       *       E
+    i = 0
+    while i < len(bases):
+        if bases[i] == "$":  # end of seq
+            i += 1
+            continue
+        if bases[i] == "*":  # deletion
+            yield bases[i]
+            i += 1
+            continue
+        if bases[i] in "+-":  # insertion
+            a = re.findall(r"(\d+)", bases[i + 1:])
+            assert a
+            i += 1 + len(a[0]) + int(a[0])
+            continue
+        if bases[i] == "^":  # mapping quality
+            i += 2
+            continue
+        yield bases[i]
+        i += 1
+
+
+def readPileup(bam_file):
+    alignview_cmd = ["samtools", "mpileup", "-a", bam_file]
+    proc = subprocess.Popen(" ".join(alignview_cmd),
+                            shell=True,
+                            universal_newlines=True,
+                            stdout=subprocess.PIPE,
+                            stderr=open("/dev/null", 'w'))
+    for line in proc.stdout:
+        fields = line.split('\t')
+        bases = list(readPileupBase(fields[4]))
+        if bases == "*":
+            assert int(fields[3]) == 0
+        elif ("*" not in bases):
+            assert int(fields[3]) == len(bases)
+            yield fields[0], int(fields[1]) - 1, ''.join(bases)
+
+
+def getPileupDict(bam_file):
+    """ Return {(ref, pos): {"A": 0.2, "C": 0.8, "all": 30}} """
+    d = {}
+    for ref, pos, bases in readPileup(bam_file):
+        count = Counter(bases.upper())
+        s = sum(count.values())
+        d[(ref, pos)] = {k: v / s for k, v in count.items()}
+        d[(ref, pos)]['all'] = s
+        # hisat2 error correction
+        # if num_nt >= 20 and (count >= num_nt * 0.2 or count >= 7):
+    return d
+
+
+def flatten(its):
+    for it in its:
+        yield from it
+
+
+def pileupModify(pileup, variant):
+    if variant.typ == "single":
+        p = pileup.get((variant.ref, variant.pos))
+        if not p:
+            # print("error pileup", variant)
+            yield variant
+            return
+
+        # error correction critria
+        if p['all'] > 20:
+            if p.get(variant.val, 0) > 0.2:
+                # print("reserve", variant, p)
+                yield variant
+                return
+
+            # case: AAAAAAAATAAAA where REF = G
+            if any(i[1] >= 0.8 for i in p.items() if i[0] != "all"):
+                variant.val = max([i for i in p.items() if i[0] != "all"], key=lambda i: i[1])[0]
+                yield variant
+                return
+
+            # if variant.id.startswith("hv"):
+            #     print("to_match", variant, p)
+            variant.typ = "match"
+            yield variant
+
+        # else -> insufficient info
+        yield variant
+        return
+
+    # TODO: split the match when some base in match is sequencing error
+    yield variant
+    return
+
+
 def main(bam_file):
     new_suffix = ".hisatgenotype"
     # if exon_only: new_suffix += ".exon"
+    error_correction = True
+    if error_correction:
+        # pileup
+        new_suffix += ".errcorr"
+        print("Reading pileup")
+        pileup = getPileupDict(bam_file)
+        print("Reading pileup Done")
+    else:
+        pileup = {}
+
     name_out = os.path.splitext(bam_file)[0] + new_suffix
 
     # read bam file
@@ -683,12 +809,16 @@ def main(bam_file):
         # group read by gene name
         backbone = left_record.split("\t")[2]
 
-        lv = recordToVariants(left_record)
-        rv = recordToVariants(right_record)
+        # if "KIR3DL3*0090101-1-2942" not in left_record:
+        #     continue
+
+        lv = recordToVariants(left_record, pileup)
+        rv = recordToVariants(right_record, pileup)
 
         # (left, right) x (positive, negative)
         lp, ln = getAlleleFromVariantList(lv)
         rp, rn = getAlleleFromVariantList(rv)
+        # exit()
 
         # save the allele information for the read
         save_reads[backbone].append({
@@ -704,7 +834,6 @@ def main(bam_file):
         ))
 
         # TODO:
-        # * error correction
         # * typing_common.identify_ambigious_diffs(ref_seq,
         # print(i, j)
 
@@ -722,12 +851,12 @@ def main(bam_file):
     writeBam(records, bam_file, name_out + ".sam")
 
     # hisat2 method
-    hisat_result = []
+    hisat_result = {}
     # hisat_report_f = open(f"{name_out}.report", "w")
     hisat_report_f = sys.stdout
     for backbone, hisat_alleles in sorted(hisat_gene_alleles.items(), key=lambda i: i[0]):
         print(backbone)
-        hisat_result.append(hisat2StatAlleleCount(hisat_alleles, file=hisat_report_f))
+        hisat_result[backbone] = hisat2StatAlleleCount(hisat_alleles, file=hisat_report_f)
 
     print(f"Save hisat-genotype calling in {name_out}.report*")
     json.dump(hisat_result, open(f"{name_out}.report.json", "w"))

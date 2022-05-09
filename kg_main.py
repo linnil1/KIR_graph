@@ -308,7 +308,7 @@ index += ".mut01"
 index_name = index.split("/")[-1]
 suffix += "." + index_name + suffix
 # hisatMap()
-hisatTyping()
+# hisatTyping()
 
 index = "index/kir_2100_merge"
 suffix = ""
