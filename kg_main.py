@@ -1,3 +1,4 @@
+import re
 import os
 import uuid
 import subprocess
@@ -32,15 +33,8 @@ def run(cmd):
     os.system(cmd)
 
 
-def kir_to_multi_msa(split_2DL5=False):
-    global index
-    kir = KIRmsa(filetype=["gen"], version="2100")
-
-    if split_2DL5:
-        kir.genes['KIR2DL5A'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5A.*")
-        kir.genes['KIR2DL5B'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5B.*")
-
-    for gene_name, kir_msa_align in kir.genes.items():
+def save_gene_msa(genes):
+    for gene_name, kir_msa_align in genes.items():
         kir_msa_align = kir_msa_align.shrink()
         kir_msa_align.append(f"{gene_name}*BACKBONE",
                              kir_msa_align.get_consensus(include_gap=False))
@@ -50,25 +44,39 @@ def kir_to_multi_msa(split_2DL5=False):
         kir_msa_align.save_msa(f"{index}.{gene_name}.save.fa", f"{index}.{gene_name}.save.json")
 
 
+def kir_to_multi_msa(split_2DL5=False):
+    global index
+    kir = KIRmsa(filetype=["gen"], version="2100")
+
+    if split_2DL5:
+        kir.genes['KIR2DL5A'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5A.*")
+        kir.genes['KIR2DL5B'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5B.*")
+        del kir.genes['KIR2DL5']
+
+    save_gene_msa(kir.genes)
+
+
+
 def kir_to_single_msa(method="clustalo"):
     global index, suffix
     # Step1: break
-    # kir_to_single_msa_break_block()
+    kir_to_single_msa_break_block()
     suffix += ".tmp"
 
     # Step2: Build msa
-    # kir_to_single_msa_realign(method=method)
+    kir_to_single_msa_realign(method=method)
 
     # Step3:
     msa = kir_to_single_msa_merge_block(ends_with=f"{method}.fa")
 
+    # double check
+    kir = KIRmsa(filetype=["gen"], version="2100")
+    for msa_old in kir.genes.values():
+        for name, seq in msa_old.alleles.items():
+            assert seq.replace("-", "") == newmsa.get(name).replace("-", "")
+
     # save the msa
-    msa = msa.shrink().reset_index()
-    msa.append(f"KIR*BACKBONE", msa.get_consensus(include_gap=False))
-    msa.set_reference(f"KIR*BACKBONE")
-    msa.save_bam(f"{index}.KIR.save.bam")
-    msa.save_gff(f"{index}.KIR.save.gff")
-    msa.save_msa(f"{index}.KIR.save.fa", f"{index}.KIR.save.json")
+    save_gene_msa({'KIR': msa})
 
 
 def kir_to_single_msa_break_block():
@@ -102,7 +110,8 @@ def kir_to_single_msa_break_block():
 def kir_to_single_msa_realign(method):
     global index, suffix
 
-    blocks = glob(f"{index}{suffix}.*.fa")
+    # blocks = glob(f"{index}{suffix}.*.fa")
+    blocks = [f"{index}{suffix}.{i}.fa" for i in kir_block_name]
     with ProcessPoolExecutor(max_workers=thread) as executor:
         for name in blocks:
             name = os.path.splitext(name)[0]
@@ -112,6 +121,48 @@ def kir_to_single_msa_realign(method):
                 executor.submit(muscle, name)
             else:
                 raise NotImplementedError
+
+
+def kir_merge_2dl1s1():
+    global index, suffix
+    kir = KIRmsa(filetype=["gen"], version="2100")
+    kir2dls1 = ["KIR2DS1", "KIR2DL1"]
+
+    # Step1: Extract 2DL1 2DS1
+    block_seq = {block_name: [] for block_name in kir_block_name}
+    for gene_name, msa in kir.genes.items():
+        if gene_name not in kir2dls1:
+            continue
+        for i in range(len(msa.blocks)):
+            block_name = msa.blocks[i].name
+            block_seq[block_name].extend(msa.select_block([i]).to_fasta(gap=False))
+
+    for block_name, seqs in block_seq.items():
+        SeqIO.write(filter(lambda i: len(i.seq), seqs),
+                    open(f"{index}.tmp.{block_name}.fa", "w"),
+                    "fasta")
+
+    # Step2: Build msa
+    suffix += ".tmp"
+    msa_method = "muscle"
+    kir_to_single_msa_realign(method=msa_method)
+    suffix += ".tmp"
+    msa_method = "muscle"
+
+    # Step3: merge it
+    msa = kir_to_single_msa_merge_block(ends_with=f"{msa_method}.fa")
+    # double check
+    for gene_name in kir2dls1:
+        msa_old = kir.genes[gene_name]
+        for name, seq in msa_old.alleles.items():
+            assert seq.replace("-", "") == msa.get(name).replace("-", "")
+        del kir.genes[gene_name]
+
+    kir.genes["KIR2DL1S1"] = msa
+    print(msa)
+
+    # Step4: save to msa
+    save_gene_msa(kir.genes)
 
 
 def clustalo(name):
@@ -129,15 +180,17 @@ def kir_to_single_msa_merge_block(ends_with):
     global index, suffix
 
     # Read all blocks
-    blocks = glob(f"{index}{suffix}.*{ends_with}")
+    # blocks = glob(f"{index}{suffix}.*{ends_with}")
+    # blocks = [f"{index}{suffix}.{i}.{ends_with}" for i in kir_block_name]
     block_msa = {}
     allele_names = set()
-    for name in blocks:
-        block_name = name[len(index) + len(suffix) + 1: -len(ends_with) - 1]
+    for block_name in kir_block_name:
+        filename = f"{index}{suffix}.{block_name}.{ends_with}"
+        # block_name = name[len(index) + len(suffix) + 1: -len(ends_with) - 1]
         block_msa[block_name] = Genemsa.from_MultipleSeqAlignment(
-                AlignIO.read(name, "fasta"))
+                AlignIO.read(filename, "fasta"))
         allele_names.update(set(block_msa[block_name].get_sequence_names()))
-    assert set(kir_block_name) == set(block_msa.keys())
+    # assert set(kir_block_name) == set(block_msa.keys())
 
     # add gap if the allele sequence in the block is empty
     for msa in block_msa.values():
@@ -152,12 +205,6 @@ def kir_to_single_msa_merge_block(ends_with):
         msa = block_msa[block_name]
         newmsa += msa
     newmsa = newmsa.assume_label("gen")
-
-    # double check
-    kir = KIRmsa(filetype=["gen"], version="2100")
-    for msa in kir.genes.values():
-        for name, seq in msa.alleles.items():
-            assert seq.replace("-", "") == newmsa.get(name).replace("-", "")
     return newmsa
 
 
@@ -273,6 +320,42 @@ def addGroupName(bamfile):
     print("Save to", outputfile)
 
 
+def extractTargetReadFromBam(bamfile, ref, target_gene):
+    remove_mult_align = False
+    outputfile = os.path.splitext(bamfile)[0] + f".{ref.split('*')[0]}.{target_gene}"
+    if remove_mult_align:
+        outputfile += ".noNH"
+    outputfile += ".bam"
+
+    # read
+    proc1 = subprocess.run(["samtools", "view", "-h", bamfile], stdout=subprocess.PIPE)
+    proc1.check_returncode()
+    data = []
+    for i in proc1.stdout.decode().split("\n"):
+        if not i:
+            continue
+        if i.startswith("@"):
+            data.append(i)
+        elif target_gene in i.split('*')[0]:
+            if not remove_mult_align:
+                data.append(i)
+                continue
+
+            if "NH:" in i and int(re.findall(r"NH:i:(\d+)", i)[0]) == 1:
+                data.append(i)
+
+    proc2 = subprocess.run(["samtools", "sort", "-", "-o", outputfile],
+                           input="\n".join(data).encode())
+    proc2.check_returncode()
+    proc3 = subprocess.run(["samtools", "index", outputfile])
+    proc3.check_returncode()
+    print("Save to", outputfile)
+
+
+# extractTargetReadFromBam("data/linnil1_syn_wide.00.kir_2100_2dl1s1.mut01.bam", "KIR2DL1S1*BACKBONE", "KIR2DL2")
+# exit()
+
+
 samples = [f"data/linnil1_syn_wide.{i:02d}" for i in range(100)]
 samples = samples[0:10]
 
@@ -287,6 +370,19 @@ index += ".mut01"
 index_name = index.split("/")[-1]
 suffix += "." + index_name + suffix
 # hisatTyping()
+
+
+# Merge 2DL1 2DS1
+index = "index/kir_2100_2dl1s1"
+suffix = ""
+# kir_merge_2dl1s1()
+suffix = ""
+# kg_build_index.main(index)
+index += ".mut01"
+# hisatMap()
+suffix += "." + index.split("/")[-1] + suffix
+# hisatTyping()
+
 
 
 index = "index/kir_2100_raw_full"

@@ -1,7 +1,7 @@
 import re
 import json
 from pprint import pprint
-from collections import defaultdict
+from collections import defaultdict, Counter
 from scipy.stats import norm
 import numpy as np
 import pandas as pd
@@ -59,8 +59,9 @@ def getReadProb(allele_name_map, read_alleles):
     Input size: variants_in_reads x alleles_num
     Return size: 1 x alleles_num
     """
-    # if getNH(read_alleles['l_sam']) != 1:
-    #     return np.ones(len(allele_name_map))
+    if getNH(read_alleles['l_sam']) != 1:
+        return None
+
     def variant2prob(variant_alleles, pos=True):
         return onehot2Prob(variant2onehot(allele_name_map, variant_alleles), pos=pos)
     prob = [
@@ -70,22 +71,48 @@ def getReadProb(allele_name_map, read_alleles):
         *[variant2prob(variant_alleles, False) for variant_alleles in read_alleles['rn']],
     ]
     if not prob:  # strnage case?
-        return np.ones(len(allele_name_map))
+        return None
     prob = np.stack(prob).prod(axis=0)
 
-    """
-    p_allele = set(flatten(flatten([read_alleles['lp'], read_alleles['rp']])))
-    n_allele = set(flatten(flatten([read_alleles['ln'], read_alleles['rn']])))
-    test_alleles = ["KIR3DL3*0030104", "KIR3DL3*0090101", "KIR3DL3*0030104", "KIR3DL3*00801"]
-    test_id = np.array(list(allele_name_map[i] for i in test_alleles))
-    # if test_alleles[1] in n_allele or test_alleles[2] in n_allele:
-    if prob[test_id[:2]].max() != prob[test_id[2:]].max():
-        print(prob[test_id], "\n",
-             'pos', [allele for allele in p_allele if allele in test_alleles], "\n",
-             'neg', [allele for allele in n_allele if allele in test_alleles],
-        )
-        print(read_alleles)
-    """
+    # too ambiguous
+    # if not any(prob >= 1e-6):
+    #     return None
+
+    if test_alleles:
+        p_allele = set(flatten(flatten([read_alleles['lp'], read_alleles['rp']])))
+        n_allele = set(flatten(flatten([read_alleles['ln'], read_alleles['rn']])))
+        test_id = np.array(list(allele_name_map[i] for i in test_alleles))
+        read_id = read_alleles["l_sam"].split("\t")[0]
+        """
+        # print allele but called negative
+        if "2DL1" not in read_id and "2DS1" not in read_id:
+            return prob
+            # return None
+        read_allele = read_id.split('-')[0]
+        if prob[allele_name_map[read_allele]] <= 1e-3:
+            ok = True
+            for alleles, v in zip(read_alleles['ln'], read_alleles['lnv']):
+                if read_allele in alleles:
+                    print(alleles, v)
+                    ok = False
+            if not ok:
+                print("left", read_alleles['l_sam'])
+            ok = True
+            for alleles, v in zip(read_alleles['rn'], read_alleles['rnv']):
+                if read_allele in alleles:
+                    print(alleles, v)
+                    ok = False
+            if not ok:
+                print("right", read_alleles['r_sam'])
+        """
+        # print the loss compare to other
+        if prob[test_id[:len(test_alleles)//2]].max() != prob[test_id[len(test_alleles)//2:]].max():
+        # if prob[test_id[:len(test_alleles)//2]].max() < 1e-3:
+            print(prob[test_id], "\n",
+                 'pos', [allele for allele in p_allele if allele in test_alleles], "\n",
+                 'neg', [allele for allele in n_allele if allele in test_alleles],
+                 read_alleles,
+            )
     return prob
 
 
@@ -103,12 +130,16 @@ def printProb(data):
     for idx, candidate in enumerate(zip(data['allele_id'],
                                         data['allele_name'],
                                         data['fraction'],
+                                        data['fraction_norm'],
+                                        data['unique_count'],
                                         data['value'])):
-        if idx >= 10:
+        if idx >= 30:
             break
         print(idx, candidate[-1])
-        for allele_id, allele_name, frac in zip(*candidate[:-1]):
-            print(f"  id {allele_id:3} name {allele_name:20s} fraction {frac}")
+        for allele_id, allele_name, frac, frac_norm, unique_count in zip(*candidate[:-1]):
+            print(f"  id {allele_id:3} name {allele_name:20s}"
+                  f" fraction {frac:.5f} "
+                  f" unique_count {unique_count}")
 
 
 def calcProb(allele_names, reads_alleles, iter_max=5):
@@ -135,16 +166,19 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
             unique_indexs.append(ind)
         return np.array(unique_allele), np.array(unique_indexs)
 
+    allele_length_map = readAlleleLength(index)
     # name -> id
     allele_name_map = dict(zip(allele_names, range(len(allele_names))))
     allele_name_map_rev = {b: a for a, b in allele_name_map.items()}
+    allele_length = np.array([allele_length_map[allele_name_map_rev[i]] for i in range(len(allele_names))])
+    allele_length = allele_length / 10000.
 
     # prob per read
     probs = []
     for read_alleles in reads_alleles:
         prob = getReadProb(allele_name_map, read_alleles)
-        assert prob is not None
-        probs.append(prob)
+        if prob is not None:
+            probs.append(prob)
 
     # reads x alleles
     probs = np.stack(probs)
@@ -153,13 +187,22 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
     log_probs = np.log10(probs)
     # log_probs = np.log10(norm_probs)
 
+    # debug
+    if test_alleles:
+        test_id = np.array(list(allele_name_map[i] for i in test_alleles))
+        print(log_probs[:, test_id[:len(test_alleles)//2]].max(axis=1).sum())
+        print(log_probs[:, test_id[len(test_alleles)//2:]].max(axis=1).sum())
+
     # init
     prob_save = []
     top_n = 100    # reduce computation
     prob_iter_max = iter_max
 
     # find the maximum probility of allele across all reads
-    prob_1 = log_probs.sum(axis=0)
+    # prob_1 = log_probs.sum(axis=0)
+    # remove_n = int(len(log_probs) * 0.01)
+    remove_n = 10
+    prob_1 = np.sort(log_probs, axis=0)[remove_n:].sum(axis=0)
     prob_1_index = np.array(list(reversed(np.argsort(prob_1)[-top_n:])))
     # additional value
     prob_1_top = log_probs[:, prob_1_index]
@@ -173,6 +216,8 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
         'allele_name': [list(map(allele_name_map_rev.get, i)) for i in prob_1_top_allele],  # top_n x n
         'best_prob': prob_1_top,                                                            # top_n x n
         'fraction': np.ones(prob_1_top_allele.shape),                                       # top_n x n
+        'fraction_norm': np.ones(prob_1_top_allele.shape) / allele_length[prob_1_top_allele],  # top_n x n
+        'unique_count': np.ones(prob_1_top_allele.shape),                                   # top_n x n
     })
 
     for prob_iter in range(2, 1 + prob_iter_max):
@@ -182,13 +227,15 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
 
         # Find the maximum in
         # (top-n x (allele-1 ... allele-n-1)) x (allele_1 ... allele_m)
-        prob_2 = np.maximum(log_probs, prob_1_top.T[:, :, None]).sum(axis=1).flatten()
+        prob_2 = np.maximum(log_probs, prob_1_top.T[:, :, None])
+        prob_2 = prob_2.sum(axis=1).flatten()
+        # prob_2 = np.sort(prob_2, axis=1)[:, remove_n:].sum(axis=1).flatten()
         # Find the mean
         # import pdb
         # pdb.set_trace()
         # prob_2 = (log_probs + prob_1_top.T[:, :, None] * (prob_iter - 1)).sum(axis=1).flatten() / prob_iter
         prob_2_allele = np.hstack([
-            # [1,3,5] -> [1,1,3,3,5,5]
+            # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
             np.repeat(prob_1_top_allele, log_probs.shape[1], axis=0),
             # [1,3,5] -> [1,3,5,1,3,5]
             np.tile(np.arange(log_probs.shape[1]), len(prob_1_top_allele))[:, None],
@@ -199,17 +246,29 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
         prob_2_top_allele, prob_2_index = uniqueAllele(prob_2_allele, prob_2_index)
         prob_2_top = log_probs[:, prob_2_top_allele].max(axis=2)
         prob_2_value = prob_2[prob_2_index]
-        prob_2_belong = np.equal(log_probs[:, prob_2_top_allele], prob_2_top[:, :, None])
+        prob_2_belong = np.equal(log_probs[:, prob_2_top_allele], prob_2_top[:, :, None])  # reads x top-n x allele_num(0/1)
+
+        # linnil1: Count of uniquely assigned
+        prob_2_unique_mapped = prob_2_belong.sum(axis=2) == 1
+        prob_2_unique_count = prob_2_belong.copy()
+        prob_2_unique_count[np.logical_not(prob_2_unique_mapped)] = 0
+        prob_2_unique_count = prob_2_unique_count.sum(axis=0)
+
         prob_2_fraction = (prob_2_belong / prob_2_belong.sum(axis=2)[:, :, None]).sum(axis=0)
         prob_2_fraction = prob_2_fraction / prob_2_fraction.sum(axis=1, keepdims=True)
+        prob_2_fraction_norm = prob_2_fraction / allele_length[prob_2_top_allele]
+        # disable
+        # prob_2_fraction_nrom = prob_2_fraction
 
         # sort by loss + fraction (evenly -> better)
-        value_fraction = np.vstack([-prob_2_value, np.abs(prob_2_fraction - prob_2_fraction.mean(axis=1, keepdims=True)).sum(axis=1)]).T.tolist()
+        value_fraction = np.vstack([-prob_2_value, np.abs(prob_2_fraction_norm - prob_2_fraction_norm.mean(axis=1, keepdims=True)).sum(axis=1)]).T.tolist()
         rank_value_fraction = sorted(range(len(value_fraction)), key=lambda i: value_fraction[i])
         prob_2_top = prob_2_top[:, rank_value_fraction]
         prob_2_top_allele = prob_2_top_allele[rank_value_fraction]
         prob_2_value = prob_2_value[rank_value_fraction]
         prob_2_fraction = prob_2_fraction[rank_value_fraction]
+        prob_2_fraction_norm = prob_2_fraction_norm[rank_value_fraction]
+        prob_2_unique_count = prob_2_unique_count[rank_value_fraction]
 
         prob_save.append({
             'n': prob_iter,
@@ -218,14 +277,31 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
             'best_prob': prob_2_top,
             'value': prob_2_value,
             'fraction': prob_2_fraction,
+            'fraction_norm': prob_2_fraction_norm,
+            'unique_count': prob_2_unique_count,
         })
 
-        """
-        test_alleles = ["KIR2DS1*0020103", "KIR2DS1*0020115", "KIR2DS1*0020104", "KIR2DS1*0020109"]
-        test_id = np.array(list(allele_name_map[i] for i in test_alleles))
-        print(log_probs[:, test_id[:2]].max(axis=1).sum())
-        print(log_probs[:, test_id[2:]].max(axis=1).sum())
-        """
+
+    """
+    # plot prob
+    for gene, reads_alleles in data.items():
+        for prob in prob_save:
+            print(prob['n'])
+            printProb(prob)
+        figs.extend([
+            px.imshow(np.log(probs), text_auto=True, aspect="auto", title=gene),
+            px.imshow(norm_probs ** 0.1, text_auto=True, aspect="auto"),
+            # px.imshow(np.log(norm_probs), text_auto=True, aspect="auto"),
+        ])
+        figs.extend([dashbio.Clustergram(
+            data=probs,
+            column_labels=allele_names,
+            hidden_labels='row',
+            width=2000,
+            height=1000,
+            cluster="row",
+        )])
+    """
     return prob_save
 
 
@@ -243,7 +319,10 @@ def avgGeneLength(seq_len):
     for k, v in seq_len.items():
         gene_length[getGeneName(k)].append(v)
     gene_length = {k: np.mean(v) for k, v in gene_length.items()}
+    # merge 2DL5A 2DL5B
     gene_length["KIR2DL5"] = (gene_length["KIR2DL5A"] + gene_length["KIR2DL5B"]) * 0.5
+    # merge 2DL1 2DS1
+    gene_length["KIR2DL1S1"] = (gene_length["KIR2DL1"] + gene_length["KIR2DS1"]) * 0.5
     return gene_length
 
 
@@ -259,7 +338,7 @@ def getNH(sam_info):
     """ Extract NH from record. Note: It return 1 / NH """
     NH_re = re.findall(r"NH:i:(\d+)", sam_info)
     if NH_re:
-        return 1 / int(NH_re[0])
+        return int(NH_re[0])
     else:
         return 1
 
@@ -278,7 +357,7 @@ def plotAlignConfusion(data, level="gene", weighted=True):
             elif level == "allele":
                 id = (getAlleleName(record), getGeneName(gene))
             if weighted:
-                gene_from_to_count[id] += getNH(record)
+                gene_from_to_count[id] += 1 / getNH(record)
             else:
                 gene_from_to_count[id] += 1
 
@@ -387,35 +466,51 @@ def getCNDist(base, base_dev=0.02):
     Return ( CN x norm_read_count(500bin) ) array
     indicate the probility of read_count belong to the CN
     """
-    x = np.linspace(0, 1.5, 500)
-    space = 1.5 / 500
+    x = np.linspace(0, 1., 500)
+    space = 1. / 500
     cn = np.arange(1, 10)
-    y0 = norm.pdf(x, loc=base*0.1, scale=base_dev*5)
-    y = np.stack([y0, *[norm.pdf(x, loc=base*(n+0.2), scale=base_dev*n) for n in cn]])
-    return y * space
+    # y0 = norm.pdf(x, loc=base*0.1, scale=base_dev*5)
+    y0 = norm.pdf(x, loc=0, scale=base_dev*1.5)
+    y = np.stack([y0, *[norm.pdf(x, loc=base*(n), scale=base_dev*n) for n in cn]])
+    return x, y * space
 
 
 def getCNDistBest(norm_read_count):
     loss = []  # loss
-    num_read_count, _ = np.histogram(norm_read_count, bins=500, range=(0, 1.5))
-    space = 1.5 / 500
+    num_read_count, _ = np.histogram(norm_read_count, bins=500, range=(0, 1.))
+    space = 1. / 500
 
     for base in np.arange(0, 1, 0.01):
-        y = getCNDist(base)
+        _, y = getCNDist(base)
         max_cn_prob = y.max(axis=0)  # We will choose the highest probility of CN at that read count
         loss.append((base, np.sum( np.log(max_cn_prob) * num_read_count )))
 
     loss = np.array(loss)
     max_point = loss[np.argmax(loss[:, 1]), :]
     base = max_point[0]
-    y = getCNDist(base)
+    x, y = getCNDist(base)
     max_cn_arg = y.argmax(axis=0)
     return {
         'base': base,
+        'x': x,
         'dist': y,
         'loss': loss,
+        'count': norm_read_count,
         'class': [max_cn_arg[int(cn / space)] for cn in norm_read_count]
     }
+
+
+def plotCNDist(result):
+    fig_loss = px.line(x=result['loss'][:, 0], y=result['loss'][:, 1])
+    fig_dist = go.Figure()
+    fig_dist.add_trace(go.Scatter(x=result['count'],
+                                  y=[0 for i in result['count']],
+                                  mode='markers', name="Observed"))
+    for n in range(len(result['dist'])):
+        x = result['x']
+        if n < 5:
+            fig_dist.add_trace(go.Scatter(x=x, y=result['dist'][n], name=f"cn={n}"))
+    return [fig_loss, fig_dist]
 
 
 def getCNPerRead(data):
@@ -425,7 +520,7 @@ def getCNPerRead(data):
     gene_read_count = defaultdict(int)
     for gene, reads_alleles in data.items():
         for read_alleles in reads_alleles:
-            gene_read_count[gene] += getNH(read_alleles['l_sam'])
+            gene_read_count[gene] += 1 / getNH(read_alleles['l_sam'])
         gene_read_count[gene] = gene_read_count[gene] / gene_length[getGeneName(gene)]
     gene_read_count = list(gene_read_count.items())
     print("Normalized read count")
@@ -434,19 +529,10 @@ def getCNPerRead(data):
     norm_read_count = [i[1] for i in gene_read_count]
     result = getCNDistBest(norm_read_count)
 
-    fig_loss = px.line(x=result['loss'][:, 0], y=result['loss'][:, 1])
-    fig_dist = go.Figure()
-    fig_dist.add_trace(go.Scatter(x=norm_read_count,
-                                  y=[0 for i in norm_read_count],
-                                  mode='markers', name="Observed"))
-    for n in range(len(result['dist'])):
-        x = np.linspace(0, 1.5, 500)
-        if n  < 5:
-            fig_dist.add_trace(go.Scatter(x=x, y=result['dist'][n], name=f"cn={n}"))
 
     return (
-        list(zip([i[0] for i in gene_read_count], result['class'])),
-        [fig_loss, fig_dist],
+        dict(zip([i[0] for i in gene_read_count], result['class'])),
+        plotCNDist(result),
     )
 
 
@@ -470,7 +556,9 @@ def evaluteAllele(ans_list, predict_list):
     for t, a, b in match_pair:
         if t == "Match":
             print(f"{a:18} OK {b:18}")
-        elif t == "Mismatch":
+        elif t == "Match5":
+            print(f"{a:18} <5 {b:18}")
+        elif t == "Match3":
             print(f"{a:18} <3 {b:18}")
         elif t == "FN":
             print(f"{a:18} <-")
@@ -495,10 +583,15 @@ def evaluteGeneAllele(a, b):
 
     for allele_b in list(b):
         for allele_a in a:
+            if allele_a[:allele_a.index("*") + 6] == allele_b[:allele_b.index("*") + 6]:
+                a.remove(allele_a)
+                b.remove(allele_b)
+                match_pair.append(("Match5", allele_a, allele_b))
+                break
             if allele_a[:allele_a.index("*") + 4] == allele_b[:allele_b.index("*") + 4]:
                 a.remove(allele_a)
                 b.remove(allele_b)
-                match_pair.append(("Mismatch", allele_a, allele_b))
+                match_pair.append(("Match3", allele_a, allele_b))
                 break
 
     for allele in a:
@@ -512,7 +605,7 @@ def evaluateResult(results):
     """
     Sum the allele
     """
-    TP, FP, FN, match_gene, match_3, total, cn_error = 0, 0, 0, 0, 0, 0, 0
+    TP, FP, FN, match_gene, match_3, match_5, total, cn_error = 0, 0, 0, 0, 0, 0, 0, 0
     fail_allele, fail_sample = 0, 0
     for result in results:
         if all(i[0] == 'FN' for i in result):
@@ -523,7 +616,8 @@ def evaluateResult(results):
         TP      += sum([i[0] == "Match"    for i in result])
         FN      += sum([i[0] == "FN"       for i in result])
         FP      += sum([i[0] == "FP"       for i in result])
-        match_3 += sum([i[0] == "Mismatch" for i in result])
+        match_3 += sum([i[0] == "Match3"   for i in result])
+        match_5 += sum([i[0] == "Match5"   for i in result])
         ans_gene = [i[1].split("*")[0]     for i in result if i[0] == "FN"]
         prd_gene = [i[2].split("*")[0]     for i in result if i[0] == "FP"]
         for g in prd_gene:
@@ -537,6 +631,7 @@ def evaluateResult(results):
     print(f"Cannot called", f"sample={fail_sample} alleles={fail_allele}")
     print(f"Total alleles {total}")
     print(f"  * {TP=}")
+    print(f"  * Match_5_digits={match_5} ")
     print(f"  * Match_3_digits={match_3} ")
     print(f"  * {FN=} {FP=}")
     print(f"    * Match_gene={match_gene}")
@@ -550,20 +645,86 @@ def typingWithCopyNumber(data, gene_cn):
         #     continue
         allele_names = sorted(collectAlleleName(reads_alleles))
         # remove multiple aligned
-        reads_alleles = [read_allele for read_allele in reads_alleles if getNH(read_allele['l_sam']) == 1]
+        # this written in getReadProb
+        # reads_alleles = [read_allele for read_allele in reads_alleles if getNH(read_allele['l_sam']) == 1]
         if not gene_cn.get(gene):
             continue
 
         prob_save = calcProb(allele_names, reads_alleles, iter_max=gene_cn[gene])
-        for prob in prob_save:
-            print(prob['n'])
-            printProb(prob)
+        # for prob in prob_save:
+        #     print(prob['n'])
+        #     printProb(prob)
 
         data = prob_save[gene_cn[gene] - 1]
         called_alleles.extend(data['allele_name'][0])
         print(f"{gene}: CN={gene_cn[gene]}, alleles={data['allele_name'][0]} score={data['value'][0]}")
         # print(data['fraction'][0])
     return called_alleles
+
+
+def getCNbyVariant(data):
+    # insertion deletion has more count of course
+    snp = pd.read_csv(f"{index}.snp", sep="\t", header=None)
+    single_id = set(snp.loc[snp[1] == "single", 0])
+
+    variants = []
+
+    for gene, reads_alleles in data.items():
+        # if gene != "KIR3DP1*BACKBONE":
+        #     continue
+        pos = []
+        neg = []
+        for read_alleles in reads_alleles:
+            if getNH(read_alleles['l_sam']) != 1:
+                continue
+            for key in ['lpv', 'rpv']:
+                pos.extend(read_alleles[key])
+            for key in ['lnv', 'rnv']:
+                neg.extend(read_alleles[key])
+        pos = Counter(pos)
+        neg = Counter(neg)
+
+        for v in (pos.keys() | neg.keys()) & single_id:
+            pos_num = pos.get(v, 0)
+            neg_num = neg.get(v, 0)
+            num = pos_num + neg_num
+            # if num <= 20:
+            #     continue
+            variants.append({
+                'ratio': pos_num / num,
+                'pos_num': pos_num,
+                'neg_num': neg_num,
+                'total': num,
+                'name': v,
+                'gene': gene,
+            })
+
+    df = pd.DataFrame(variants)
+    figs = []
+    order_total = [i['name'] for i in sorted(variants, key=lambda i: i['total'])]
+    figs.append( px.bar(df, x="name", y=["pos_num", "neg_num"],
+                        category_orders={'name': order_total},
+                        title="Depth of variants") )
+    figs.append( px.bar(df, x="name", y=["total"], color="gene",
+                        category_orders={'name': order_total},
+                        color_discrete_sequence=px.colors.qualitative.Dark24,
+                        title="Depth of variants group by gene") )
+    order_ratio = [i['name'] for i in sorted(variants, key=lambda i: i['ratio'])]
+    figs.append( px.bar(df[df['ratio'] > 0.05], x="name", y="ratio", color="gene",
+                        color_discrete_sequence=px.colors.qualitative.Dark24,
+                        category_orders={'name': order_ratio},
+                        title="Ratio of variants") )
+    figs.append( px.box(df, x="gene", y="total",
+                        category_orders={'gene': sorted(data.keys())},
+                        title="Depth of each gene (no del/ins)") )
+    gene_total = df.groupby(by="gene", as_index=False)['total'].median()
+    print(gene_total)
+
+    # copy from before
+    norm_read_count = list(gene_total['total'] / 300)
+    result = getCNDistBest(norm_read_count)
+    figs.extend(plotCNDist(result))
+    return dict(zip(gene_total['gene'], result['class'])), figs
 
 
 def typingPerSample(name):
@@ -580,57 +741,40 @@ def typingPerSample(name):
     # TODO: 2DL5
     '''
     # plotPosNegRateWithReadAns(data)
-    gene_cn, fig = getCNPerRead(data)
+    # gene_cn, fig = getCNPerRead(data)
+    gene_cn, fig = getCNbyVariant(data)
     figs.extend(fig)
-    gene_cn = dict(gene_cn)
+    # gene_cn = {"KIR2DL1S1*BACKBONE": 3}
     pprint(gene_cn)
-    gene_cn = {"KIR2DL5*BACKBONE": 4}
-
     called_alleles = typingWithCopyNumber(data, gene_cn)
     # called_alleles = typingWithReportAndCopyNumber(hisat_report, gene_cn)
-    print(called_alleles)
-    return  [], figs
+    # print(called_alleles)
 
     """
-    for gene, reads_alleles in data.items():
-        if gene == "KIR2DS1*BACKBONE":
-            (plotPosNegRate(reads_alleles, ["KIR2DS1*0020103"  for read_alleles in reads_alleles]))
-            (plotPosNegRate(reads_alleles, ["KIR2DS1*0020115"  for read_alleles in reads_alleles]))
-            (plotPosNegRate(reads_alleles, ["KIR2DS1*0020114" for read_alleles in reads_alleles]))
-            (plotPosNegRate(reads_alleles, ["KIR2DS1*013" for read_alleles in reads_alleles]))
+    if test_alleles:
+        for gene, reads_alleles in data.items():
+            for allele in test_alleles:
+                plotPosNegRate(reads_alleles, [allele for read_alleles in reads_alleles]))
     """
 
-    '''
-    for gene, reads_alleles in data.items():
-        for prob in prob_save:
-            print(prob['n'])
-            printProb(prob)
-        figs.extend([
-            px.imshow(np.log(probs), text_auto=True, aspect="auto", title=gene),
-            px.imshow(norm_probs ** 0.1, text_auto=True, aspect="auto"),
-            # px.imshow(np.log(norm_probs), text_auto=True, aspect="auto"),
-        ])
-        figs.extend([dashbio.Clustergram(
-            data=probs,
-            column_labels=allele_names,
-            hidden_labels='row',
-            width=2000,
-            height=1000,
-            cluster="row",
-        )])
-    '''
     return called_alleles, figs
 
 
 if __name__ == "__main__":
-    index = "index/kir_2100_raw.mut01"
+    # index = "index/kir_2100_raw.mut01"
+    index = "index/kir_2100_2dl1s1.mut01"
     name_ids = list(range(10))
-    names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_raw.mut01.hisatgenotype.errcorr" for i in name_ids]
+    # names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_raw.mut01.hisatgenotype.errcorr" for i in name_ids]
+    names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_2dl1s1.mut01.hisatgenotype.errcorr" for i in name_ids]
 
-    name_ids = name_ids[0:1]
-    names = names[0:1]
+    name_ids = name_ids[0:10]
+    names = names[0:10]
     figs = []
     called_alleles_evals = []
+
+    test_alleles = []
+    # test_alleles = ["KIR3DL3*0030104", "KIR3DL3*0090101", "KIR3DL3*0030104", "KIR3DL3*00801"]
+    # test_alleles = ["KIR2DL1*0030230", "KIR2DS1*0020103", "KIR2DS1*0020115", "KIR2DL1*0030230", "KIR2DS1*0020104", "KIR2DS1*013"]
 
     for name, name_id in zip(names, name_ids):
         print(name, name_id)

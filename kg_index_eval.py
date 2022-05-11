@@ -70,7 +70,8 @@ def plot_400bp_matchness(a1, a2):
 def find_400bp_matchness():
     a1, a2 = "KIR2DL1", "KIR2DS1"
     a1, a2 = "KIR2DL5A", "KIR2DL5B"
-    # calculate_400bp_read_matchness(a1, a2)
+    a1, a2 = "KIR2DL1", "KIR2DL2"
+    calculate_400bp_read_matchness(a1, a2)
     return plot_400bp_matchness(a1, a2)
 
 
@@ -198,8 +199,8 @@ def plot_variant_across_gene():
 
 if __name__ == "__main__":
     figs = []
-    # figs.extend(find_400bp_matchness())
-    figs.extend(plot_variant_matchness())
+    figs.extend(find_400bp_matchness())
+    # figs.extend(plot_variant_matchness())
     # figs.extend(plot_variant_across_gene())
 
     # dash

@@ -4,6 +4,7 @@ import os
 import sys
 import math
 import json
+import copy
 import bisect
 import subprocess
 from typing import Union, ClassVar
@@ -450,7 +451,7 @@ def findVariantId(variant):
         return variant
 
 
-def extandMatch(variant_list):
+def extendMatch(variant_list):
     """ Remove novel variant """
     # force to transfer single novel variant to match
     v_list = []
@@ -490,9 +491,22 @@ def getVariantsBoundary(variant_list):
     )
 
 
-def getAlleleFromVariantList(variant_list, exon_only=False):
-    """ Varinat -> list of allele """
+def variantList2Allele(variant_list):
+    """ Varinats -> list of allele """
+    return [v.allele for v in variant_list]
+
+
+
+def getPNFromVariantList(variant_list, exon_only=False):
+    """
+    Extract **useful** positive and negative varinat from the list
+
+    Note:
+      * Remove novel insertion and deletion
+      * Find negative variant (exclude deletion at the front and end)
+    """
     # Find all variant in the region
+    variant_list = list(variant_list)
     left, right = getVariantsBoundary(variant_list)
     pos_right = variant_list[-1].pos + variant_list[-1].length
     assert left <= right
@@ -503,36 +517,50 @@ def getAlleleFromVariantList(variant_list, exon_only=False):
         return [], []
     if any(v.typ == "deletion" and v.id.startswith("nv") for v in variant_list):
         return [], []
-    # remove novel
-    variant_list = [v for v in variant_list if v.id and not v.id.startswith("nv")]
+
+    # exclude for negative
+    exclude_variants = set()
+
+    # exclude cannot error correction variant
+    for v in variant_list:
+        if v.val == "N":
+            for i in "ATCG":
+                va = copy.deepcopy(v)
+                va.val = i
+                exclude_variants.add(va)
+
     # remove match
     variant_list = [v for v in variant_list if v.typ != "match"]
+    # remove novel
+    variant_list = [v for v in variant_list if v.id and not v.id.startswith("nv")]
 
     # positive variation
-    positive_var = set(v.id for v in variant_list)
     if exon_only:
-        positive_allele = [v.allele for v in variant_list if v.in_exon]
+        positive_variants = [v for v in variant_list if v.in_exon]
     else:
-        positive_allele = [v.allele for v in variant_list]
+        positive_variants = variant_list
+    exclude_variants.update(positive_variants)
+
     # print('positive', variant_list)
 
     # negative
-    negative_allele = []
+    negative_variants = []
     for v in variants_sorted_list[left:right]:
-        if v.id in positive_var:
+        if v in exclude_variants:
             continue
         if exon_only and not v.in_exon:
             continue
         # Deletion should not over the right end of read
         # Because some deletion is ambiguous until last one
-        if v.typ == "deletion" and v.pos + v.val >= pos_right:
+        # TODO: change 10 -> to repeat length
+        if v.typ == "deletion" and v.pos + v.val + 10 >= pos_right:
             continue
         # print('negative', v)
-        negative_allele.append(v.allele)
+        negative_variants.append(v)
         # TODO: maybe some deletion is before left
         # they use gene_var_maxrights to deal with
 
-    return positive_allele, negative_allele
+    return positive_variants, negative_variants
 
 
 def hisat2getCandidateAllele(positive_allele, negative_allele):
@@ -656,7 +684,8 @@ def recordToVariants(record, pileup):
     variant_list, soft_clip = record2Variant(record)
     variant_list = flatten(map(lambda i: pileupModify(pileup, i), variant_list))
     variant_list = map(findVariantId, variant_list)
-    variant_list = extandMatch(variant_list)  # remove novel -> extend
+    # no sure what's this doing
+    # variant_list = extendMatch(variant_list)  # remove novel -> extend
     return variant_list
 
 
@@ -767,7 +796,11 @@ def pileupModify(pileup, variant):
 
             # if variant.id.startswith("hv"):
             #     print("to_match", variant, p)
-            variant.typ = "match"
+            # case: AAAAAACCCCCCCCCCC REF = C
+            # neither set to A or C is wrong
+            # if I set it to match or novel -> it will become negative
+            # variant.typ = "match"
+            variant.val = "N"
             yield variant
 
         # else -> insufficient info
@@ -816,18 +849,28 @@ def main(bam_file):
         rv = recordToVariants(right_record, pileup)
 
         # (left, right) x (positive, negative)
-        lp, ln = getAlleleFromVariantList(lv)
-        rp, rn = getAlleleFromVariantList(rv)
+        lpv, lnv = getPNFromVariantList(lv)
+        rpv, rnv = getPNFromVariantList(rv)
+        lp = [v.allele for v in lpv]
+        ln = [v.allele for v in lnv]
+        rp = [v.allele for v in rpv]
+        rn = [v.allele for v in rnv]
         # exit()
 
         # save the allele information for the read
         save_reads[backbone].append({
             'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
+            'lpv': [v.id for v in lpv],
+            'lnv': [v.id for v in lnv],
+            'rpv': [v.id for v in rpv],
+            'rnv': [v.id for v in rnv],
             'l_sam': left_record,
             'r_sam': right_record,
         })
 
         # hisat2 method
+        # if "NH:i:1" not in left_record:
+        #     continue
         hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
             hisat2getCandidateAllele(lp, ln) +
             hisat2getCandidateAllele(rp, rn)
@@ -863,7 +906,9 @@ def main(bam_file):
 
 
 if __name__ == "__main__":
-    setIndex("index/kir_2100_raw.mut01")
+    # setIndex("index/kir_2100_raw.mut01")
+    setIndex("index/kir_2100_2dl1s1.mut01")
     # name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.nosingle.bam"
-    name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.bam"
+    # name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.bam"
+    name = "data/linnil1_syn_wide.00.kir_2100_2dl1s1.mut01.bam"
     main(name)
