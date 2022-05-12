@@ -507,6 +507,8 @@ def getPNFromVariantList(variant_list, exon_only=False):
     """
     # Find all variant in the region
     variant_list = list(variant_list)
+    if not variant_list:
+        return [], []
     left, right = getVariantsBoundary(variant_list)
     pos_right = variant_list[-1].pos + variant_list[-1].length
     assert left <= right
@@ -682,6 +684,9 @@ def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
 
 def recordToVariants(record, pileup):
     variant_list, soft_clip = record2Variant(record)
+    # linnil1: soft clip = mapping error
+    if sum(soft_clip) > 0:
+        return []
     variant_list = flatten(map(lambda i: pileupModify(pileup, i), variant_list))
     variant_list = map(findVariantId, variant_list)
     # no sure what's this doing

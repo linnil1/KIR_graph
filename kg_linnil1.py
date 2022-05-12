@@ -83,12 +83,13 @@ def getReadProb(allele_name_map, read_alleles):
         n_allele = set(flatten(flatten([read_alleles['ln'], read_alleles['rn']])))
         test_id = np.array(list(allele_name_map[i] for i in test_alleles))
         read_id = read_alleles["l_sam"].split("\t")[0]
-        """
         # print allele but called negative
-        if "2DL1" not in read_id and "2DS1" not in read_id:
-            return prob
-            # return None
+        # if "2DL1" not in read_id and "2DS1" not in read_id:
+        #     return prob
+        #     return None
         read_allele = read_id.split('-')[0]
+        if not allele_name_map.get(read_allele):
+            return prob
         if prob[allele_name_map[read_allele]] <= 1e-3:
             ok = True
             for alleles, v in zip(read_alleles['ln'], read_alleles['lnv']):
@@ -113,6 +114,7 @@ def getReadProb(allele_name_map, read_alleles):
                  'neg', [allele for allele in n_allele if allele in test_alleles],
                  read_alleles,
             )
+        """
     return prob
 
 
@@ -195,14 +197,14 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
 
     # init
     prob_save = []
-    top_n = 100    # reduce computation
+    top_n = 300  # reduce computation
     prob_iter_max = iter_max
 
     # find the maximum probility of allele across all reads
-    # prob_1 = log_probs.sum(axis=0)
     # remove_n = int(len(log_probs) * 0.01)
-    remove_n = 10
-    prob_1 = np.sort(log_probs, axis=0)[remove_n:].sum(axis=0)
+    # remove_n = 10
+    # prob_1 = np.sort(log_probs, axis=0)[remove_n:].sum(axis=0)
+    prob_1 = log_probs.sum(axis=0)
     prob_1_index = np.array(list(reversed(np.argsort(prob_1)[-top_n:])))
     # additional value
     prob_1_top = log_probs[:, prob_1_index]
@@ -231,8 +233,6 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
         prob_2 = prob_2.sum(axis=1).flatten()
         # prob_2 = np.sort(prob_2, axis=1)[:, remove_n:].sum(axis=1).flatten()
         # Find the mean
-        # import pdb
-        # pdb.set_trace()
         # prob_2 = (log_probs + prob_1_top.T[:, :, None] * (prob_iter - 1)).sum(axis=1).flatten() / prob_iter
         prob_2_allele = np.hstack([
             # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
@@ -248,7 +248,7 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
         prob_2_value = prob_2[prob_2_index]
         prob_2_belong = np.equal(log_probs[:, prob_2_top_allele], prob_2_top[:, :, None])  # reads x top-n x allele_num(0/1)
 
-        # linnil1: Count of uniquely assigned
+        # Count of uniquely assigned
         prob_2_unique_mapped = prob_2_belong.sum(axis=2) == 1
         prob_2_unique_count = prob_2_belong.copy()
         prob_2_unique_count[np.logical_not(prob_2_unique_mapped)] = 0
@@ -343,7 +343,7 @@ def getNH(sam_info):
         return 1
 
 
-def plotAlignConfusion(data, level="gene", weighted=True):
+def plotAlignConfusion(data, level="gene", weighted=True, no_multi=False):
     allele_length = readAlleleLength("index/kir_2100_raw.mut01")
     gene_length = avgGeneLength(allele_length)
 
@@ -352,6 +352,8 @@ def plotAlignConfusion(data, level="gene", weighted=True):
     for gene, reads_alleles in data.items():
         for read_alleles in reads_alleles:
             record = read_alleles['l_sam']
+            if no_multi and getNH(record) != 1:
+                continue
             if level == "gene":
                 id = (getGeneName(record), getGeneName(gene))
             elif level == "allele":
@@ -651,12 +653,24 @@ def typingWithCopyNumber(data, gene_cn):
             continue
 
         prob_save = calcProb(allele_names, reads_alleles, iter_max=gene_cn[gene])
-        # for prob in prob_save:
-        #     print(prob['n'])
-        #     printProb(prob)
+        if test_alleles:
+            for prob in prob_save:
+                print(prob['n'])
+                printProb(prob)
 
         data = prob_save[gene_cn[gene] - 1]
-        called_alleles.extend(data['allele_name'][0])
+
+        # TODO: testing the new selection
+        best_id = 0
+        for i in range(len(data['fraction'])):
+            expect_prob = 1 / gene_cn[gene]
+            if all(j >= expect_prob / 2 for j in data['fraction'][i]):
+                break
+            best_id += 1
+        if best_id >= len(data['fraction']):
+            best_id = 0
+
+        called_alleles.extend(data['allele_name'][best_id])
         print(f"{gene}: CN={gene_cn[gene]}, alleles={data['allele_name'][0]} score={data['value'][0]}")
         # print(data['fraction'][0])
     return called_alleles
@@ -731,9 +745,11 @@ def typingPerSample(name):
     # hisat_report = readReport(name)
     data = json.load(open(name + ".json"))
     figs = []
+    align_gene_confustion_df = plotAlignConfusion(data, no_multi=True)
+    figs.extend(plotConfustion(align_gene_confustion_df, title=f"Reads (gene level, no-duplication) {name}"))
+    '''
     align_gene_confustion_df = plotAlignConfusion(data)
     figs.extend(plotConfustion(align_gene_confustion_df, title=f"Reads (gene level, weighted) {name}"))
-    '''
     align_gene_confustion_df = plotAlignConfusion(data, weighted=False)
     figs.extend(plotConfustion(align_gene_confustion_df, title="Reads (gene level)"))
     align_gene_confustion_df = plotAlignConfusion(data, level="allele")
@@ -783,13 +799,11 @@ if __name__ == "__main__":
         called_alleles_evals.append(
             evaluteAllele(extractAnswerFromSummary(name_id), called_alleles)
         )
-        '''
         pd.DataFrame([{
             'id':  name_id,
             'filename': name,
             'alleles': "_".join(called_alleles),
         }]).to_csv(name + ".linnil1.csv", index=False, sep="\t")
-        '''
 
     evaluateResult(called_alleles_evals)
     app = Dash(__name__)
