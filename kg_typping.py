@@ -1,4 +1,4 @@
-# This script is copy from hisat-genotype/hisatgenotype_typing_core
+# This script is inspired from hisat-genotype/hisatgenotype_typing_core
 import re
 import os
 import sys
@@ -6,12 +6,13 @@ import math
 import json
 import copy
 import bisect
-import subprocess
 from typing import Union, ClassVar
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 import numpy as np
 from Bio import SeqIO
+
+from kg_utils import runDocker, getSamples
 
 # sam
 num_editdist = 4
@@ -23,6 +24,8 @@ diff_threshold = 0.0001
 iter_max = 100
 # em
 norm_by_length = False
+# pileup
+error_correction = True
 
 
 @dataclass
@@ -56,14 +59,10 @@ class Variant:
 
 def readBam(alignment_fname):
     """ get bam file via samtools in command line """
-    alignview_cmd = ["samtools", "view", "-h", alignment_fname,
-                     "|", "samtools", "sort", "-n", "-", "-O", "SAM"]
-    proc = subprocess.Popen(" ".join(alignview_cmd),
-                            shell=True,
-                            universal_newlines=True,
-                            stdout=subprocess.PIPE,
-                            stderr=open("/dev/null", 'w'))
-    return proc.stdout
+    proc = runDocker("samtools",
+                     f"samtools sort -n {alignment_fname} -O SAM",
+                     capture_output=True)
+    return proc.stdout.split('\n')
 
 
 def readPair(alignment_fname):
@@ -74,7 +73,7 @@ def readPair(alignment_fname):
 
     for line in readBam(alignment_fname):
         # skip header
-        if line.startswith("@"):
+        if not line or line.startswith("@"):
             continue
 
         # preocess
@@ -215,7 +214,6 @@ def record2Variant(line):
     # and md_len > md_len_last i.e. current_pos > md_pos
     md_pos      = pos + md_len_last
     current_pos = pos + md_len
-
     ```
     """
     # read info
@@ -421,8 +419,9 @@ def isInExon(exons, variant):
     for exon in exons:
         if exon[0] <= variant.pos < exon[1]:
             return True
-        if (variant.typ == "deletion" and \
-            variant.pos < exon[0] and variant.pos + variant.val >= exon[0]):
+        if (variant.typ == "deletion" and
+                variant.pos < exon[0] and
+                variant.pos + variant.val >= exon[0]):
             return True
     return False
 
@@ -494,7 +493,6 @@ def getVariantsBoundary(variant_list):
 def variantList2Allele(variant_list):
     """ Varinats -> list of allele """
     return [v.allele for v in variant_list]
-
 
 
 def getPNFromVariantList(variant_list, exon_only=False):
@@ -624,7 +622,7 @@ def hisatEMnp(allele_per_read):
         b = a.sum(axis=1)[:, None]
         a = np.divide(a, b,
                       out=np.zeros(a.shape),
-                      where=b!=0)
+                      where=b != 0)
         a /= allele_len
         a = a.sum(axis=0)
         return a / a.sum()
@@ -695,10 +693,9 @@ def recordToVariants(record, pileup):
 
 
 def writeBam(records, filename, filename_out):
-    proc = subprocess.Popen(["samtools", "view", "-H", filename],
-                            universal_newlines=True,
-                            stdout=subprocess.PIPE,
-                            stderr=open("/dev/null", 'w'))
+    proc = runDocker("samtools",
+                     f"samtools view -H {filename}",
+                     capture_output=True)
     with open(filename_out, "w") as f:
         f.writelines(proc.stdout)
         f.writelines(records)
@@ -744,13 +741,12 @@ def readPileupBase(bases: str):
 
 
 def readPileup(bam_file):
-    alignview_cmd = ["samtools", "mpileup", "-a", bam_file]
-    proc = subprocess.Popen(" ".join(alignview_cmd),
-                            shell=True,
-                            universal_newlines=True,
-                            stdout=subprocess.PIPE,
-                            stderr=open("/dev/null", 'w'))
-    for line in proc.stdout:
+    proc = runDocker("samtools",
+                     f"samtools mpileup -a {bam_file}",
+                     capture_output=True)
+    for line in proc.stdout.split("\n"):
+        if not line or "[mpileup]" in line:
+            continue
         fields = line.split('\t')
         bases = list(readPileupBase(fields[4]))
         if bases == "*":
@@ -820,7 +816,6 @@ def pileupModify(pileup, variant):
 def main(bam_file):
     new_suffix = ".hisatgenotype"
     # if exon_only: new_suffix += ".exon"
-    error_correction = True
     if error_correction:
         # pileup
         new_suffix += ".errcorr"
@@ -908,6 +903,7 @@ def main(bam_file):
 
     print(f"Save hisat-genotype calling in {name_out}.report*")
     json.dump(hisat_result, open(f"{name_out}.report.json", "w"))
+    return new_suffix
 
 
 if __name__ == "__main__":

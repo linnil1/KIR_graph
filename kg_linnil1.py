@@ -202,7 +202,7 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
 
     # find the maximum probility of allele across all reads
     # remove_n = int(len(log_probs) * 0.01)
-    # remove_n = 10
+    # remove_n = 20
     # prob_1 = np.sort(log_probs, axis=0)[remove_n:].sum(axis=0)
     prob_1 = log_probs.sum(axis=0)
     prob_1_index = np.array(list(reversed(np.argsort(prob_1)[-top_n:])))

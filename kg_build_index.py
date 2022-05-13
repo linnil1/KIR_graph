@@ -7,17 +7,14 @@
 # * reverse
 # * split haplotype (break haplotype if two variant are too far away
 import os
-import itertools
 from glob import glob
+import itertools
 from typing import Union, ClassVar
 from dataclasses import dataclass, field
 
 from Bio import SeqIO
-from pyHLAMSA import KIRmsa, Genemsa
-
-
-# TODO: Can i avoid global var
-haplo_id = 0
+from pyHLAMSA import Genemsa
+from kg_utils import threads, runDocker, getSamples
 
 
 @dataclass
@@ -49,7 +46,7 @@ class Variant:
         return hash((self.pos, self.ref, self.typ, self.val))
 
 
-def count2freq(base_counts):
+def count2Freq(base_counts):
     freq = []
     for bc in base_counts:
         # normalize
@@ -59,7 +56,7 @@ def count2freq(base_counts):
     return freq
 
 
-def get_variants_from_seqs(ref_seq, allele_seq):
+def getVariantsFromSeqs(ref_seq, allele_seq):
     variants = []
     pre_v = None
     ref_skip_base = 0
@@ -102,7 +99,7 @@ def msa2Variant(msa):
         if allele_name == ref_name:
             continue
         variants_per_allele[allele_name] = \
-                get_variants_from_seqs(ref_seq, msa.get(allele_name))
+            getVariantsFromSeqs(ref_seq, msa.get(allele_name))
         # add reference
         for v in variants_per_allele[allele_name]:
             v.ref = ref_name
@@ -118,7 +115,7 @@ def msa2Variant(msa):
             variants_dict[v].allele.append(allele)
 
     # get frequency
-    variants_dict = add_freq_in_variant(msa, variants_dict)
+    variants_dict = addFreqInVariant(msa, variants_dict)
 
     # add id
     for v in variants:
@@ -133,10 +130,10 @@ def msa2Variant(msa):
     return variants_dict, variants_per_allele
 
 
-def add_freq_in_variant(msa, variants_dict):
+def addFreqInVariant(msa, variants_dict):
     # calculate frequency to all bases
     base_counts = msa.calculate_frequency()
-    base_freq = count2freq(base_counts)
+    base_freq = count2Freq(base_counts)
 
     # Get frequency for each variant
     for v in variants_dict:
@@ -150,11 +147,11 @@ def add_freq_in_variant(msa, variants_dict):
     return variants_dict
 
 
-def write_tsv(f, data):
+def writeTSV(f, data):
     f.write('\t'.join(map(str, data)) + "\n")
 
 
-def write_msa(index_out, msa):
+def writeMsa(index_out, msa):
     ref_name = msa.get_reference()[0]
 
     # Backbone Sequence
@@ -169,8 +166,10 @@ def write_msa(index_out, msa):
 
     # Allele allele name
     with open(index_out + ".allele", 'a') as allele_name_f:
-        allele_name_f.writelines(map(lambda i: i + "\n",
-            filter(lambda i: i != ref_name, msa.get_sequence_names())))
+        allele_name_f.writelines(
+            map(lambda i: i + "\n",
+                filter(lambda i: i != ref_name, msa.get_sequence_names()))
+        )
 
     # Exon-only allele name
     with open(index_out + ".partial", 'a') as partial_allele_name_f:
@@ -185,70 +184,80 @@ def write_msa(index_out, msa):
                 exon_pos.append((pos + 1, pos + 1 + b.length))
         exon_str = " ".join(f"{s}-{e}" for s, e in exon_pos)
         leng = msa.get_length()
-        write_tsv(locus_f, [ref_name, ref_name, 0, leng, leng, exon_str, "+"])
+        writeTSV(locus_f, [ref_name, ref_name, 0, leng, leng, exon_str, "+"])
 
 
-def write_variant(index_out, variants_dict):
+def writeVariant(index_out, variants_dict):
     with open(index_out + ".snp", 'a') as snp_f:
         with open(index_out + ".index.snp", 'a') as snp_index_f:
             for v in variants_dict.values():
                 variant_tsv = [v.id, v.typ, v.ref, v.pos, v.val]
                 if not v.ignore:
-                    write_tsv(snp_index_f, variant_tsv)
-                write_tsv(snp_f, variant_tsv)
+                    writeTSV(snp_index_f, variant_tsv)
+                writeTSV(snp_f, variant_tsv)
 
     with open(index_out + ".snp.freq", 'a') as snp_freq_f:
         for v in variants_dict.values():
-            write_tsv(snp_freq_f, [v.id, f"{v.freq:.2f}"])
+            writeTSV(snp_freq_f, [v.id, f"{v.freq:.2f}"])
 
     with open(index_out + ".link", 'a') as snp_link_f:
         for v in variants_dict.values():
-            write_tsv(snp_link_f, [v.id, ' '.join(v.allele)])
+            writeTSV(snp_link_f, [v.id, ' '.join(v.allele)])
 
 
-def write_haplo(index_out, variants_per_allele):
-    global haplo_id
+def writeHaplo(index_out, variants_per_allele):
+    haplo_id = 0  # set variable in function (static)
+    if hasattr(writeHaplo, "haplo_id"):
+        haplo_id = writeHaplo.haplo_id
+
     with open(index_out + ".haplotype", 'a') as haplo_f:
         for allele, variants in variants_per_allele.items():
             variants_index = [v for v in variants if not v.ignore]
             left = min([v.pos for v in variants_index])
             right = max([v.pos if v.typ != "deletion" else v.pos + v.val - 1 for v in variants_index])
             ids = ','.join([v.id for v in variants_index])
-            write_tsv(haplo_f, [f"ht{haplo_id}",
-                                variants[0].ref,
-                                left, right, ids])
+            writeTSV(haplo_f, [f"ht{haplo_id}",
+                               variants[0].ref,
+                               left, right, ids])
             haplo_id += 1
+    writeHaplo.haplo_id = haplo_id
 
 
-def buildHisat(index_out, threads=30):
-    cmd = f"""\
-        hisat2-build {index_out}_backbone.fa \
-                     --snp {index_out}.index.snp \
-                     --haplotype {index_out}.haplotype \
-                     -p {threads} --verbose \
-                     {index_out}.graph
-    """
-    print(cmd)
-    os.system(cmd)
+def buildHisat(name):
+    runDocker("hisat", f"""\
+              hisat2-build {name}_backbone.fa \
+                           --snp {name}.index.snp \
+                           --haplotype {name}.haplotype \
+                           -p {threads} --verbose \
+                           {name}.graph """)
 
 
-def main(index):
-    index_out = index + ".mut01"  # relate to min_freq_threshold
-    threads = 30
+def main(index, force=False):
+    # remove `.save`
+    # relate to min_freq_threshold
+    index_out = index[:-5] + ".mut01"
+    Variant.min_freq_threshold = 0.1
 
     # remove old file, because I write file by append not overwrite
-    for i in glob(index_out + "*"):
+    if not force:
+        if getSamples(index_out, strict=False):
+            return index_out
+
+    for i in getSamples(index_out, strict=False):
+        os.remove(i)
+    for i in glob(index_out + "_*"):
         os.remove(i)
 
     # get all genes
-    genes = sorted([f.split('.')[-3] for f in glob(index + ".*.save.json")])
+    # genes = sorted([f.split('.')[-3] for f in glob(index + ".*.save.json")])
+    genes = sorted([i[1] for i in getSamples(index, ".json", return_name=True)])
     print(genes)
 
     for gene in genes:
         # read
         print("Reading", gene)
-        msa = Genemsa.load_msa(f"{index}.{gene}.save.fa",
-                               f"{index}.{gene}.save.json")
+        msa = Genemsa.load_msa(f"{index}.{gene}.fa",
+                               f"{index}.{gene}.json")
 
         # check
         for seq in msa.alleles.values():
@@ -264,15 +273,16 @@ def main(index):
         variants_dict, variants_per_allele = msa2Variant(msa)
 
         # write to hisat format for hisat build
-        write_msa(index_out, msa)
-        write_variant(index_out, variants_dict)
-        write_haplo(index_out, variants_per_allele)
+        writeMsa(index_out, msa)
+        writeVariant(index_out, variants_dict)
+        writeHaplo(index_out, variants_per_allele)
 
     # hisat build
-    buildHisat(index_out, threads)
+    buildHisat(index_out)
     return index_out
 
 
 if __name__ == "__main__":
-    index = "index/kir_2100_raw"
-    main(index)
+    index = "index1/kir_2100_2dl1s1.save"
+    index = main(index)
+    print(index)

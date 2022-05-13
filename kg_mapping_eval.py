@@ -329,7 +329,40 @@ def plot_bam_custom_evalute():
     return figs
 
 
+def extractTargetReadFromBam(bamfile, ref, target_gene):
+    remove_mult_align = False
+    outputfile = os.path.splitext(bamfile)[0] + f".{ref.split('*')[0]}.{target_gene}"
+    if remove_mult_align:
+        outputfile += ".noNH"
+    outputfile += ".bam"
+
+    # read
+    proc1 = subprocess.run(["samtools", "view", "-h", bamfile], stdout=subprocess.PIPE)
+    proc1.check_returncode()
+    data = []
+    for i in proc1.stdout.decode().split("\n"):
+        if not i:
+            continue
+        if i.startswith("@"):
+            data.append(i)
+        elif target_gene in i.split('*')[0]:
+            if not remove_mult_align:
+                data.append(i)
+                continue
+
+            if "NH:" in i and int(re.findall(r"NH:i:(\d+)", i)[0]) == 1:
+                data.append(i)
+
+    proc2 = subprocess.run(["samtools", "sort", "-", "-o", outputfile],
+                           input="\n".join(data).encode())
+    proc2.check_returncode()
+    proc3 = subprocess.run(["samtools", "index", outputfile])
+    proc3.check_returncode()
+    print("Save to", outputfile)
+
+
 if __name__ == '__main__':
+    # extractTargetReadFromBam("data/linnil1_syn_wide.00.kir_2100_2dl1s1.mut01.bam", "KIR2DL1S1*BACKBONE", "KIR2DL2")
     figs = []
     # figs.extend(plot_bam_mapping())
     figs.extend(plot_bam_custom_evalute())

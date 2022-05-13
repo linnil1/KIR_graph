@@ -197,7 +197,38 @@ def plot_variant_across_gene():
     return [fig]
 
 
+def addGroupName(bamfile):
+    """ Return {bamfile}.rg.bam """
+    outputfile = os.path.splitext(bamfile)[0] + ".rg.bam"
+    proc1 = subprocess.run(["samtools", "view", "-h", bamfile], stdout=subprocess.PIPE)
+    proc1.check_returncode()
+
+    header = []
+    data = []
+    read_groups = set()
+    for i in proc1.stdout.decode().split("\n"):
+        if not i:
+            continue
+        if i.startswith("@"):
+            header.append(i)
+        else:
+            rg = i.split('*')[0]
+            data.append(i + f"\tRG:Z:{rg}")
+            read_groups.add(rg)
+
+    for rg in read_groups:
+        header.append(f"@RG\tID:{rg}")
+
+    proc2 = subprocess.run(["samtools", "sort", "-", "-o", outputfile],
+                           input="\n".join([*header, *data]).encode())
+    proc2.check_returncode()
+    proc3 = subprocess.run(["samtools", "index", outputfile])
+    proc3.check_returncode()
+    print("Save to", outputfile)
+
+
 if __name__ == "__main__":
+    # addGroupName("index/kir_2100_merge.KIR.save.bam")
     figs = []
     figs.extend(find_400bp_matchness())
     # figs.extend(plot_variant_matchness())
