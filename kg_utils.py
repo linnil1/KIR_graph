@@ -2,6 +2,7 @@ import os
 from glob import glob
 import uuid
 import subprocess
+from concurrent.futures import ProcessPoolExecutor
 
 
 threads = 30
@@ -21,9 +22,10 @@ def runDocker(image, cmd, capture_output=False):
         image = images[image]
     name = str(uuid.uuid4()).split("-")[0]
     # docker_path = "docker"
-    return runShell(f"{docker_path} run -it --rm -u root --name {name} "
+    proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
                     f"-w /app -v $PWD:/app {image} {cmd}",
                     capture_output=capture_output)
+    return proc
 
 
 def runShell(cmd, capture_output=False):
@@ -56,3 +58,17 @@ def getSamples(name, endswith="", strict=True, return_name=False):
 
     names = [i[len(name) + 1: -len(endswith)] for i in files]
     return sorted(zip(files, names))
+
+
+def runAll(func, samples, concurrent=True):
+    if not concurrent:
+        return map(func, samples)
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        return executor.map(func, samples)
+
+
+def samtobam(name):
+    """ This is so useful """
+    runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
+    runDocker("samtools", f"samtools index    {name}.bam")
+    runShell(f"rm {name}.sam")

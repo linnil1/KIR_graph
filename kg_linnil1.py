@@ -11,7 +11,7 @@ from Bio import SeqIO
 from dash import Dash, dcc, html
 import plotly.graph_objects as go
 import plotly.express as px
-import dash_bio as dashbio
+# import dash_bio as dashbio
 
 
 def collectAlleleName(reads_alleles):
@@ -676,7 +676,7 @@ def typingWithCopyNumber(data, gene_cn):
     return called_alleles
 
 
-def getCNbyVariant(data):
+def getCNbyVariant(index, data):
     # insertion deletion has more count of course
     snp = pd.read_csv(f"{index}.snp", sep="\t", header=None)
     single_id = set(snp.loc[snp[1] == "single", 0])
@@ -741,7 +741,7 @@ def getCNbyVariant(data):
     return dict(zip(gene_total['gene'], result['class'])), figs
 
 
-def typingPerSample(name):
+def typingPerSample(index, name):
     # hisat_report = readReport(name)
     data = json.load(open(name + ".json"))
     figs = []
@@ -758,7 +758,7 @@ def typingPerSample(name):
     '''
     # plotPosNegRateWithReadAns(data)
     # gene_cn, fig = getCNPerRead(data)
-    gene_cn, fig = getCNbyVariant(data)
+    gene_cn, fig = getCNbyVariant(index, data)
     figs.extend(fig)
     # gene_cn = {"KIR2DL1S1*BACKBONE": 3}
     pprint(gene_cn)
@@ -781,7 +781,7 @@ if __name__ == "__main__":
     index = "index/kir_2100_2dl1s1.mut01"
     name_ids = list(range(10))
     # names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_raw.mut01.hisatgenotype.errcorr" for i in name_ids]
-    names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_2dl1s1.mut01.hisatgenotype.errcorr" for i in name_ids]
+    names = [f"data/linnil1_syn_wide.test10.{i:02d}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr" for i in name_ids]
 
     name_ids = name_ids[0:10]
     names = names[0:10]
@@ -794,7 +794,7 @@ if __name__ == "__main__":
 
     for name, name_id in zip(names, name_ids):
         print(name, name_id)
-        called_alleles, fig = typingPerSample(name)
+        called_alleles, fig = typingPerSample(index, name)
         figs.extend(fig)
         called_alleles_evals.append(
             evaluteAllele(extractAnswerFromSummary(name_id), called_alleles)

@@ -7,6 +7,7 @@ import json
 import subprocess
 from collections import defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor
+from kg_utils import runDocker, samtobam
 
 
 def get7Name(id):
@@ -22,10 +23,9 @@ def getAlleleName(id):
 
 
 def samtools(cmd, name):
-    cmd = f"docker run -it --rm --name {name.replace('/', '_')} -v $PWD:/app -w /app samtools samtools {cmd} -@30 {name}"
-    print(cmd)
-    a = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
-    return a.stdout.decode().split("\n")
+    proc = runDocker("samtools", f"samtools {cmd} -@4 {name}",
+                     capture_output=True)
+    return proc.stdout.split("\n")
 
 
 def getStat(filename):
@@ -49,24 +49,36 @@ def getStat(filename):
     }
 
 
-def plot_bam_mapping():
-    filename = "bam_map_stat"
+def plotBamStat():
+    sample_index = "data/linnil1_syn_wide.test10"
+    filename = f"{sample_index}.bam_stat"
 
-    if not os.path.exists(filename + ".csv"):
+    if not os.path.exists(filename + ".json"):
         # Figure: Proper Paired Perecetage
         id = 0
-        data = [[
-            {'method': "answer",           'id': id, 'file': f"linnil1_syn_wide/linnil1_syn_wide.{id:02d}.read..sam"},
-            {'method': "linear",           'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw_cons.bowtie2.sam"},
-            {'method': "full",             'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw_full.bowtie2.sam"},
-            # {'method': "ping",             'id': 0, 'file': f"data/linnil1_syn_wide.00.kir_2100_raw_full.ping.sam"},
-            {'method': "hisat_merge",      'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.bam"},
-            {'method': "hisat_merge_type", 'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.hisatgenotype.sam"},
-            {'method': "hisat_raw",        'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw.mut01.bam"},
-            {'method': "hisat_raw_type",   'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw.mut01.hisatgenotype.sam"},
-            {'method': "hisat_splitab",    'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_ab.mut01.bam"},
-        ] for id in range(5)]
-        data = [j for i in data for j in i]
+        data = []
+        for id in range(10):
+            name = f"{sample_index}.{id:02d}"
+            dat = [
+                {'method': "answer",                    'file': f"linnil1_syn_wide/linnil1_syn_wide.{id:02d}.read..sam"},
+                {'method': "linear",                    'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
+                # {'method': "full",             'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw_full.bowtie2.sam"},
+                # {'method': "ping",             'id': 0, 'file': f"data/linnil1_syn_wide.00.kir_2100_raw_full.ping.sam"},
+                {'method': "hisat_merge",               'file': f"{name}.index_kir_2100_merge.mut01.bam"},
+                # {'method': "hisat_merge_type", 'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.hisatgenotype.sam"},
+                {'method': "hisat_raw",                 'file': f"{name}.index_kir_2100_raw.mut01.bam"},
+                {'method': "hisat_raw_type",            'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.sam"},
+                {'method': "hisat_raw_type_nomulti",    'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.sam"},
+                {'method': "hisat_2dl1s1",              'file': f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
+                {'method': "hisat_2dl1s1_type",         'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.sam"},
+                {'method': "hisat_2dl1s1_type_nomulti", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.sam"},
+                {'method': "hisat_splitab",             'file': f"{name}.index_kir_2100_ab.mut01.bam"},
+                {'method': "hisat_splitab_type",        'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.sam"},
+                {'method': "hisat_splitab_type_nomulti",'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.sam"},
+            ]
+            for i in dat:
+                i['id'] = id
+            data.extend(dat)
         print(data)
 
         # for i in data:
@@ -74,17 +86,16 @@ def plot_bam_mapping():
         with ProcessPoolExecutor() as executor:
             for d, result in zip(data, executor.map(getStat, map(lambda i: i['file'], data))):
                 d.update(result)
-
-        df = pd.DataFrame(data)
-        ans = df[ (df['method'] == 'answer') ]
-        ans = dict(zip(ans['id'], ans['total']))
-        df['ans_total'] = df.apply(lambda i: ans[i.id], axis=1)
-        df['pair_perc'] = df['pair'] / df['ans_total']
-        df['secd_perc'] = df['secd'] / df['ans_total']
-        # df.to_csv(filename + ".csv", index=False)
+        json.dump(data, open(filename + ".json", "w"))
     else:
-        df = pd.read_csv(filename + ".csv")
+        data = json.load(open(filename + ".json"))
 
+    df = pd.DataFrame(data)
+    ans = df[(df['method'] == 'answer')]
+    ans = dict(zip(ans['id'], ans['total']))
+    df['ans_total'] = df.apply(lambda i: ans[i.id], axis=1)
+    df['pair_perc'] = df['pair'] / df['ans_total']
+    df['secd_perc'] = df['secd'] / df['ans_total']
     fig0 = px.box(df, x="method",  y="pair_perc", title="Proper Paired Proportion",
                   labels={'pair_perc': "Primary paired reads / Total reads"})
     fig1 = px.box(df, x="method",  y="secd_perc", title="Secondary Proportion",
@@ -92,9 +103,11 @@ def plot_bam_mapping():
     return [fig0, fig1]
 
 
-def getMappedOn(filename):
+def getEachReadMappedOn(filename):
     data = defaultdict(list)
     for i in samtools("view", filename):
+        if not i:
+            continue
         fields = i.split("\t")
         if len(fields) < 3:
             print(i)
@@ -109,12 +122,19 @@ def getMappedOn(filename):
     }
 
 
-def custom_get_missing(total, reads, **kwargs):
+def customCalcMissing(total, reads, **kwargs):
+    """
+    Calculate the number of read cannot mapped
+
+    Args:
+      total(dict[str, int]): Nubmer(value) of reads belong to the reference(key)
+      reads(dict[str, list[str]]): The gene mapped on (value) of for each read(key)
+    """
     data = {gene: {'total': num, 'count': 0, 'miss': 0} for gene, num in total.items()}
 
     for read_name, mapping_info in reads.items():
         data[getGeneName(read_name)]['count'] += 1
-        if len(list(filter(lambda i: i[1] != '*' and not (i[0] & 256), mapping_info))) <2:
+        if len(list(filter(lambda i: i[1] != '*' and not (i[0] & 256), mapping_info))) < 2:
             data[getGeneName(read_name)]['miss'] += 1
 
     for gene, d in data.items():
@@ -128,7 +148,8 @@ def custom_get_missing(total, reads, **kwargs):
         }
 
 
-def custom_get_proper_mapped(total, reads, **kwargs):
+def customCalcAnyMapped(total, reads, **kwargs):
+    """ Any of pair-reads are correctly mapped on reference """
     data = {gene: {'total': num, 'count': 0, 'pair': 0} for gene, num in total.items()}
 
     for read_name, mapping_info in reads.items():
@@ -146,7 +167,8 @@ def custom_get_proper_mapped(total, reads, **kwargs):
         }
 
 
-def custom_secondary_count(total, reads, **kwargs):
+def customCalcSecondary(total, reads, **kwargs):
+    """ The number of secondary reads """
     data = {gene: {'total': num, 'count': 0, 'secd': 0} for gene, num in total.items()}
     for read_name, mapping_info in reads.items():
         data[getGeneName(read_name)]['count'] += 1
@@ -162,7 +184,8 @@ def custom_secondary_count(total, reads, **kwargs):
         }
 
 
-def custom_acc(total, reads, getGeneNameWrap):
+def customCalcGeneAcc(total, reads, getRenamedGeneName):
+    """ The pair reads are mapped on reference """
     data = {gene: {'total': num, 'count': 0, 'primary': 0, 'secondary': 0} for gene, num in total.items()}
 
     for read_name, mapping_info in reads.items():
@@ -171,11 +194,11 @@ def custom_acc(total, reads, getGeneNameWrap):
         mapping_info = list(filter(lambda i: (i[0] & 2), mapping_info))
 
         primary = list(filter(lambda i: i[1] != '*' and not (i[0] & 256), mapping_info))
-        if primary and getGeneNameWrap(primary[0][1]) == getGeneNameWrap(read_name):
+        if primary and getRenamedGeneName(primary[0][1]) == getRenamedGeneName(read_name):
             data[getGeneName(read_name)]['primary'] += 1
 
         second = list(filter(lambda i: i[1] != '*', mapping_info))
-        if second and any(getGeneNameWrap(read[1]) == getGeneNameWrap(read_name) for read in second):
+        if second and any(getRenamedGeneName(read[1]) == getRenamedGeneName(read_name) for read in second):
             data[getGeneName(read_name)]['secondary'] += 1
 
     for gene, d in data.items():
@@ -191,32 +214,35 @@ def custom_acc(total, reads, getGeneNameWrap):
             'total': d['total'],
             'correct': d['secondary'],
             'acc': d['secondary'] / d['count'],
-            'type': 'secondary',
+            'type': 'primary+secondary',
         }
 
 
-def plot_bam_custom_evalute():
-    filename = "results/bam_mapping_detail"
-    filename += "_1"
+def plotGenewiseMapping():
+    sample_index = "data/linnil1_syn_wide.test10"
+    filename = f"{sample_index}.bam_gene_data"
 
     if not os.path.exists(filename + ".json"):
         # Figure: Proper Paired Perecetage
-        id = 0
         data = []
         for id in range(10):
-            data.extend([
-                {'method': "answer",    'id': id, 'same_ab': False, 'file': f"linnil1_syn_wide/linnil1_syn_wide.{id:02d}.read..sam"},
-                {'method': "raw_split", 'id': id, 'same_ab': True, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw.mut01.bam"},
-                {'method': "ab_split",  'id': id, 'same_ab': False, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_ab.mut01.bam"},
-                {'method': "merge",     'id': id, 'same_ab': True, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.bam"},
-                {'method': "linear",    'id': id, 'same_ab': True, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw_cons.bowtie2.sam"},
+            name = f"{sample_index}.{id:02d}"
+            dat = [
+                {'method': "answer",        'gene_compare_type': "",           'file': f"linnil1_syn_wide/linnil1_syn_wide.{id:02d}.read..sam"},
+                {'method': "hisat_raw",     'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw.mut01.bam"},
+                {'method': "hisat_2dl1s1",  'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
+                {'method': "hisat_splitab", 'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab.mut01.bam"},
+                {'method': "linear",        'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
                 # {'method': "full",   'id': 0, 'file': "data/linnil1_syn_wide.00.kir_2100_raw_full.bowtie2.sam"},
-            ])
+            ]
+            for i in dat:
+                i['id'] = id
+            data.extend(dat)
 
         # for i in data:
-        #     i.update(getMappedOn(i['file']))
+        #     i.update(getEachReadMappedOn(i['file']))
         with ProcessPoolExecutor() as executor:
-            for d, result in zip(data, executor.map(getMappedOn, map(lambda i: i['file'], data))):
+            for d, result in zip(data, executor.map(getEachReadMappedOn, map(lambda i: i['file'], data))):
                 d.update(result)
 
         # print(data)
@@ -226,6 +252,16 @@ def plot_bam_custom_evalute():
         data = json.load(open(filename + ".json"))
 
     def reColor(arr1, arr2):
+        """
+        Assign color for arr1_i x arr2_j
+
+        Args:
+          arr1(list[str]): ...
+          arr2(list[str]): ...
+        Returns:
+          group_name(list[str]):  list of arr1_i x arr2_j
+          name_to_color(dict[str, str]): key=arr1_i-arr2_j value=color
+        """
         group_name = arr1 + " - " + arr2
         colors = (px.colors.qualitative.Dark2, px.colors.qualitative.Set2)
 
@@ -236,11 +272,19 @@ def plot_bam_custom_evalute():
         return group_name, name_to_color
 
     def findAnswerSample(id):
+        """ Find the sample dict with same id """
         for sample in data:
             if sample['method'] == "answer" and sample['id'] == id:
                 return sample
+        raise ValueError
 
     def runAllFiles(data, stat_func):
+        """
+        Calculate the stat by stat_func for each sample(data)
+
+        Args:
+          data(dict[str, Any]): The data from
+        """
         custom_stats = []
         for sample in data:
             if sample['method'] == "answer":
@@ -250,10 +294,20 @@ def plot_bam_custom_evalute():
             reads_file = sample['mapping']
             gene_ans_total = Counter(map(lambda name: getGeneName(name), reads_ans.keys()))
 
-            if sample['same_ab']:
-                stats = stat_func(gene_ans_total, reads_file, getGeneNameWrap=lambda i: i[:7])
-            else:
-                stats = stat_func(gene_ans_total, reads_file, getGeneNameWrap=getGeneName)
+            if sample['gene_compare_type'] == "":
+                stats = stat_func(gene_ans_total, reads_file, getRenamedGeneName=getGeneName)
+            elif sample['gene_compare_type'] == "ab":
+                stats = stat_func(gene_ans_total, reads_file, getRenamedGeneName=lambda i: i[:7])
+            elif sample['gene_compare_type'] == "ab_2dl1s1":
+                def compare2dl1s1(name):
+                    name = getGeneName(name)
+                    return {
+                        "KIR2DL5A": "KIR2DL5",
+                        "KIR2DL5B": "KIR2DL5",
+                        "KIR2DL1": "KIR2DL1S1",
+                        "KIR2DS1": "KIR2DL1S1",
+                    }.get(name, name)
+                stats = stat_func(gene_ans_total, reads_file, getRenamedGeneName=compare2dl1s1)
 
             custom_stats.extend([{
                 'method': sample['method'],
@@ -268,7 +322,7 @@ def plot_bam_custom_evalute():
     figs = []
 
     # missing
-    df = runAllFiles(data, custom_get_missing)
+    df = runAllFiles(data, customCalcMissing)
     gene_order = {'gene': sorted(set(df['gene']))}
     figs.append(
         px.box(df, x="gene", y="miss_perc", color="method", category_orders=gene_order)
@@ -282,7 +336,7 @@ def plot_bam_custom_evalute():
     )
 
     # Any proper reads
-    df = runAllFiles(data, custom_get_proper_mapped)
+    df = runAllFiles(data, customCalcAnyMapped)
     gene_order = {'gene': sorted(set(df['gene']))}
     figs.append(
         px.box(df, x="gene", y="pair_perc", color="method", category_orders=gene_order)
@@ -296,7 +350,7 @@ def plot_bam_custom_evalute():
     )
 
     # secondary
-    df = runAllFiles(data, custom_secondary_count)
+    df = runAllFiles(data, customCalcSecondary)
     gene_order = {'gene': sorted(set(df['gene']))}
     figs.append(
         px.box(df, x="gene", y="secd_perc", color="method", category_orders=gene_order)
@@ -310,16 +364,16 @@ def plot_bam_custom_evalute():
     )
 
     # gene-acc
-    df = runAllFiles(data, custom_acc)
+    df = runAllFiles(data, customCalcGeneAcc)
     gene_order = {'gene': sorted(set(df['gene']))}
     group, color = reColor(df["method"], df["type"])
     figs.append(
         px.box(df, x="gene", y="acc", color=group,
                category_orders=gene_order,
                color_discrete_map=color,
-              )
-          .update_layout(title="Gene-level accuracy(Primary)",
-                         yaxis_title="Correct read / total read (%)")
+               ).update_layout(
+                   title="Gene-level accuracy(Primary)",
+                   yaxis_title="Correct read / total read (%)")
     )
     figs.append(
         px.box(df, x="method", y="acc", color="type", category_orders=gene_order)
@@ -329,43 +383,39 @@ def plot_bam_custom_evalute():
     return figs
 
 
-def extractTargetReadFromBam(bamfile, ref, target_gene):
-    remove_mult_align = False
-    outputfile = os.path.splitext(bamfile)[0] + f".{ref.split('*')[0]}.{target_gene}"
-    if remove_mult_align:
-        outputfile += ".noNH"
-    outputfile += ".bam"
+def extractTargetReadFromBam(bamfile, mapped_ref, wanted_gene):
+    suffix = f".extract.{mapped_ref.split('*')[0]}.{wanted_gene}"
+    outputfile = os.path.splitext(bamfile)[0] + suffix
 
     # read
-    proc1 = subprocess.run(["samtools", "view", "-h", bamfile], stdout=subprocess.PIPE)
-    proc1.check_returncode()
     data = []
-    for i in proc1.stdout.decode().split("\n"):
+    for i in samtools("view", f"-h {bamfile}"):
         if not i:
             continue
         if i.startswith("@"):
             data.append(i)
-        elif target_gene in i.split('*')[0]:
-            if not remove_mult_align:
-                data.append(i)
-                continue
-
-            if "NH:" in i and int(re.findall(r"NH:i:(\d+)", i)[0]) == 1:
-                data.append(i)
-
-    proc2 = subprocess.run(["samtools", "sort", "-", "-o", outputfile],
-                           input="\n".join(data).encode())
-    proc2.check_returncode()
-    proc3 = subprocess.run(["samtools", "index", outputfile])
-    proc3.check_returncode()
-    print("Save to", outputfile)
+        elif i.split("\t")[2] == mapped_ref and wanted_gene in i.split('*')[0]:
+            data.append(i)
+            continue
+    with open(outputfile + ".sam", "w") as f:
+        f.writelines(map(lambda i: i + "\n", data))
+    samtobam(outputfile)
+    print("Save to", outputfile + ".bam")
+    return suffix
 
 
 if __name__ == '__main__':
-    # extractTargetReadFromBam("data/linnil1_syn_wide.00.kir_2100_2dl1s1.mut01.bam", "KIR2DL1S1*BACKBONE", "KIR2DL2")
+    """
+    extractTargetReadFromBam("data/linnil1_syn_wide.test10.00.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.sam",
+                             mapped_ref="KIR2DL1S1*BACKBONE",
+                             wanted_gene="KIR2DL2")
+    extractTargetReadFromBam("data/linnil1_syn_wide.test10.00.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.sam",
+                             mapped_ref="KIR2DL1*BACKBONE",
+                             wanted_gene="KIR2DS1")
+    """
     figs = []
-    # figs.extend(plot_bam_mapping())
-    figs.extend(plot_bam_custom_evalute())
+    # figs.extend(plotBamStat())
+    figs.extend(plotGenewiseMapping())
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
-    app.run_server(debug=True, port=8051)
+    app.run_server(debug=True, port=8052)

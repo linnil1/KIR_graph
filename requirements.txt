@@ -2,4 +2,6 @@ pandas
 biopython
 git+git://github.com/linnil1/pyHLAMSA
 tqdm
-matplotlib
+dash
+plotly
+scipy

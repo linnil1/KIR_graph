@@ -1,15 +1,20 @@
-import re
+import os
 import numpy as np
 import pandas as pd
 import plotly.express as px
 from dash import Dash, dcc, html, Input, Output
 from pyHLAMSA import Genemsa
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from kg_utils import threads, runDocker, runShell, samtobam
 
 
-def calculate_400bp_read_matchness(a1, a2):
+def calculate400bpReadMatchness(a1, a2):
     # read
-    msa = Genemsa.load_msa(f"index/kir_2100_merge.KIR.save.fa", "index/kir_2100_merge.KIR.save.json")
+    index = "index/kir_2100_merge.save"
+    output_name = f"{index}.400bp_match.{a1}_{a2}.csv"
+    if os.path.exists(output_name):
+        return pd.read_csv(output_name)
+    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
 
     # separate
     msa = msa.select_allele(f"{a1}.*|{a2}.*").shrink().reset_index().sort_name()
@@ -40,13 +45,14 @@ def calculate_400bp_read_matchness(a1, a2):
                 print(name, pos, allele_finded)
             df.loc[name, pos] = not (not allele_finded)
 
-
-    df.to_csv(f"read_400bp_match_{a1}_{a2}.csv", index=False)
+    df.to_csv(output_name, index=False)
     print(df)
+    return df
 
 
-def plot_400bp_matchness(a1, a2):
-    df = pd.read_csv(f"read_400bp_match_{a1}_{a2}.csv")
+def plot400bpMatchness(a1, a2):
+    index = "index/kir_2100_merge.save"
+    df = pd.read_csv(f"{index}.400bp_match.{a1}_{a2}.csv")
     # df = df.fillna(-1)
     df = df.fillna(0)
     df_a1 = df[df.name.str.startswith(a1)]
@@ -56,70 +62,88 @@ def plot_400bp_matchness(a1, a2):
 
     # a1
     data = np.array(df_a1.fillna(-1).iloc[:, 1:], dtype=int)
-    figs.append(px.imshow(data, title=a1, text_auto=True, aspect="auto", color_continuous_scale=[color[-1], color[0], color[2]]))
+    figs.append(px.imshow(data, title=f"{a1} mapped on {a2}", aspect="auto", color_continuous_scale=[color[-1], color[0], color[2]]))
     figs[-1].update_layout(xaxis={'ticktext': df.columns[1::5], 'tickmode': "array", 'tickvals': list(range(len(df.columns[1:])))[::5]})
 
     # a2
     data = np.array(df_a2.fillna(-1).iloc[:, 1:], dtype=int)
-    figs.append(px.imshow(data, title=a2, text_auto=True, aspect="auto", color_continuous_scale=[color[-1], color[0], color[2]]))
+    figs.append(px.imshow(data, title=f"{a2} mapped on {a1}", aspect="auto", color_continuous_scale=[color[-1], color[0], color[2]]))
     figs[-1].update_layout(xaxis={'ticktext': df.columns[1::5], 'tickmode': "array", 'tickvals': list(range(len(df.columns[1:])))[::5]})
 
     return figs
 
 
-def find_400bp_matchness():
-    a1, a2 = "KIR2DL1", "KIR2DS1"
-    a1, a2 = "KIR2DL5A", "KIR2DL5B"
-    a1, a2 = "KIR2DL1", "KIR2DL2"
-    calculate_400bp_read_matchness(a1, a2)
-    return plot_400bp_matchness(a1, a2)
+def plot400bpMatchness():
+    pairs = [
+        ("KIR2DL1", "KIR2DS1"),
+        ("KIR2DL1", "KIR2DL2"),
+        ("KIR2DL1", "KIR2DL3"),
+        ("KIR2DL5A", "KIR2DL5B"),
+    ]
+    for a1, a2 in pairs:
+        calculate400bpReadMatchness(a1, a2)
+
+    figs = []
+    for a1, a2 in pairs:
+        figs.extend(plot400bpMatchness(a1, a2))
+    return figs
 
 
 def diffBetweenAllele(msa, title):
-    import plotly.express as px
+    # TODO what is this?
+    pass
+
+
+def plotVariantPosBetweenPairs():
     figs = []
-    return figs[0]
+    figs.extend(plotVariantPosBetweenPair("KIR2DS1", "KIR2DL1"))
+    figs.extend(plotVariantPosBetweenPair("KIR2DL2", "KIR2DL3"))
+    figs.extend(plotVariantPosBetweenPair("KIR2DS3", "KIR2DS5"))
+    figs.extend(plotVariantPosBetweenPair("KIR2DL5A", "KIR2DL5"))
+    return figs
 
 
-def plot_variant_matchness():
+def plotVariantPosBetweenPair(a1, a2):
     figs = []
-    msa = Genemsa.load_msa(f"index/kir_2100_merge.KIR.save.fa", f"index/kir_2100_merge.KIR.save.json")
+    index = "index/kir_2100_merge.save"
+    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
 
-    gene = "KIR2DS1"
-    base_gene = "KIR2DL1"
-    # gene = "KIR2DL2"
-    # base_gene = "KIR2DL3"
-    # gene = "KIR2DS3"
-    # base_gene = "KIR2DS5"
-
-    # All genes
+    """
+    # gene vs base difference
     # for g in set(map(lambda i: i.split("*")[0], msa.alleles.keys())):
     for g in [gene, base_gene]:
         submsa = msa.select_allele(f"({g})|({base_gene})").shrink()
+        title = f"SNP distribution of {base_gene} and {g}"
         bs = submsa.get_variantion_base()
         print(g)
         print("Total length", submsa.get_length())
         print("Total base diff", len(bs))
         df = pd.DataFrame(bs, columns = ['pos'])
-        figs.append( px.histogram(df, x='pos', title=f"{base_gene} vs {g}", width=600, height=800) )
+        figs.append( px.histogram(df, x='pos', title=title, width=600, height=800) )
         # figs.append( px.histogram(df, x='pos', title=title, width=600, height=800, histnorm='probability').update_layout(yaxis_tickformat = '.2%') )
+    """
 
+    # Inter gene difference
     # diff variant of two = all variant - variant1 - variant2
-    submsa = msa.select_allele(f"({gene})|({base_gene})").shrink()
+    submsa = msa.select_allele(f"({a1})|({a2})").shrink()
     submsa_base0 = submsa.get_variantion_base()
-    submsa_base1 = submsa.select_allele(f"({gene})").get_variantion_base()
-    submsa_base2 = submsa.select_allele(f"({base_gene})").get_variantion_base()
+    submsa_base1 = submsa.select_allele(f"({a1})").get_variantion_base()
+    submsa_base2 = submsa.select_allele(f"({a2})").get_variantion_base()
     bases = set(submsa_base0) - set(submsa_base1) - set(submsa_base2)
 
-    # plot diff base
-    print(submsa.format_variantion_base())
+    title = f"Internal Variantion inside {a1} and {a2}"
+    df = pd.DataFrame([
+        *[{'pos': i, 'from': a1} for i in submsa_base1],
+        *[{'pos': i, 'from': a2} for i in submsa_base2],
+    ])
+    figs.append(px.histogram(df, x='pos', color="from", nbins=100, title=title, width=600, height=800))
 
     # plot
-    title = f"Different between {base_gene} and {gene} (exclude internal variant)"
+    title = f"Different between {a1} and {a2} (exclude internal variant)"
     print(title, len(bases))
     # .update_layout(yaxis_range=[0,70])
-    df = pd.DataFrame(bases, columns = ['pos'])
-    figs.append(px.histogram(df, x='pos', title=title, width=600, height=800))
+    df = pd.DataFrame(bases, columns=['pos'])
+    figs.append(px.histogram(df, x='pos', title=title, nbins=100, width=600, height=800))
     # px.histogram(df, x='pos', title=title, width=600, height=800, histnorm='probability').update_layout(yaxis_tickformat = '.2%') ])
 
     return figs
@@ -129,21 +153,19 @@ def getVariantPosition(msa, reg):
     return set(msa.select_allele(reg).get_variantion_base())
 
 
-def plot_variant_across_gene():
+def plotVariationAllGene():
     # load data
-    msa = Genemsa.load_msa("index/kir_2100_merge.KIR.save.fa",
-                           "index/kir_2100_merge.KIR.save.json")
+    index = "index/kir_2100_merge.save"
+    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+
+    # Remove some strange sequences
     del msa.alleles['KIR*BACKBONE']
     del msa.alleles['KIR2DS4*0010103']
- 
     # remove 2DL5 short sequences
-    for i in map(lambda i: i[0], filter(lambda i: len(i[1].replace("-", "")) < 3000, msa.select_allele("KIR2DL5A.*").alleles.items())):
+    for i in map(lambda i: i[0], filter(lambda i: len(i[1].replace("-", "")) < 3000, msa.select_allele("KIR2DL5.*").alleles.items())):
         print(f"delete {i}")
         del msa.alleles[i]
-    for i in map(lambda i: i[0], filter(lambda i: len(i[1].replace("-", "")) < 3000, msa.select_allele("KIR2DL5B.*").alleles.items())):
-        print(f"delete {i}")
-        del msa.alleles[i]
- 
+
     # get All available gene
     genes = sorted(set(map(lambda i: i.split("*")[0], msa.alleles.keys())))
     # genes.remove("KIR3DL3")
@@ -152,61 +174,60 @@ def plot_variant_across_gene():
     # genes.remove("KIR2DL5B")
     gene_id = {gene: id for id, gene in enumerate(genes)}
 
-    # get variantion in gene
-    bases = {}
-    for gene in genes:
-        bases[gene] = set(msa.select_allele(f"{gene}").get_variantion_base())
+    outputfile = f"{index}.variation.csv"
+    if not os.path.exists(outputfile):
+        # get variantion in gene
+        bases = {}
+        for gene in genes:
+            bases[gene] = set(msa.select_allele(f"{gene}").get_variantion_base())
 
-    # get variantion across gene
-    diff_genes = []
-    exes = {}
-    with ProcessPoolExecutor(max_workers=8) as executor:
-        # run concurrent
-        for gene1 in genes:
-            for gene2 in genes:
-                if gene1 != gene2:
-                    exes[(gene1, gene2)] = executor.submit(getVariantPosition, msa, f"({gene1})|({gene2})")
+        # get variantion across gene
+        diff_genes = []
+        exes = {}
+        with ProcessPoolExecutor(max_workers=threads) as executor:
+            # run concurrent
+            for gene1 in genes:
+                for gene2 in genes:
+                    if gene1 != gene2:
+                        exes[(gene1, gene2)] = executor.submit(getVariantPosition, msa, f"({gene1})|({gene2})")
 
-        # gene1 vs gene2
-        for gene1 in genes:
-            for gene2 in genes:
-                if gene1 != gene2:
-                    print(gene1, gene2)
-                    b = exes[(gene1, gene2)].result()
-                    diff_genes.append({'from': gene1, 'to': gene2, 'value': len(b - bases[gene1] - bases[gene2])})
-                else:
-                    diff_genes.append({'from': gene1, 'to': gene2, 'value': len(bases[gene1])})
-    diff_genes_df = pd.DataFrame(diff_genes)
+            # gene1 vs gene2
+            for gene1 in genes:
+                for gene2 in genes:
+                    if gene1 != gene2:
+                        print(gene1, gene2)
+                        b = exes[(gene1, gene2)].result()
+                        diff_genes.append({'from': gene1, 'to': gene2, 'value': len(b - bases[gene1] - bases[gene2])})
+                    else:
+                        diff_genes.append({'from': gene1, 'to': gene2, 'value': len(bases[gene1])})
+        diff_genes_df = pd.DataFrame(diff_genes)
+        diff_genes_df.to_csv(outputfile, index=False)
+    else:
+        diff_genes_df = pd.read_csv(outputfile)
 
     # pandas to 2d array
     data = np.zeros((len(genes), len(genes)))
-    for d in diff_genes:
+    for d in diff_genes_df.to_dict(orient="records"):
         data[gene_id[d['from']], gene_id[d['to']]] = d['value']
 
     fig = px.imshow(data, text_auto=True, color_continuous_scale='RdBu_r',
                     width=1200, height=1200,
                     labels=dict(color="Base"),
                     x=list(gene_id.keys()), y=list(gene_id.keys())
-          ).update_xaxes(side="top")
+                    ).update_xaxes(side="top")
 
-    # dash cannot show text on image
-    # fig.write_image("genes_diff_all.png")
-    # fig.write_image("genes_diff.png")  # no 3DP1
-    # fig.write_image("genes_diff_noshort.png")  # no 3DP1 + no 2DL5 short
-    fig.write_image("results/variant_diff_across_gene_noshort.png")  # no 3DP1 + no 2DL5 short
     return [fig]
 
 
-def addGroupName(bamfile):
-    """ Return {bamfile}.rg.bam """
-    outputfile = os.path.splitext(bamfile)[0] + ".rg.bam"
-    proc1 = subprocess.run(["samtools", "view", "-h", bamfile], stdout=subprocess.PIPE)
-    proc1.check_returncode()
+def addGroupName(name):
+    """ Input {name}.bam Return {name}.rg.bam """
+    outputname = name + ".rg"
+    proc = runDocker("samtools", f"samtools view -h {name}.bam", capture_output=True)
 
     header = []
     data = []
     read_groups = set()
-    for i in proc1.stdout.decode().split("\n"):
+    for i in proc.stdout.split("\n"):
         if not i:
             continue
         if i.startswith("@"):
@@ -219,20 +240,21 @@ def addGroupName(bamfile):
     for rg in read_groups:
         header.append(f"@RG\tID:{rg}")
 
-    proc2 = subprocess.run(["samtools", "sort", "-", "-o", outputfile],
-                           input="\n".join([*header, *data]).encode())
-    proc2.check_returncode()
-    proc3 = subprocess.run(["samtools", "index", outputfile])
-    proc3.check_returncode()
-    print("Save to", outputfile)
+    with open(f"{outputname}.sam", "w") as f:
+        f.writelines(map(lambda i: i + "\n", header))
+        f.writelines(map(lambda i: i + "\n", data))
+
+    samtobam(outputname)
+    print("Save to {outputname}.bam")
+    return ".rg"
 
 
 if __name__ == "__main__":
-    # addGroupName("index/kir_2100_merge.KIR.save.bam")
+    # addGroupName("index/kir_2100_merge.save.KIR")
     figs = []
-    figs.extend(find_400bp_matchness())
-    # figs.extend(plot_variant_matchness())
-    # figs.extend(plot_variant_across_gene())
+    # figs.extend(plot400bpMatchness())
+    # figs.extend(plotVariantPosBetweenPairs())
+    figs.extend(plotVariationAllGene())
 
     # dash
     app = Dash(__name__)

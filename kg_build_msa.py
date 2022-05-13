@@ -35,7 +35,11 @@ def kirToMultiMsa(index="index", split_2DL5=False):
     """
     Read KIR and output {index}.save.{gene_name}.xx
     """
-    index = f"{index}/kir_2100_raw"
+    if split_2DL5:
+        index = f"{index}/kir_2100_ab"
+    else:
+        index = f"{index}/kir_2100_raw"
+
     if getSamples(index + ".save", strict=False):
         return index + ".save"
 
@@ -44,13 +48,20 @@ def kirToMultiMsa(index="index", split_2DL5=False):
         kir.genes['KIR2DL5A'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5A.*")
         kir.genes['KIR2DL5B'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5B.*")
         del kir.genes['KIR2DL5']
-        index = f"{index}/kir_2100_ab"
 
     index += saveAllMsa(index, kir.genes)
     return index
 
 
 def kirToSingleMsa(index="index", method="clustalo"):
+    """
+    Merge all kir gene into one KIR gene
+
+    When realign, we can assigne intron3/4 to intron3 or intron4
+
+    Args:
+      method(str): choose 'clustalo' or 'muscle' to realign the msa
+    """
     if method == "clustalo":
         index = f"{index}/kir_2100_merge"
     elif method == "muscle":
@@ -59,7 +70,6 @@ def kirToSingleMsa(index="index", method="clustalo"):
         raise NotImplementedError
 
     assign_intron_method = 0
-    assign_intron_method = 1
     if assign_intron_method == 1:
         index += "_assign1"
     if getSamples(index + ".save", strict=False):
@@ -88,13 +98,12 @@ def kirToSingleMsa(index="index", method="clustalo"):
     # Step3: double check and save the msa
     blocks = readBlocks(index, suffix=suffix)
     msa = blocksToMsa(blocks)
-    kir = KIRmsa(filetype=["gen"], version="2100")  # test
     for msa_old in kir.genes.values():
         for name, seq in msa_old.alleles.items():
             assert seq.replace("-", "") == msa.get(name).replace("-", "")
 
     index = ".".join(index.split(".")[:-1])  # remove .tmp
-    index += saveAllMsa(index[:-4], {'KIR': msa})
+    index += saveAllMsa(index, {'KIR': msa})
     return index
 
 

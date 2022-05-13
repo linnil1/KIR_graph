@@ -57,6 +57,11 @@ def count2Freq(base_counts):
 
 
 def getVariantsFromSeqs(ref_seq, allele_seq):
+    """
+    Compare two sequence and return a list of variants
+
+    Variant canbe  'single', 'deletion', 'insertion'
+    """
     variants = []
     pre_v = None
     ref_skip_base = 0
@@ -91,6 +96,9 @@ def getVariantsFromSeqs(ref_seq, allele_seq):
 
 
 def msa2Variant(msa):
+    """
+    Main: Transfer msa to hisat2 format
+    """
     ref_name, ref_seq = msa.get_reference()
 
     # get variantion from each allele
@@ -131,6 +139,7 @@ def msa2Variant(msa):
 
 
 def addFreqInVariant(msa, variants_dict):
+    """ Add alllele frequency in variant """
     # calculate frequency to all bases
     base_counts = msa.calculate_frequency()
     base_freq = count2Freq(base_counts)

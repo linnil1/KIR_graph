@@ -13,8 +13,10 @@ from kg_build_msa import (
 from kg_utils import (
     runShell,
     runDocker,
+    runAll,
     getSamples,
     threads,
+    samtobam,
 )
 
 
@@ -63,12 +65,6 @@ def hisatMap(index, name):
     return suffix
 
 
-def samtobam(name):
-    runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
-    runDocker("samtools", f"samtools index    {name}.bam")
-    runShell(f"rm {name}.sam")
-
-
 def bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01"):
     # No matter what index, this file will have the same sequences
     index = f"{index}/kir_2100_raw_full"
@@ -91,10 +87,16 @@ def bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01"):
 
 
 def bowtie2All(index, sample_index, suffix="", use_arg="default"):
-    new_suffix = ""
-    for f in getSamples(sample_index, suffix + ".read.1.fq"):
-        name = f[:-len(".read.1.fq")]
+    def runBowtie(name):
+        name = name[:-len(".read.1.fq")]
         new_suffix = bowtie2(index, name, use_arg)
+        return new_suffix
+
+    new_suffix = ""
+    for i in runAll(runBowtie,
+                    getSamples(sample_index, suffix + ".read.1.fq"),
+                    concurrent=False):
+        new_suffix = i
     return new_suffix
 
 
@@ -105,9 +107,10 @@ def bowtie2(index, name, use_arg="default"):
         args = "  -5 0  -3 6  -N 0  --end-to-end  --score-min L,-2,-0.08  " + \
                "  -I 75  -X 1000  -a  --np 1  --mp 2,2  --rdg 1,1  --rfg 1,1  "
         suffix += "_ping"
-
-    if os.path.exists(f"{name}{suffix}.sam"):
+    if os.path.exists(f"{name}{suffix}.bam"):
         return suffix
+
+    # main
     f1, f2 = name + ".read.1.fq", name + ".read.2.fq"
     runDocker("bowtie",
               f"bowtie2 {args} --threads {threads} -x {index} "
@@ -119,8 +122,9 @@ def bowtie2(index, name, use_arg="default"):
 def hisatTyping(index, sample_index, suffix=""):
     new_suffix = ""
     kg_typping.setIndex(index)
-    for f in getSamples(sample_index, suffix + ".bam"):
-        new_suffix = kg_typping.main(f)
+    samples = getSamples(sample_index, suffix + ".bam")
+    for i in runAll(kg_typping.main, samples):
+        new_suffix = i
     return new_suffix
 
 
@@ -128,51 +132,35 @@ os.makedirs("index", exist_ok=True)
 sample_index = linkSamples()
 sample_index = link10Samples(sample_index)
 
+index = "index"
+suffix = ""
 # Using IPDKIR MSA
-if False:
-    index = "index"
-    suffix = ""
-    index = kirToMultiMsa(index)
-    # index = "index/kir_2100_raw.mut01"
-
-
+# index = kirToMultiMsa(index)           # index = "index/kir_2100_raw.mut01"
 # Merge 2DL1 2DS1
-if True:
-    index = "index"
-    suffix = ""
-    index = kirMerge2dl1s1(index)
-    # index = "index/kir_2100_2dl1s1.mut01"
-
+# index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
+# Split 2DL5A and 2DL5B
+# index = kirToMultiMsa(split_2DL5=True) # index = "index/kir_2100_ab"
 # Merge all KIR
-if False:
-    index = "index"
-    # index = kirToSingleMsa(index)
-    suffix = ""
-    # index = "index/kir_2100_merge.mut01"
+# index = kirToSingleMsa(index)          # index = "index/kir_2100_merge.mut01"
 
 
-index = kg_build_index.main(index)
-suffix += hisatMapAll(index, sample_index, suffix)
-suffix += hisatTyping(index, sample_index, suffix)
+# index = kg_build_index.main(index)
+# suffix += hisatMapAll(index, sample_index, suffix)
+# suffix += hisatTyping(index, sample_index, suffix)
 print(index, sample_index, suffix)
 
 
 # Different method mapping test
 index = "index"
 suffix = ""
-# index = bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01")
-# index = bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01")
-# index = "index/kir_2100_raw_cons"
-# index = "index/kir_2100_raw_full"
-# suffix += bowtie2All(index, sample_index, suffix)
+# index = bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01")  # index = "index/kir_2100_raw_cons"
+index = bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01")       # index = "index/kir_2100_raw_full"
+
+suffix += bowtie2All(index, sample_index, suffix)
 # suffix += bowtie2All(index, sample_index, suffix, use_arg="ping")
-# bowtie2Ping()
 
 
 """
-index = "index/kir_2100_ab"
-suffix = ""
-# kirToMultiMsa(split_2DL5=True)
 # kg_build_index.main(index)
 index += ".mut01"
 index_name = index.split("/")[-1]
@@ -189,3 +177,4 @@ index = "index/kir_2100_muscle"
 # suffix += ".nosec"
 # bamFilter("-f 0x2 -F 256", ".sec")
 """
+runShell("stty echo opost")

@@ -2,7 +2,6 @@
 import re
 import os
 import sys
-import math
 import json
 import copy
 import bisect
@@ -55,6 +54,15 @@ class Variant:
 
     def __hash__(self):
         return hash((self.pos, self.ref, self.typ, self.val))
+
+
+def getNH(sam_info):
+    """ Extract NH from record """
+    NH_re = re.findall(r"NH:i:(\d+)", sam_info)
+    if NH_re:
+        return int(NH_re[0])
+    else:
+        return 1
 
 
 def readBam(alignment_fname):
@@ -144,6 +152,7 @@ def filterRead(line):
 
 
 def filterPair(i):
+    """ Discard pair reads if one of pair is failed """
     line_l, line_r = i
     return filterRead(line_l) and filterRead(line_r)
 
@@ -564,6 +573,7 @@ def getPNFromVariantList(variant_list, exon_only=False):
 
 
 def hisat2getCandidateAllele(positive_allele, negative_allele):
+    """ get_count in hisatgenotype """
     candidate = None
     for allele in positive_allele:
         if candidate is None:
@@ -579,6 +589,7 @@ def hisat2getCandidateAllele(positive_allele, negative_allele):
 
 
 def hisat2CountAllelePerPair(candidates):
+    """ get_stat in hisatgenotype """
     # count the allele
     # print(candidates)
     count = defaultdict(int)
@@ -698,7 +709,7 @@ def writeBam(records, filename, filename_out):
                      capture_output=True)
     with open(filename_out, "w") as f:
         f.writelines(proc.stdout)
-        f.writelines(records)
+        f.writelines(map(lambda i: i + "\n", records))
 
 
 # index
@@ -869,12 +880,11 @@ def main(bam_file):
         })
 
         # hisat2 method
-        # if "NH:i:1" not in left_record:
-        #     continue
-        hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
-            hisat2getCandidateAllele(lp, ln) +
-            hisat2getCandidateAllele(rp, rn)
-        ))
+        if getNH(left_record) == 1:
+            hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
+                hisat2getCandidateAllele(lp, ln) +
+                hisat2getCandidateAllele(rp, rn)
+            ))
 
         # TODO:
         # * typing_common.identify_ambigious_diffs(ref_seq,
@@ -887,11 +897,17 @@ def main(bam_file):
 
     print(f"Save filtered bam in {name_out}.sam")
     records = []
+    records_dup = []
     for reads in save_reads.values():
         for i in reads:
-            records.append(i['l_sam'])
-            records.append(i['r_sam'])
-    writeBam(records, bam_file, name_out + ".sam")
+            if getNH(i['l_sam']) == 1:
+                records.append(i['l_sam'])
+                records.append(i['r_sam'])
+            else:
+                records_dup.append(i['l_sam'])
+                records_dup.append(i['r_sam'])
+    writeBam(records + records_dup, bam_file, name_out + ".sam")
+    writeBam(records, bam_file, name_out + ".no_multi.sam")
 
     # hisat2 method
     hisat_result = {}
