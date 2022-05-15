@@ -44,6 +44,18 @@ def link10Samples(sample_index):
     return sample_index + suffix
 
 
+def link30xSamples():
+    os.makedirs("data", exist_ok=True)
+    index = "data/linnil1_syn_30x"
+    if getSamples(index, ".fq", strict=False):
+        return index
+
+    files = getSamples("linnil1_syn_30x/linnil1_syn_30x", ".fq", strict=False, return_name=True)
+    for f, id in files:
+        runShell(f"ln -s ../{f} {index}.{id}.fq")
+    return index
+
+
 def hisatMapAll(index, sample_index, suffix=""):
     new_suffix = ""
     for f in getSamples(sample_index, suffix + ".read.1.fq"):
@@ -128,53 +140,43 @@ def hisatTyping(index, sample_index, suffix=""):
     return new_suffix
 
 
-os.makedirs("index", exist_ok=True)
-sample_index = linkSamples()
-sample_index = link10Samples(sample_index)
+if __name__ == "__main__":
+    # sample_index = linkSamples()
+    # sample_index = link10Samples(sample_index)
+    sample_index = link30xSamples()
 
-index = "index"
-suffix = ""
-# Using IPDKIR MSA
-# index = kirToMultiMsa(index)           # index = "index/kir_2100_raw.mut01"
-# Merge 2DL1 2DS1
-# index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
-# Split 2DL5A and 2DL5B
-# index = kirToMultiMsa(split_2DL5=True) # index = "index/kir_2100_ab"
-# Merge all KIR
-# index = kirToSingleMsa(index)          # index = "index/kir_2100_merge.mut01"
-
-
-# index = kg_build_index.main(index)
-# suffix += hisatMapAll(index, sample_index, suffix)
-# suffix += hisatTyping(index, sample_index, suffix)
-print(index, sample_index, suffix)
+    index = "index"
+    suffix = ""
+    os.makedirs("index", exist_ok=True)
+    # Using IPDKIR MSA
+    # index = kirToMultiMsa(index)           # index = "index/kir_2100_raw.mut01"
+    # Merge 2DL1 2DS1
+    index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
+    # Split 2DL5A and 2DL5B
+    # index = kirToMultiMsa(split_2DL5=True) # index = "index/kir_2100_ab"
+    # Merge all KIR
+    # index = kirToSingleMsa(index)          # index = "index/kir_2100_merge.mut01"
 
 
-# Different method mapping test
-index = "index"
-suffix = ""
-# index = bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01")  # index = "index/kir_2100_raw_cons"
-index = bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01")       # index = "index/kir_2100_raw_full"
-
-suffix += bowtie2All(index, sample_index, suffix)
-# suffix += bowtie2All(index, sample_index, suffix, use_arg="ping")
+    index = kg_build_index.main(index)
+    suffix += hisatMapAll(index, sample_index, suffix)
+    suffix += hisatTyping(index, sample_index, suffix)
+    print(index, sample_index, suffix)
 
 
-"""
-# kg_build_index.main(index)
-index += ".mut01"
-index_name = index.split("/")[-1]
-suffix += "." + index_name + suffix
-# hisatMap()
-# hisatTyping()
+    # Different method mapping test
+    index = "index"
+    suffix = ""
+    # index = bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01")  # index = "index/kir_2100_raw_cons"
+    # index = bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01")       # index = "index/kir_2100_raw_full"
 
-
-index = "index/kir_2100_muscle"
-# kirToSingleMsa(method='muscle')
-
-
-# bamFilter("-f 0x2", ".nosingle")
-# suffix += ".nosec"
-# bamFilter("-f 0x2 -F 256", ".sec")
-"""
-runShell("stty echo opost")
+    # suffix += bowtie2All(index, sample_index, suffix)
+    # suffix += bowtie2All(index, sample_index, suffix, use_arg="ping")
+    """
+    index = "index/kir_2100_muscle"
+    # kirToSingleMsa(method='muscle')
+    # bamFilter("-f 0x2", ".nosingle")
+    # suffix += ".nosec"
+    # bamFilter("-f 0x2 -F 256", ".sec")
+    """
+    runShell("stty echo opost")

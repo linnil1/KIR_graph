@@ -1,3 +1,4 @@
+import os
 import re
 import json
 from pprint import pprint
@@ -12,6 +13,9 @@ from dash import Dash, dcc, html
 import plotly.graph_objects as go
 import plotly.express as px
 # import dash_bio as dashbio
+
+from kg_utils import getSamples
+from kg_eval import EvaluateKIR
 
 
 def collectAlleleName(reads_alleles):
@@ -538,108 +542,6 @@ def getCNPerRead(data):
     )
 
 
-def extractAnswerFromSummary(id):
-    """ Get answer alleles from summary.csv """
-    data = pd.read_csv("linnil1_syn_wide/summary.csv", sep="\t", header=None)
-    data = list(data[2].str.split("_"))
-    return sorted(data[id])
-
-
-def evaluteAllele(ans_list, predict_list):
-    """ Compare two alleles set """
-    predict_list = sorted(predict_list)
-    match_pair = []
-
-    for gene in set([getGeneName(i) for i in ans_list + predict_list]):
-        match_pair.extend(
-            evaluteGeneAllele([i for i in ans_list if i.startswith(gene)],
-                              [i for i in predict_list if i.startswith(gene)]))
-    match_pair.sort(key=lambda i: i[1] or i[2])
-    for t, a, b in match_pair:
-        if t == "Match":
-            print(f"{a:18} OK {b:18}")
-        elif t == "Match5":
-            print(f"{a:18} <5 {b:18}")
-        elif t == "Match3":
-            print(f"{a:18} <3 {b:18}")
-        elif t == "FN":
-            print(f"{a:18} <-")
-        elif t == "FP":
-            print(f"{'':18} -> {b:18}")
-    return match_pair
-
-
-def evaluteGeneAllele(a, b):
-    """
-    Compare two alleles set
-
-    (All alleles in these two set must in the same gene)
-    """
-    match_pair = []
-    i = 0
-    for allele in list(b):
-        if allele in a:
-            a.remove(allele)
-            b.remove(allele)
-            match_pair.append(("Match", allele, allele))
-
-    for allele_b in list(b):
-        for allele_a in a:
-            if allele_a[:allele_a.index("*") + 6] == allele_b[:allele_b.index("*") + 6]:
-                a.remove(allele_a)
-                b.remove(allele_b)
-                match_pair.append(("Match5", allele_a, allele_b))
-                break
-            if allele_a[:allele_a.index("*") + 4] == allele_b[:allele_b.index("*") + 4]:
-                a.remove(allele_a)
-                b.remove(allele_b)
-                match_pair.append(("Match3", allele_a, allele_b))
-                break
-
-    for allele in a:
-        match_pair.append(("FN", allele, None))
-    for allele in b:
-        match_pair.append(("FP", None, allele))
-    return match_pair
-
-
-def evaluateResult(results):
-    """
-    Sum the allele
-    """
-    TP, FP, FN, match_gene, match_3, match_5, total, cn_error = 0, 0, 0, 0, 0, 0, 0, 0
-    fail_allele, fail_sample = 0, 0
-    for result in results:
-        if all(i[0] == 'FN' for i in result):
-            fail_allele += len(result)
-            fail_sample += 1
-            continue
-        total   += len([i[1] for i in result if i[1]])
-        TP      += sum([i[0] == "Match"    for i in result])
-        FN      += sum([i[0] == "FN"       for i in result])
-        FP      += sum([i[0] == "FP"       for i in result])
-        match_3 += sum([i[0] == "Match3"   for i in result])
-        match_5 += sum([i[0] == "Match5"   for i in result])
-        ans_gene = [i[1].split("*")[0]     for i in result if i[0] == "FN"]
-        prd_gene = [i[2].split("*")[0]     for i in result if i[0] == "FP"]
-        for g in prd_gene:
-            if g in ans_gene:
-                ans_gene.remove(g)
-                match_gene += 1
-            else:
-                cn_error += 1
-        cn_error += len(ans_gene)
-
-    print(f"Cannot called", f"sample={fail_sample} alleles={fail_allele}")
-    print(f"Total alleles {total}")
-    print(f"  * {TP=}")
-    print(f"  * Match_5_digits={match_5} ")
-    print(f"  * Match_3_digits={match_3} ")
-    print(f"  * {FN=} {FP=}")
-    print(f"    * Match_gene={match_gene}")
-    print(f"    * Copy_number_error={cn_error}")
-
-
 def typingWithCopyNumber(data, gene_cn):
     called_alleles = []
     for gene, reads_alleles in data.items():
@@ -779,33 +681,39 @@ def typingPerSample(index, name):
 if __name__ == "__main__":
     # index = "index/kir_2100_raw.mut01"
     index = "index/kir_2100_2dl1s1.mut01"
-    name_ids = list(range(10))
     # names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_raw.mut01.hisatgenotype.errcorr" for i in name_ids]
-    names = [f"data/linnil1_syn_wide.test10.{i:02d}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr" for i in name_ids]
-
-    name_ids = name_ids[0:10]
+    basename = "data/linnil1_syn_wide.test10"
+    suffix = ".index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
+    names = getSamples(basename, suffix + ".json", return_name=True)
     names = names[0:10]
     figs = []
-    called_alleles_evals = []
+    called_alleles_dict = {}
+    dfs = []
 
     test_alleles = []
     # test_alleles = ["KIR3DL3*0030104", "KIR3DL3*0090101", "KIR3DL3*0030104", "KIR3DL3*00801"]
     # test_alleles = ["KIR2DL1*0030230", "KIR2DS1*0020103", "KIR2DS1*0020115", "KIR2DL1*0030230", "KIR2DS1*0020104", "KIR2DS1*013"]
+    # test_alleles = ["KIR2DS5*019", "KIR2DS5*019", "KIR2DS5*019", "KIR2DS5*0270102"]
+    # test_alleles = ["KIR2DL1*0020112", "KIR2DL1*0030228", "KIR2DS1*0020108", "KIR2DS1*0020115"]
+    # test_alleles += ["KIR2DL1*0020112", "KIR2DL1*0030228", "KIR2DS1*0020111", "KIR2DS1*013"]
 
-    for name, name_id in zip(names, name_ids):
+    for name, name_id in names:
+        name = os.path.splitext(name)[0]
         print(name, name_id)
         called_alleles, fig = typingPerSample(index, name)
         figs.extend(fig)
-        called_alleles_evals.append(
-            evaluteAllele(extractAnswerFromSummary(name_id), called_alleles)
-        )
-        pd.DataFrame([{
+        called_alleles_dict[name_id] = called_alleles
+        df = pd.DataFrame([{
             'id':  name_id,
-            'filename': name,
+            'name': name,
             'alleles': "_".join(called_alleles),
-        }]).to_csv(name + ".linnil1.csv", index=False, sep="\t")
+        }])
+        # df.to_csv(name + ".linnil1.csv", index=False, sep="\t")
+        dfs.append(df)
+    dfs = pd.concat(dfs, ignore_index=True)
+    print(dfs)
 
-    evaluateResult(called_alleles_evals)
+    EvaluateKIR("linnil1_syn_wide/linnil1_syn_wide.summary.csv").compareCohert(called_alleles_dict, skip_empty=True)
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
     app.run_server(debug=True, port=8051)

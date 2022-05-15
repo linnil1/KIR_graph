@@ -1,11 +1,16 @@
 import os
+from pprint import pprint
+from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import pandas as pd
 import plotly.express as px
+from Bio import AlignIO
 from dash import Dash, dcc, html, Input, Output
+
 from pyHLAMSA import Genemsa
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from kg_utils import threads, runDocker, runShell, samtobam
+from kg_build_msa import muscle
 
 
 def calculate400bpReadMatchness(a1, a2):
@@ -249,12 +254,170 @@ def addGroupName(name):
     return ".rg"
 
 
+def seqSplit(seq, sep):
+    """
+    Split the seq with sep string
+
+    Args:
+      seq(list[str]): The sequences for spliting
+      sep(str): The string
+
+    Return:
+      seq(list[str]): The sequences be splited
+    """
+    seqs = []
+    for s in seq:
+        s_split = s.split(sep)
+        s_split[1:] = [sep + i for i in s_split[1:]]
+        seqs.extend(s_split)
+    return seqs
+
+
+def writeSeqs(seqs, filename):
+    """ Write the short sequences """
+    with open(filename, "w") as f:
+        for seq in seqs:
+            f.write(">" + seq['id'] + "\n")
+            f.write(seq['seq'] + "\n")
+
+
+def addPositionToSeqs(seq_list):
+    """
+    Annotate the string position
+
+    Args:
+      seq_list(list[str]): list of string
+
+    Return 
+      seqs(list[dict[str, Any]]): list of dict,
+        where
+        * 'pos' indicate the start position
+        * 'seq' indicate the original string
+    """
+    pos = 0
+    seqs = []
+    for seq in seq_list:
+        seqs.append({
+            'pos': pos,
+            'seq': seq,
+        })
+        pos += len(seq)
+    return seqs
+
+
+def selectAllele(names, sep="*"):
+    """
+    Args:
+      names(list[str]): list of allele name
+      sep(str): select type
+      * '*': gene-name
+      * '3': gene-name + 3 fields
+      * '5': gene-name + 5 fields
+      * '7': gene-name + 7 fields
+    """
+    s = set()
+    reserved_name = []
+    for i in sorted(names):
+        if sep == "*":
+            key = i.split("*")[0]
+        elif type(sep) is int:
+            key = i.split("*")[0] + "*" + i.split("*")[1][:sep]
+        else:
+            key = i
+        if key not in s:
+            s.add(key)
+            reserved_name.append(i)
+
+    return sorted(reserved_name)
+
+
+def extractRepeatSequence(index, gene, print_style="7_all"):
+    """
+    Extract the repeat region (about 500bp - 3000bp)
+    """
+    msa = Genemsa.load_msa(f"{index}.{gene}.fa",
+                           f"{index}.{gene}.json")
+    # get repeat seqs
+    seq_list = [msa.get(f"{gene}*BACKBONE")[:5000]]
+    seq_list = seqSplit(seq_list, "AATATGG")
+    seq_list = seqSplit(seq_list, "ATAGGG")
+    seq_list = seqSplit(seq_list, "GATA")
+    seq_list = seqSplit(seq_list, "GATC")
+    seq_list = seqSplit(seq_list, "GAGAGGAA")
+    seq_list = seqSplit(seq_list, "GAGTGAG")
+    seq_list = seqSplit(seq_list, "GATGTG")
+    seq_list = seqSplit(seq_list, "GGTAG")
+    seq_list = seqSplit(seq_list, "GGGAGCG")
+    seq_list = seqSplit(seq_list, "GGGAGTGCG")
+    seq_list = seqSplit(seq_list, "GGGGAGA")
+    seq_list = seqSplit(seq_list, "GTAAT")
+    seq_list = seqSplit(seq_list, "GTGAT")
+    seq_list = seqSplit(seq_list, "GTTAT")
+    seq_list = addPositionToSeqs(seq_list)
+    # for i in seq_list:
+    #     print(i['seq'])
+    # reserve similar length
+    pprint(seq_list)
+    # 17-22 is set manually
+    seq_list = [i for i in seq_list if 17 <= len(i['seq']) <= 22]
+
+    # run muscle
+    file_repeat = f"{index}.{gene}.repeat"
+    for i in seq_list:
+        i['id'] = f"{gene}*BB-{i['pos']:05d}"
+    writeSeqs(seq_list, file_repeat + ".fa")
+    file_repeat += muscle(file_repeat)
+
+    # print aligned repeat
+    msa_align = AlignIO.read(file_repeat + ".fa", "fasta")
+    msa_align = Genemsa.from_MultipleSeqAlignment(msa_align)
+    msa_align.append(f"{gene}*BB-con", msa_align.get_consensus(include_gap=True))
+    msa_align.set_reference(f"{gene}*BB-con")
+    print(msa_align.sort_name().format_alignment_diff())
+
+    # print cluster
+    for name in sorted(msa_align.get_sequence_names()):
+        # extract interested part
+        if "-con" in name: continue
+        length = len(msa_align.get(name).replace("-", ""))
+        pos = int(name.split('-')[-1])
+        msa_part = msa[pos:pos+length]
+
+        # print cluster
+        seqs_count = Counter(msa_part.alleles.values())
+        msa_part.alleles = {f"cluster{i:02d}-size-{c}": seq for i, (seq, c) in enumerate(seqs_count.items())}
+        msa_part.append(f"{gene}*BACKBONE", msa_align.get(name).replace("-", ""))
+        msa_part.set_reference(f"{gene}*BACKBONE")
+        print(msa_part.format_alignment_diff())
+
+    # print region of repeat of all alleles
+    if print_style == "7":
+        alleles_to_show = selectAllele(msa.get_sequence_names(), sep=7)
+    elif print_style == "5":
+        alleles_to_show = selectAllele(msa.get_sequence_names(), sep=5)
+    else:
+        return
+    msa = msa.select_allele(list(alleles_to_show))
+    for name in sorted(msa_align.get_sequence_names()):
+        # extract interested part
+        if "-con" in name:
+            continue
+        length = len(msa_align.get(name).replace("-", ""))
+        pos = int(name.split('-')[-1])
+        msa_part = msa[pos:pos+length]
+        # print it
+        msa_part = msa_part.select_allele(alleles_to_show) 
+        print(msa_part.format_alignment_diff())
+
+
 if __name__ == "__main__":
+    # extractRepeatSequence("index/kir_2100_raw.save", "KIR3DL2", "7")
+    extractRepeatSequence("index/kir_2100_merge.save", "KIR", "5")
     # addGroupName("index/kir_2100_merge.save.KIR")
     figs = []
     # figs.extend(plot400bpMatchness())
     # figs.extend(plotVariantPosBetweenPairs())
-    figs.extend(plotVariationAllGene())
+    # figs.extend(plotVariationAllGene())
 
     # dash
     app = Dash(__name__)

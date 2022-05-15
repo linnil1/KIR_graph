@@ -327,12 +327,14 @@ def plotGenewiseMapping():
     figs.append(
         px.box(df, x="gene", y="miss_perc", color="method", category_orders=gene_order)
           .update_layout(title="Missed reads belong to (Proportion)",
-                         yaxis_title="Missed_reads / total_read_counts in that gene")
+                         yaxis_title="Missed_reads / total_read_counts in that gene",
+                         yaxis_tickformat='e')
     )
     figs.append(
         px.box(df, x="method", y="miss_perc", color="method", category_orders=gene_order)
           .update_layout(title="Missed reads Per Method (Proportion)",
-                         yaxis_title="Missed_reads / total_read_counts in that gene")
+                         yaxis_title="Missed_reads / total_read_counts in that gene",
+                         yaxis_tickformat='e')
     )
 
     # Any proper reads
@@ -415,7 +417,7 @@ if __name__ == '__main__':
     """
     figs = []
     # figs.extend(plotBamStat())
-    figs.extend(plotGenewiseMapping())
+    # figs.extend(plotGenewiseMapping())
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
     app.run_server(debug=True, port=8052)
