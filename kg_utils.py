@@ -16,14 +16,14 @@ images = {
 }
 
 
-def runDocker(image, cmd, capture_output=False):
+def runDocker(image, cmd, capture_output=False, opts=""):
     """ run docker container """
     if image in images:
         image = images[image]
     name = str(uuid.uuid4()).split("-")[0]
     # docker_path = "docker"
     proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
-                    f"-w /app -v $PWD:/app {image} {cmd}",
+                    f"-w /app -v $PWD:/app {opts} {image} {cmd}",
                     capture_output=capture_output)
     return proc
 

@@ -3,10 +3,12 @@ import re
 import json
 from pprint import pprint
 from collections import defaultdict, Counter
+from concurrent.futures import ProcessPoolExecutor
 from scipy.stats import norm
 import numpy as np
 import pandas as pd
 from Bio import SeqIO
+from tqdm import tqdm
 
 # plot
 from dash import Dash, dcc, html
@@ -16,6 +18,20 @@ import plotly.express as px
 
 from kg_utils import getSamples
 from kg_eval import EvaluateKIR
+
+typing_by = "linnil1"
+# linnil1 hisat
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 
 def collectAlleleName(reads_alleles):
@@ -139,7 +155,7 @@ def printProb(data):
                                         data['fraction_norm'],
                                         data['unique_count'],
                                         data['value'])):
-        if idx >= 30:
+        if idx >= 10:
             break
         print(idx, candidate[-1])
         for allele_id, allele_name, frac, frac_norm, unique_count in zip(*candidate[:-1]):
@@ -148,12 +164,34 @@ def printProb(data):
                   f" unique_count {unique_count}")
 
 
-def calcProb(allele_names, reads_alleles, iter_max=5):
+def calcProb(log_probs, prob_last, prob_iter=1, top_n=300, allele_length={}):
     """
     Calculate the probility of
     allele_1 x allele_2 x ... x allele_n
     can generated the reads with max probility
     """
+    assert prob_iter >= 1
+    if prob_iter == 1:
+        # find the maximum probility of allele across all reads
+        # remove_n = int(len(log_probs) * 0.01)
+        # remove_n = 20
+        # prob_1 = np.sort(log_probs, axis=0)[remove_n:].sum(axis=0)
+        prob_1 = log_probs.sum(axis=0)
+        prob_1_index = np.array(list(reversed(np.argsort(prob_1)[-top_n:])))
+        # additional value
+        prob_1_top = log_probs[:, prob_1_index]
+        prob_1_top_allele = np.array([[i] for i in prob_1_index])
+        # N = reads
+        return {
+            'n': 1,
+            'value': prob_1[prob_1_index],                                                      # top_n
+            'allele_id': prob_1_top_allele,                                                     # top_n x n
+            'best_prob': prob_1_top,                                                            # top_n x n
+            'fraction': np.ones(prob_1_top_allele.shape),                                       # top_n x n
+            'fraction_norm': np.ones(prob_1_top_allele.shape) / allele_length[prob_1_top_allele],  # top_n x n
+            'unique_count': np.ones(prob_1_top_allele.shape),                                   # top_n x n
+        }
+
     def uniqueAllele(alleles, indexs):
         """
         Input: m * allele_n
@@ -172,6 +210,68 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
             unique_indexs.append(ind)
         return np.array(unique_allele), np.array(unique_indexs)
 
+    # get previous top-n allele
+    prob_1_top = prob_last['best_prob']
+    prob_1_top_allele = prob_last['allele_id']
+
+    # Find the maximum in
+    # (top-n x (allele-1 ... allele-n-1)) x (allele_1 ... allele_m)
+    prob_2 = np.maximum(log_probs, prob_1_top.T[:, :, None])
+    prob_2 = prob_2.sum(axis=1).flatten()
+    # prob_2 = np.sort(prob_2, axis=1)[:, remove_n:].sum(axis=1).flatten()
+    # Find the mean
+    # prob_2 = (log_probs + prob_1_top.T[:, :, None] * (prob_iter - 1)).sum(axis=1).flatten() / prob_iter
+    prob_2_allele = np.hstack([
+        # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
+        np.repeat(prob_1_top_allele, log_probs.shape[1], axis=0),
+        # [1,3,5] -> [1,3,5,1,3,5]
+        np.tile(np.arange(log_probs.shape[1]), len(prob_1_top_allele))[:, None],
+    ])
+    prob_2_index = np.array(list(reversed(np.argsort(prob_2)[-top_n:])))
+
+    # additional value
+    prob_2_top_allele, prob_2_index = uniqueAllele(prob_2_allele, prob_2_index)
+    prob_2_top = log_probs[:, prob_2_top_allele].max(axis=2)
+    prob_2_value = prob_2[prob_2_index]
+    prob_2_belong = np.equal(log_probs[:, prob_2_top_allele], prob_2_top[:, :, None])  # reads x top-n x allele_num(0/1)
+
+    # Count of uniquely assigned
+    prob_2_unique_mapped = prob_2_belong.sum(axis=2) == 1
+    prob_2_unique_count = prob_2_belong.copy()
+    prob_2_unique_count[np.logical_not(prob_2_unique_mapped)] = 0
+    prob_2_unique_count = prob_2_unique_count.sum(axis=0)
+
+    prob_2_fraction = (prob_2_belong / prob_2_belong.sum(axis=2)[:, :, None]).sum(axis=0)
+    prob_2_fraction = prob_2_fraction / prob_2_fraction.sum(axis=1, keepdims=True)
+    prob_2_fraction_norm = prob_2_fraction / allele_length[prob_2_top_allele]
+    # disable
+    # prob_2_fraction_nrom = prob_2_fraction
+
+    # sort by loss + fraction (evenly -> better)
+    value_fraction = np.vstack([-prob_2_value, np.abs(prob_2_fraction_norm - prob_2_fraction_norm.mean(axis=1, keepdims=True)).sum(axis=1)]).T.tolist()
+    rank_value_fraction = sorted(range(len(value_fraction)), key=lambda i: value_fraction[i])
+    prob_2_top = prob_2_top[:, rank_value_fraction]
+    prob_2_top_allele = prob_2_top_allele[rank_value_fraction]
+    prob_2_value = prob_2_value[rank_value_fraction]
+    prob_2_fraction = prob_2_fraction[rank_value_fraction]
+    prob_2_fraction_norm = prob_2_fraction_norm[rank_value_fraction]
+    prob_2_unique_count = prob_2_unique_count[rank_value_fraction]
+
+    return {
+        'n': prob_iter,
+        'allele_id': prob_2_top_allele,
+        'best_prob': prob_2_top,
+        'value': prob_2_value,
+        'fraction': prob_2_fraction,
+        'fraction_norm': prob_2_fraction_norm,
+        'unique_count': prob_2_unique_count,
+    }
+
+def getReadProbTmp(allele_name_map, reads_alleles_chunk):
+    return [getReadProb(allele_name_map, read_alleles) for read_alleles in reads_alleles_chunk]
+
+
+def calcProbInit(allele_names, reads_alleles):
     allele_length_map = readAlleleLength(index)
     # name -> id
     allele_name_map = dict(zip(allele_names, range(len(allele_names))))
@@ -180,13 +280,23 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
     allele_length = allele_length / 10000.
 
     # prob per read
-    probs = []
-    for read_alleles in reads_alleles:
-        prob = getReadProb(allele_name_map, read_alleles)
-        if prob is not None:
-            probs.append(prob)
+    
+    if typing_by != "merge":
+        probs = getReadProbTmp(allele_name_map, reads_alleles)
+    else:
+        print("Alleles in read -> vector")
+        with ProcessPoolExecutor(max_workers=30) as executor:
+            exes = []
+            probs = []
+            for i in range(0, len(reads_alleles), 400):
+                exes.append(executor.submit(getReadProbTmp, allele_name_map, reads_alleles[i:i+400]))
+            for exe in tqdm(exes):
+                prob = exe.result()
+                probs.extend(prob)
+        print("Alleles in read -> vector Done")
 
     # reads x alleles
+    probs = [i for i in probs if i is not None]
     probs = np.stack(probs)
 
     norm_probs = probs / probs.sum(axis=1, keepdims=True)
@@ -198,93 +308,6 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
         test_id = np.array(list(allele_name_map[i] for i in test_alleles))
         print(log_probs[:, test_id[:len(test_alleles)//2]].max(axis=1).sum())
         print(log_probs[:, test_id[len(test_alleles)//2:]].max(axis=1).sum())
-
-    # init
-    prob_save = []
-    top_n = 300  # reduce computation
-    prob_iter_max = iter_max
-
-    # find the maximum probility of allele across all reads
-    # remove_n = int(len(log_probs) * 0.01)
-    # remove_n = 20
-    # prob_1 = np.sort(log_probs, axis=0)[remove_n:].sum(axis=0)
-    prob_1 = log_probs.sum(axis=0)
-    prob_1_index = np.array(list(reversed(np.argsort(prob_1)[-top_n:])))
-    # additional value
-    prob_1_top = log_probs[:, prob_1_index]
-    prob_1_top_allele = np.array([[i] for i in prob_1_index])
-
-    # N = reads
-    prob_save.append({
-        'n': 1,
-        'value': prob_1[prob_1_index],                                                      # top_n
-        'allele_id': prob_1_top_allele,                                                     # top_n x n
-        'allele_name': [list(map(allele_name_map_rev.get, i)) for i in prob_1_top_allele],  # top_n x n
-        'best_prob': prob_1_top,                                                            # top_n x n
-        'fraction': np.ones(prob_1_top_allele.shape),                                       # top_n x n
-        'fraction_norm': np.ones(prob_1_top_allele.shape) / allele_length[prob_1_top_allele],  # top_n x n
-        'unique_count': np.ones(prob_1_top_allele.shape),                                   # top_n x n
-    })
-
-    for prob_iter in range(2, 1 + prob_iter_max):
-        # get previous top-n allele
-        prob_1_top = prob_save[-1]['best_prob']
-        prob_1_top_allele = prob_save[-1]['allele_id']
-
-        # Find the maximum in
-        # (top-n x (allele-1 ... allele-n-1)) x (allele_1 ... allele_m)
-        prob_2 = np.maximum(log_probs, prob_1_top.T[:, :, None])
-        prob_2 = prob_2.sum(axis=1).flatten()
-        # prob_2 = np.sort(prob_2, axis=1)[:, remove_n:].sum(axis=1).flatten()
-        # Find the mean
-        # prob_2 = (log_probs + prob_1_top.T[:, :, None] * (prob_iter - 1)).sum(axis=1).flatten() / prob_iter
-        prob_2_allele = np.hstack([
-            # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
-            np.repeat(prob_1_top_allele, log_probs.shape[1], axis=0),
-            # [1,3,5] -> [1,3,5,1,3,5]
-            np.tile(np.arange(log_probs.shape[1]), len(prob_1_top_allele))[:, None],
-        ])
-        prob_2_index = np.array(list(reversed(np.argsort(prob_2)[-top_n:])))
-
-        # additional value
-        prob_2_top_allele, prob_2_index = uniqueAllele(prob_2_allele, prob_2_index)
-        prob_2_top = log_probs[:, prob_2_top_allele].max(axis=2)
-        prob_2_value = prob_2[prob_2_index]
-        prob_2_belong = np.equal(log_probs[:, prob_2_top_allele], prob_2_top[:, :, None])  # reads x top-n x allele_num(0/1)
-
-        # Count of uniquely assigned
-        prob_2_unique_mapped = prob_2_belong.sum(axis=2) == 1
-        prob_2_unique_count = prob_2_belong.copy()
-        prob_2_unique_count[np.logical_not(prob_2_unique_mapped)] = 0
-        prob_2_unique_count = prob_2_unique_count.sum(axis=0)
-
-        prob_2_fraction = (prob_2_belong / prob_2_belong.sum(axis=2)[:, :, None]).sum(axis=0)
-        prob_2_fraction = prob_2_fraction / prob_2_fraction.sum(axis=1, keepdims=True)
-        prob_2_fraction_norm = prob_2_fraction / allele_length[prob_2_top_allele]
-        # disable
-        # prob_2_fraction_nrom = prob_2_fraction
-
-        # sort by loss + fraction (evenly -> better)
-        value_fraction = np.vstack([-prob_2_value, np.abs(prob_2_fraction_norm - prob_2_fraction_norm.mean(axis=1, keepdims=True)).sum(axis=1)]).T.tolist()
-        rank_value_fraction = sorted(range(len(value_fraction)), key=lambda i: value_fraction[i])
-        prob_2_top = prob_2_top[:, rank_value_fraction]
-        prob_2_top_allele = prob_2_top_allele[rank_value_fraction]
-        prob_2_value = prob_2_value[rank_value_fraction]
-        prob_2_fraction = prob_2_fraction[rank_value_fraction]
-        prob_2_fraction_norm = prob_2_fraction_norm[rank_value_fraction]
-        prob_2_unique_count = prob_2_unique_count[rank_value_fraction]
-
-        prob_save.append({
-            'n': prob_iter,
-            'allele_id': prob_2_top_allele,
-            'allele_name': [list(map(allele_name_map_rev.get, i)) for i in prob_2_top_allele],
-            'best_prob': prob_2_top,
-            'value': prob_2_value,
-            'fraction': prob_2_fraction,
-            'fraction_norm': prob_2_fraction_norm,
-            'unique_count': prob_2_unique_count,
-        })
-
 
     """
     # plot prob
@@ -306,6 +329,31 @@ def calcProb(allele_names, reads_alleles, iter_max=5):
             cluster="row",
         )])
     """
+    return log_probs, allele_length, allele_name_map_rev
+
+
+def calcProbAll(allele_names, reads_alleles, iter_max=5):
+    """
+    Calculate the probility of iter_max of alleles
+    to fit the positive and negative variants in each reads
+    """
+    # init
+    log_probs, allele_length, allele_name_map_rev = calcProbInit(allele_names, reads_alleles)
+    top_n = 300  # reduce computation
+    prob_save = []
+
+    # find the maximum probility of allele across all reads
+    for prob_iter in range(1, 1 + iter_max):
+        if prob_save:
+            prob_last = prob_save[-1]
+        else:
+            prob_last = None
+        prob_res = calcProb(log_probs, prob_last,
+                            allele_length=allele_length,
+                            prob_iter=prob_iter,
+                            top_n=top_n)
+        prob_res['allele_name'] = [list(map(allele_name_map_rev.get, i)) for i in prob_res['allele_id']]
+        prob_save.append(prob_res)
     return prob_save
 
 
@@ -481,7 +529,7 @@ def getCNDist(base, base_dev=0.02):
     return x, y * space
 
 
-def getCNDistBest(norm_read_count):
+def getCNDistBest(norm_read_count, assume_base=None):
     loss = []  # loss
     num_read_count, _ = np.histogram(norm_read_count, bins=500, range=(0, 1.))
     space = 1. / 500
@@ -494,6 +542,8 @@ def getCNDistBest(norm_read_count):
     loss = np.array(loss)
     max_point = loss[np.argmax(loss[:, 1]), :]
     base = max_point[0]
+    if assume_base and base / assume_base > 1.7:  # TODO: maybe more CN?
+        base /= 2
     x, y = getCNDist(base)
     max_cn_arg = y.argmax(axis=0)
     return {
@@ -508,13 +558,26 @@ def getCNDistBest(norm_read_count):
 
 def plotCNDist(result):
     fig_loss = px.line(x=result['loss'][:, 0], y=result['loss'][:, 1])
+    fig_loss.add_vline(x=result['base'], line_dash="dash", line_color="gray",
+                       annotation_text=f"max value={result['base']}")
+    fig_loss.update_layout(
+        xaxis_title="read-depth / 300",
+        yaxis_title="likelihood",
+    )
+
     fig_dist = go.Figure()
+    fig_dist.add_vline(x=result['base'], line_dash="dash", line_color="gray",
+                       annotation_text=f"CN=1 value={result['base']}")
     fig_dist.add_trace(go.Scatter(x=result['count'],
                                   y=[0 for i in result['count']],
                                   mode='markers', name="Observed"))
+    fig_dist.update_layout(
+        xaxis_title="read-depth / 300",
+        yaxis_title="probility",
+    )
     for n in range(len(result['dist'])):
         x = result['x']
-        if n < 5:
+        if n < 6:
             fig_dist.add_trace(go.Scatter(x=x, y=result['dist'][n], name=f"cn={n}"))
     return [fig_loss, fig_dist]
 
@@ -554,7 +617,7 @@ def typingWithCopyNumber(data, gene_cn):
         if not gene_cn.get(gene):
             continue
 
-        prob_save = calcProb(allele_names, reads_alleles, iter_max=gene_cn[gene])
+        prob_save = calcProbAll(allele_names, reads_alleles, iter_max=gene_cn[gene])
         if test_alleles:
             for prob in prob_save:
                 print(prob['n'])
@@ -578,7 +641,7 @@ def typingWithCopyNumber(data, gene_cn):
     return called_alleles
 
 
-def getCNbyVariant(index, data):
+def getCNbyVariant(index, data, assume_depth=None):
     # insertion deletion has more count of course
     snp = pd.read_csv(f"{index}.snp", sep="\t", header=None)
     single_id = set(snp.loc[snp[1] == "single", 0])
@@ -637,18 +700,65 @@ def getCNbyVariant(index, data):
     print(gene_total)
 
     # copy from before
+    # 300 is a magic number (to Scale)
     norm_read_count = list(gene_total['total'] / 300)
-    result = getCNDistBest(norm_read_count)
+    if not assume_depth:
+        result = getCNDistBest(norm_read_count)
+    else:
+        result = getCNDistBest(norm_read_count, assume_base=assume_depth / 300)
     figs.extend(plotCNDist(result))
     return dict(zip(gene_total['gene'], result['class'])), figs
 
 
-def typingPerSample(index, name):
-    # hisat_report = readReport(name)
+def typingUntilEnd(index, data, assume_depth=None):
+    links = {}
+    with open(f"{index}.link") as f:
+        for i in f:
+            if not i:
+                continue
+            id, alleles = i.strip().split("\t")
+            links[id] = alleles.split(' ')
+
+    for gene, reads_alleles in data.items():
+        assert gene == "KIR*BACKBONE"
+        allele_names = sorted(set(flatten(links.values())))
+        for read_alleles in reads_alleles:
+            read_alleles['lp'] = [links[v] for v in read_alleles['lpv']]
+            read_alleles['ln'] = [links[v] for v in read_alleles['lnv']]
+            read_alleles['rp'] = [links[v] for v in read_alleles['rpv']]
+            read_alleles['rn'] = [links[v] for v in read_alleles['rnv']]
+        log_probs, allele_length, allele_name_map_rev = calcProbInit(allele_names, reads_alleles)
+        top_n = 100  # reduce computation
+        prob_save = []
+
+        # find the maximum probility of allele across all reads
+        for prob_iter in range(1, 27 + 1):
+            if prob_save:
+                prob_last = prob_save[-1]
+            else:
+                prob_last = None
+            prob_res = calcProb(log_probs, prob_last,
+                                allele_length=allele_length,
+                                prob_iter=prob_iter,
+                                top_n=top_n)
+            prob_res['allele_name'] = [list(map(allele_name_map_rev.get, i)) for i in prob_res['allele_id']]
+            prob_save.append(prob_res)
+
+            print(prob_res['n'])
+            printProb(prob_res)
+        json.dump(prob_save, open("test_save_prob.json", "w"), cls=NumpyEncoder)
+    return []
+
+
+def typingPerSample(index, name, assume_depth=None):
+    if typing_by == "hisat":
+        hisat_report = readReport(name)
+    print("Read json")
     data = json.load(open(name + ".json"))
+    print("Read json done")
     figs = []
-    align_gene_confustion_df = plotAlignConfusion(data, no_multi=True)
-    figs.extend(plotConfustion(align_gene_confustion_df, title=f"Reads (gene level, no-duplication) {name}"))
+    # align_gene_confustion_df = plotAlignConfusion(data, no_multi=True)
+    # figs.extend(plotConfustion(align_gene_confustion_df, title=f"Reads (gene level, no-duplication) {name}"))
     '''
     align_gene_confustion_df = plotAlignConfusion(data)
     figs.extend(plotConfustion(align_gene_confustion_df, title=f"Reads (gene level, weighted) {name}"))
@@ -658,14 +768,20 @@ def typingPerSample(index, name):
     figs.extend(plotConfustion(align_gene_confustion_df, title="Reads (allele level)"))
     # TODO: 2DL5
     '''
+    if typing_by == "merge":
+        return typingUntilEnd(index, data, assume_depth=assume_depth), figs
     # plotPosNegRateWithReadAns(data)
     # gene_cn, fig = getCNPerRead(data)
-    gene_cn, fig = getCNbyVariant(index, data)
+    gene_cn, fig = getCNbyVariant(index, data, assume_depth=assume_depth)
     figs.extend(fig)
     # gene_cn = {"KIR2DL1S1*BACKBONE": 3}
     pprint(gene_cn)
-    called_alleles = typingWithCopyNumber(data, gene_cn)
-    # called_alleles = typingWithReportAndCopyNumber(hisat_report, gene_cn)
+    if typing_by == "linnil1":
+        called_alleles = typingWithCopyNumber(data, gene_cn)
+    elif typing_by == "hisat":
+        called_alleles = typingWithReportAndCopyNumber(hisat_report, gene_cn)
+    else:
+        raise NotImplementedError()
     # print(called_alleles)
 
     """
@@ -679,11 +795,22 @@ def typingPerSample(index, name):
 
 
 if __name__ == "__main__":
+    # basename = "data/linnil1_syn_wide.test10"
     # index = "index/kir_2100_raw.mut01"
+    # ans_csv = "linnil1_syn_wide/linnil1_syn_wide.summary.csv"
+    basename = "data/linnil1_syn_30x"
     index = "index/kir_2100_2dl1s1.mut01"
-    # names = [f"data/linnil1_syn_wide.{i:02d}.kir_2100_raw.mut01.hisatgenotype.errcorr" for i in name_ids]
-    basename = "data/linnil1_syn_wide.test10"
     suffix = ".index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
+    # index = "index/kir_2100_merge.mut01"
+    # suffix = ".index_kir_2100_merge.mut01.hisatgenotype.errcorr"
+    depth = None
+    ans_csv = ""
+    if "linnil1_syn_30x" in basename:
+        depth = 30
+        ans_csv = "linnil1_syn_30x/linnil1_syn_30x.summary.csv"
+    if "linnil1_syn_wide" in basename:
+        ans_csv = "linnil1_syn_wide/linnil1_syn_wide.summary.csv"
+
     names = getSamples(basename, suffix + ".json", return_name=True)
     names = names[0:10]
     figs = []
@@ -700,7 +827,7 @@ if __name__ == "__main__":
     for name, name_id in names:
         name = os.path.splitext(name)[0]
         print(name, name_id)
-        called_alleles, fig = typingPerSample(index, name)
+        called_alleles, fig = typingPerSample(index, name, assume_depth=depth)
         figs.extend(fig)
         called_alleles_dict[name_id] = called_alleles
         df = pd.DataFrame([{
@@ -708,12 +835,14 @@ if __name__ == "__main__":
             'name': name,
             'alleles': "_".join(called_alleles),
         }])
-        # df.to_csv(name + ".linnil1.csv", index=False, sep="\t")
+        new_suffix = f".type_by_{typing_by}"
+        # df.to_csv(name + f".linnil1{new_suffix}.csv", index=False, sep="\t")
         dfs.append(df)
     dfs = pd.concat(dfs, ignore_index=True)
     print(dfs)
 
-    EvaluateKIR("linnil1_syn_wide/linnil1_syn_wide.summary.csv").compareCohert(called_alleles_dict, skip_empty=True)
+    if ans_csv:
+        EvaluateKIR(ans_csv).compareCohert(called_alleles_dict, skip_empty=True)
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
     app.run_server(debug=True, port=8051)

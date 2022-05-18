@@ -1,4 +1,6 @@
 import os
+import subprocess
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 import kg_build_index
@@ -140,10 +142,72 @@ def hisatTyping(index, sample_index, suffix=""):
     return new_suffix
 
 
+def buildPing():
+    folder = "PING"
+    if os.path.exists(folder):
+        return folder
+    runShell(f"git clone https://github.com/wesleymarin/PING.git {folder}")
+    runShell(f"docker build {folder} -t ping")
+    runShell(f"ln -s ../{folder} {folder}")
+    return folder
+
+
+def ping(index, sample_index, suffix=""):
+    assert index == "PING"
+
+    # generate isolated fastq folder
+    folder_in = os.path.join(index, sample_index.replace("/", "_"))
+    folder_out = folder_in + ".result"
+    if not os.path.exists(folder_in):
+        os.makedirs(folder_in, exist_ok=True)
+        read1 = getSamples(sample_index, suffix + ".read.1.fq")
+        read2 = getSamples(sample_index, suffix + ".read.2.fq")
+        for name in [*read1, *read2]:
+            out_name = Path(folder_in) / Path(name).name
+            rel_name = "../" * (len(out_name.parents) - 1) + name
+            runShell(f"ln -fs {rel_name} {out_name}")
+
+    # first time will fail
+    # but we'll get locusRatioFrame.csv
+    if not os.path.exists(folder_out + "/locusRatioFrame.csv"):
+        try:
+            # -e SHORTNAME_DELIM={threads}
+            runDocker("ping", f"Rscript PING_run.R", opts=f""" \
+                -e RAW_FASTQ_DIR={folder_in} \
+                -e FASTQ_PATTERN=fq \
+                -e THREADS={threads} \
+                -e RESULTS_DIR={folder_out} \
+            """)
+        except subprocess.CalledProcessError:
+            pass
+
+        # Use answer and ratio to cut thresholds
+        from kg_ping_threshold_plot import cutThresholdByAns
+        assert os.path.exists(folder_out + "/locusRatioFrame.csv")
+        assert "linnil1_syn_30x" in sample_index
+        cutThresholdByAns(
+            "linnil1_syn_30x/linnil1_syn_30x.summary.csv",
+            folder_out
+        )
+
+    # This will success
+    if not os.path.exists(folder_out + "/finalAlleleCalls.csv"):
+        runDocker("ping", f"Rscript PING_run.R", opts=f""" \
+            -e RAW_FASTQ_DIR={folder_in} \
+            -e FASTQ_PATTERN=fq \
+            -e THREADS={threads} \
+            -e RESULTS_DIR={folder_out} \
+        """)
+    return folder_out + "/finalAlleleCalls"
+
+
 if __name__ == "__main__":
     # sample_index = linkSamples()
     # sample_index = link10Samples(sample_index)
     sample_index = link30xSamples()
+
+    index, suffix = buildPing(), ""
+    ping_sample_index = ping(index, sample_index, "")
 
     index = "index"
     suffix = ""
@@ -151,16 +215,15 @@ if __name__ == "__main__":
     # Using IPDKIR MSA
     # index = kirToMultiMsa(index)           # index = "index/kir_2100_raw.mut01"
     # Merge 2DL1 2DS1
-    index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
+    # index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
     # Split 2DL5A and 2DL5B
     # index = kirToMultiMsa(split_2DL5=True) # index = "index/kir_2100_ab"
     # Merge all KIR
     # index = kirToSingleMsa(index)          # index = "index/kir_2100_merge.mut01"
 
-
-    index = kg_build_index.main(index)
-    suffix += hisatMapAll(index, sample_index, suffix)
-    suffix += hisatTyping(index, sample_index, suffix)
+    # index = kg_build_index.main(index)
+    # suffix += hisatMapAll(index, sample_index, suffix)
+    # suffix += hisatTyping(index, sample_index, suffix)
     print(index, sample_index, suffix)
 
 

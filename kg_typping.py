@@ -25,6 +25,8 @@ iter_max = 100
 norm_by_length = False
 # pileup
 error_correction = True
+# output
+extend_allele = True # set false if merge(too big)
 
 
 @dataclass
@@ -838,6 +840,11 @@ def main(bam_file):
 
     name_out = os.path.splitext(bam_file)[0] + new_suffix
 
+    # TODO: test
+    global extend_allele
+    if "_merge" in bam_file:
+        extend_allele = False
+
     # read bam file
     pair_reads = readPair(bam_file)
     pair_reads = filter(filterPair, pair_reads)
@@ -870,7 +877,6 @@ def main(bam_file):
 
         # save the allele information for the read
         save_reads[backbone].append({
-            'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
             'lpv': [v.id for v in lpv],
             'lnv': [v.id for v in lnv],
             'rpv': [v.id for v in rpv],
@@ -878,6 +884,10 @@ def main(bam_file):
             'l_sam': left_record,
             'r_sam': right_record,
         })
+        if extend_allele:
+            save_reads[backbone][-1].update({
+                'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
+            })
 
         # hisat2 method
         if getNH(left_record) == 1:

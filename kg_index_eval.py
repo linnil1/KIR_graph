@@ -250,7 +250,7 @@ def addGroupName(name):
         f.writelines(map(lambda i: i + "\n", data))
 
     samtobam(outputname)
-    print("Save to {outputname}.bam")
+    print(f"Save to {outputname}.bam")
     return ".rg"
 
 
@@ -414,6 +414,7 @@ if __name__ == "__main__":
     # extractRepeatSequence("index/kir_2100_raw.save", "KIR3DL2", "7")
     extractRepeatSequence("index/kir_2100_merge.save", "KIR", "5")
     # addGroupName("index/kir_2100_merge.save.KIR")
+    addGroupName("index/kir_2100_merge_assign1.save.KIR")
     figs = []
     # figs.extend(plot400bpMatchness())
     # figs.extend(plotVariantPosBetweenPairs())

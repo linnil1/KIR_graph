@@ -7,6 +7,10 @@ def getGeneName(s):
     return s.split("*")[0]
 
 
+def extractID(name):
+    return re.findall(r"\.(\w+)\.read", name)[0]
+
+
 class EvaluateKIR:
     def __init__(self, summary_csv: str):
         """ Get answer alleles from summary.csv """
@@ -56,6 +60,8 @@ class EvaluateKIR:
         comparison_tuple = []
 
         for gene in set(getGeneName(i) for i in ans_list + predict_list):
+            if "KIR2DL5*unresolved" in predict_list and gene in ["KIR2DL5A", "KIR2DL5B"]:
+                continue  # skip 2DL5A 2DL5B only run when gene == "KIR2DL5"
             comparison_tuple.extend(
                 EvaluateKIR.testPerGene([i for i in ans_list if i.startswith(gene)],
                                         [i for i in predict_list if i.startswith(gene)])
@@ -179,7 +185,7 @@ def readPingResult(csv_file):
     """
     called_alleles = {}
     for sample in data.to_dict('records'):
-        id = re.findall(r"\.(\w+)\.read", sample['name'])[0]
+        id = extractID(sample['name'])
         alleles = []
         for gene, alleles_str in sample.items():
             if gene == "name":
@@ -198,12 +204,16 @@ if __name__ == "__main__":
     # EvaluateKIR.summarize([result])
 
     # evaluate PING
-    kir = EvaluateKIR("linnil1_syn_wide/linnil1_syn_wide.summary.csv")
+    # kir = EvaluateKIR("linnil1_syn_wide/linnil1_syn_wide.summary.csv")
 
     # 100 samples
-    ping_called_alleles = readPingResult(f"/home/linnil1/kir/PING/PING_test/linnil1_syn_wide_result/finalAlleleCalls.csv")
-    kir.compareCohert(ping_called_alleles)
+    # ping_called_alleles = readPingResult(f"/home/linnil1/kir/PING/PING_test/linnil1_syn_wide_result/finalAlleleCalls.csv")
+    # kir.compareCohert(ping_called_alleles)
 
     # 10 samples
-    ping_called_alleles = {k: v for k, v in ping_called_alleles.items() if k.startswith("0")}
-    kir.compareCohert(ping_called_alleles, skip_empty=True)
+    # ping_called_alleles = {k: v for k, v in ping_called_alleles.items() if k.startswith("0")}
+    # kir.compareCohert(ping_called_alleles, skip_empty=True)
+
+    kir = EvaluateKIR("linnil1_syn_30x/linnil1_syn_30x.summary.csv")
+    ping_called_alleles = readPingResult(f"./PING/data_linnil1_syn_30x.result/finalAlleleCalls.csv")
+    kir.compareCohert(ping_called_alleles)

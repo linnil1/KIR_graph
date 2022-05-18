@@ -1,6 +1,7 @@
 from dash import Dash, dcc, html, Input, Output
 import plotly.graph_objects as go
 import plotly.express as px
+import numpy as np
 import pandas as pd
 import os
 import json
@@ -51,6 +52,7 @@ def getStat(filename):
 
 def plotBamStat():
     sample_index = "data/linnil1_syn_wide.test10"
+    # sample_index = "data/linnil1_syn_30x"
     filename = f"{sample_index}.bam_stat"
 
     if not os.path.exists(filename + ".json"):
@@ -62,9 +64,10 @@ def plotBamStat():
             dat = [
                 {'method': "answer",                    'file': f"linnil1_syn_wide/linnil1_syn_wide.{id:02d}.read..sam"},
                 {'method': "linear",                    'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
-                # {'method': "full",             'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_raw_full.bowtie2.sam"},
+                {'method': "full",                      'file': f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
                 # {'method': "ping",             'id': 0, 'file': f"data/linnil1_syn_wide.00.kir_2100_raw_full.ping.sam"},
                 {'method': "hisat_merge",               'file': f"{name}.index_kir_2100_merge.mut01.bam"},
+                {'method': "hisat_merge_right",         'file': f"{name}.index_kir_2100_merge_assign1.mut01.bam"},
                 # {'method': "hisat_merge_type", 'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.hisatgenotype.sam"},
                 {'method': "hisat_raw",                 'file': f"{name}.index_kir_2100_raw.mut01.bam"},
                 {'method': "hisat_raw_type",            'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.sam"},
@@ -96,9 +99,12 @@ def plotBamStat():
     df['ans_total'] = df.apply(lambda i: ans[i.id], axis=1)
     df['pair_perc'] = df['pair'] / df['ans_total']
     df['secd_perc'] = df['secd'] / df['ans_total']
-    fig0 = px.box(df, x="method",  y="pair_perc", title="Proper Paired Proportion",
+    # df = df[df['method'] != "hisat_merge_right"]
+    # df = df[df['method'] != "full"]
+    # df.loc[df['method'] == "hisat_raw", "method"] = "hisat_split"
+    fig0 = px.box(df, x="method",  y="pair_perc", title="Proper Paired Ratio",
                   labels={'pair_perc': "Primary paired reads / Total reads"})
-    fig1 = px.box(df, x="method",  y="secd_perc", title="Secondary Proportion",
+    fig1 = px.box(df, x="method",  y="secd_perc", title="Secondary Ratio",
                   labels={'secd_perc': "Secondary reads / Total reads"})
     return [fig0, fig1]
 
