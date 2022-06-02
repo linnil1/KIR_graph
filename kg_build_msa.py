@@ -2,7 +2,7 @@ import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from Bio import SeqIO, AlignIO
-from pyHLAMSA import KIRmsa, Genemsa
+from pyhlamsa import KIRmsa, Genemsa
 
 from kg_utils import runDocker, getSamples, threads
 
@@ -23,11 +23,11 @@ def saveAllMsa(name, genes):
         msa = msa.shrink()
         msa.append(f"{gene_name}*BACKBONE",
                    msa.get_consensus(include_gap=False))
-        msa.set_reference(f"{gene_name}*BACKBONE")
-        msa.save_bam(f"{name}.save.{gene_name}.bam")
-        msa.save_gff(f"{name}.save.{gene_name}.gff")
-        msa.save_msa(f"{name}.save.{gene_name}.fa",
-                     f"{name}.save.{gene_name}.json")
+        msa.set_reference(  f"{gene_name}*BACKBONE")
+        msaio.to_bam(msa,   f"{name}.save.{gene_name}.bam")
+        msaio.to_gff(msa,   f"{name}.save.{gene_name}.gff")
+        msaio.save_msa(msa, f"{name}.save.{gene_name}.fa",
+                            f"{name}.save.{gene_name}.json")
     return ".save"
 
 

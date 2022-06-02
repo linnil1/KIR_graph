@@ -67,8 +67,9 @@ def runAll(func, samples, concurrent=True):
         return executor.map(func, samples)
 
 
-def samtobam(name):
+def samtobam(name, keep=False):
     """ This is so useful """
     runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
     runDocker("samtools", f"samtools index    {name}.bam")
-    runShell(f"rm {name}.sam")
+    if not keep:
+        runShell(f"rm {name}.sam")

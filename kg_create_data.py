@@ -1,11 +1,12 @@
 import re
 import os
+import copy
 import random
 from pathlib import Path
 from collections import defaultdict
 import pandas as pd
 from Bio import SeqIO
-from pyHLAMSA import KIRmsa
+from pyhlamsa import KIRmsa
 from kg_utils import runDocker, runShell
 
 
@@ -37,7 +38,7 @@ def readSequences():
 
     kir = KIRmsa(filetype=["gen"], version="2100")
     seqs_dict = {}
-    for msa in kir.genes.values():
+    for msa in kir.values():
         seqs_dict.update({
             i.id: i for i in msa.to_fasta(gap=False)
         })
@@ -79,6 +80,8 @@ def randomSelectAlleles(haplo_df, gene_dict):
     for gene, count in gene_count.items():
         alleles.extend(random.choices(gene_dict[gene], k=count))
     allele_name_count = defaultdict(int)
+    # copy the seq to prevent homozygous edit two time on same object
+    alleles = [copy.deepcopy(allele) for allele in alleles]
     for seq in alleles:
         allele_name_count[seq.id] += 1
         seq.id = f"{seq.id}-{allele_name_count[seq.id]}"
@@ -138,11 +141,13 @@ def rewriteSam(file_in, file_out):
 
 if __name__ == "__main__":
     N = 10
-    depth = 30
     # output_name = "linnil1_syn"
     # output_name = "linnil1_syn_full"  # m = 200, N=10, seed=444
     # output_name = "linnil1_syn_wide"  # m = 400, N=100, seed=44
     basename = "linnil1_syn_30x/linnil1_syn_30x"
+    depth = 30
+    basename = "linnil1_syn_exon/linnil1_syn_exon"
+    depth = 90
 
     # read
     seqs_dict = readSequences()

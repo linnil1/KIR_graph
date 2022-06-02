@@ -18,8 +18,10 @@ import plotly.express as px
 
 from kg_utils import getSamples
 from kg_eval import EvaluateKIR
+from kg_typping import readLocus, readVariants, isInExon
 
 typing_by = "linnil1"
+count_only_exon = False
 # linnil1 hisat
 
 
@@ -267,6 +269,7 @@ def calcProb(log_probs, prob_last, prob_iter=1, top_n=300, allele_length={}):
         'unique_count': prob_2_unique_count,
     }
 
+
 def getReadProbTmp(allele_name_map, reads_alleles_chunk):
     return [getReadProb(allele_name_map, read_alleles) for read_alleles in reads_alleles_chunk]
 
@@ -280,7 +283,7 @@ def calcProbInit(allele_names, reads_alleles):
     allele_length = allele_length / 10000.
 
     # prob per read
-    
+
     if typing_by != "merge":
         probs = getReadProbTmp(allele_name_map, reads_alleles)
     else:
@@ -515,13 +518,16 @@ def plotConfustion(df, title=""):
     return figs
 
 
+norm_max = 2.0
+
+
 def getCNDist(base, base_dev=0.02):
     """
     Return ( CN x norm_read_count(500bin) ) array
     indicate the probility of read_count belong to the CN
     """
-    x = np.linspace(0, 1., 500)
-    space = 1. / 500
+    x = np.linspace(0, norm_max, 500)
+    space = norm_max / 500
     cn = np.arange(1, 10)
     # y0 = norm.pdf(x, loc=base*0.1, scale=base_dev*5)
     y0 = norm.pdf(x, loc=0, scale=base_dev*1.5)
@@ -531,20 +537,23 @@ def getCNDist(base, base_dev=0.02):
 
 def getCNDistBest(norm_read_count, assume_base=None):
     loss = []  # loss
-    num_read_count, _ = np.histogram(norm_read_count, bins=500, range=(0, 1.))
-    space = 1. / 500
+    num_read_count, _ = np.histogram(norm_read_count, bins=500, range=(0, norm_max))
+    space = norm_max / 500
+    base_dev = 0.02
+    if count_only_exon:
+        base_dev = 0.05
 
-    for base in np.arange(0, 1, 0.01):
-        _, y = getCNDist(base)
+    for base in np.arange(0, norm_max, 0.01):
+        _, y = getCNDist(base, base_dev)
         max_cn_prob = y.max(axis=0)  # We will choose the highest probility of CN at that read count
-        loss.append((base, np.sum( np.log(max_cn_prob) * num_read_count )))
+        loss.append((base, np.sum( np.log(max_cn_prob + 1e-9) * num_read_count )))
 
     loss = np.array(loss)
     max_point = loss[np.argmax(loss[:, 1]), :]
     base = max_point[0]
     if assume_base and base / assume_base > 1.7:  # TODO: maybe more CN?
         base /= 2
-    x, y = getCNDist(base)
+    x, y = getCNDist(base, base_dev)
     max_cn_arg = y.argmax(axis=0)
     return {
         'base': base,
@@ -647,6 +656,13 @@ def getCNbyVariant(index, data, assume_depth=None):
     single_id = set(snp.loc[snp[1] == "single", 0])
 
     variants = []
+    if count_only_exon:
+        # ugly method
+        exon_region = readLocus(index)
+        snp_variants = readVariants(index)
+        for v in snp_variants:
+            v.in_exon = isInExon(exon_region[v.ref], v)
+        snp_variants = {v.id: v for v in snp_variants}
 
     for gene, reads_alleles in data.items():
         # if gene != "KIR3DP1*BACKBONE":
@@ -660,6 +676,8 @@ def getCNbyVariant(index, data, assume_depth=None):
                 pos.extend(read_alleles[key])
             for key in ['lnv', 'rnv']:
                 neg.extend(read_alleles[key])
+        pos = filter(lambda i: snp_variants[i].in_exon, pos)
+        neg = filter(lambda i: snp_variants[i].in_exon, neg)
         pos = Counter(pos)
         neg = Counter(neg)
 
@@ -696,7 +714,10 @@ def getCNbyVariant(index, data, assume_depth=None):
     figs.append( px.box(df, x="gene", y="total",
                         category_orders={'gene': sorted(data.keys())},
                         title="Depth of each gene (no del/ins)") )
-    gene_total = df.groupby(by="gene", as_index=False)['total'].median()
+    if not count_only_exon:
+        gene_total = df.groupby(by="gene", as_index=False)['total'].median()
+    else:
+        gene_total = df.groupby(by="gene", as_index=False)['total'].quantile(.75)
     print(gene_total)
 
     # copy from before
@@ -707,6 +728,40 @@ def getCNbyVariant(index, data, assume_depth=None):
     else:
         result = getCNDistBest(norm_read_count, assume_base=assume_depth / 300)
     figs.extend(plotCNDist(result))
+    return dict(zip(gene_total['gene'], result['class'])), figs
+
+
+def getCNbySamtoolsDepth(index, name, assume_depth=None):
+    df = pd.read_csv(f"{name}.no_multi.depth.tsv", sep="\t", header=None, names=["gene", "pos", "depth"])
+    figs = []
+    figs.append(px.line(df, x="pos", y="depth", color="gene", title="Read Depth"))
+
+    if count_only_exon:
+        exon_region = readLocus(index)
+        df_exon = []
+        for gene, region in exon_region.items():
+            for (start, end) in region:
+                df_exon.append(df[ (df["gene"] == gene) & (start <= df["pos"]) & (df["pos"] <= end) ])
+        df_exon = pd.concat(df_exon)
+        df = df_exon
+
+    # count
+    figs.append(px.box(df, x="gene", y="depth", title="Read Depth"))
+    if not count_only_exon:
+        gene_total = df.groupby(by="gene", as_index=False)['depth'].median()
+    else:
+        gene_total = df.groupby(by="gene", as_index=False)['depth'].quantile(.75)
+    print(gene_total)
+
+    # same as before
+    # 300 is a magic number (to Scale)
+    norm_read_count = list(gene_total['depth'] / 300)
+    if not assume_depth:
+        result = getCNDistBest(norm_read_count)
+    else:
+        result = getCNDistBest(norm_read_count, assume_base=assume_depth / 300)
+    figs.extend(plotCNDist(result))
+    # pprint(dict(zip(gene_total['gene'], result['class'])))
     return dict(zip(gene_total['gene'], result['class'])), figs
 
 
@@ -772,7 +827,8 @@ def typingPerSample(index, name, assume_depth=None):
         return typingUntilEnd(index, data, assume_depth=assume_depth), figs
     # plotPosNegRateWithReadAns(data)
     # gene_cn, fig = getCNPerRead(data)
-    gene_cn, fig = getCNbyVariant(index, data, assume_depth=assume_depth)
+    gene_cn, fig = getCNbySamtoolsDepth(index, name, assume_depth=assume_depth)
+    # gene_cn, fig = getCNbyVariant(index, data, assume_depth=assume_depth)
     figs.extend(fig)
     # gene_cn = {"KIR2DL1S1*BACKBONE": 3}
     pprint(gene_cn)
@@ -795,19 +851,25 @@ def typingPerSample(index, name, assume_depth=None):
 
 
 if __name__ == "__main__":
+    depth = None
     # basename = "data/linnil1_syn_wide.test10"
     # index = "index/kir_2100_raw.mut01"
     # ans_csv = "linnil1_syn_wide/linnil1_syn_wide.summary.csv"
     basename = "data/linnil1_syn_30x"
+    # basename = "data/linnil1_syn_exon"
     index = "index/kir_2100_2dl1s1.mut01"
     suffix = ".index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
     # index = "index/kir_2100_merge.mut01"
     # suffix = ".index_kir_2100_merge.mut01.hisatgenotype.errcorr"
-    depth = None
+    # typing_by = "merge"
     ans_csv = ""
     if "linnil1_syn_30x" in basename:
         depth = 30
         ans_csv = "linnil1_syn_30x/linnil1_syn_30x.summary.csv"
+    if "linnil1_syn_exon" in basename:
+        ans_csv = "linnil1_syn_exon/linnil1_syn_exon.summary.csv"
+        depth = 90
+        count_only_exon = True
     if "linnil1_syn_wide" in basename:
         ans_csv = "linnil1_syn_wide/linnil1_syn_wide.summary.csv"
 

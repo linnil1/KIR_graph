@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from Bio import SeqIO
 
-from kg_utils import runDocker, getSamples
+from kg_utils import runDocker, getSamples, samtobam
 
 # sam
 num_editdist = 4
@@ -57,6 +57,8 @@ class Variant:
     def __hash__(self):
         return hash((self.pos, self.ref, self.typ, self.val))
 
+    def __repr__(self):
+        return self.id
 
 def getNH(sam_info):
     """ Extract NH from record """
@@ -917,7 +919,10 @@ def main(bam_file):
                 records_dup.append(i['l_sam'])
                 records_dup.append(i['r_sam'])
     writeBam(records + records_dup, bam_file, name_out + ".sam")
-    writeBam(records, bam_file, name_out + ".no_multi.sam")
+    name_out += ".no_multi"
+    writeBam(records, bam_file, name_out + ".sam")
+    samtobam(name_out, keep=True)
+    runDocker("samtools", f"samtools depth -a {name_out}.bam -o {name_out}.depth.tsv")
 
     # hisat2 method
     hisat_result = {}

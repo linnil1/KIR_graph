@@ -13,7 +13,7 @@ from typing import Union, ClassVar
 from dataclasses import dataclass, field
 
 from Bio import SeqIO
-from pyHLAMSA import Genemsa
+from pyhlamsa import msaio
 from kg_utils import threads, runDocker, getSamples
 
 
@@ -249,7 +249,7 @@ def main(index, force=False):
 
     # remove old file, because I write file by append not overwrite
     if not force:
-        if getSamples(index_out, strict=False):
+        if getSamples(index_out + ".graph", strict=False):
             return index_out
 
     for i in getSamples(index_out, strict=False):
@@ -265,8 +265,7 @@ def main(index, force=False):
     for gene in genes:
         # read
         print("Reading", gene)
-        msa = Genemsa.load_msa(f"{index}.{gene}.fa",
-                               f"{index}.{gene}.json")
+        msa = msaio.load_msa(f"{index}.{gene}.fa", f"{index}.{gene}.json")
 
         # check
         for seq in msa.alleles.values():

@@ -58,6 +58,19 @@ def link30xSamples():
     return index
 
 
+def linkExonSamples():
+    os.makedirs("data", exist_ok=True)
+    index = "data/linnil1_syn_exon"
+    if getSamples(index, ".fq", strict=False):
+        return index
+    files = getSamples("linnil1_syn_exon/linnil1_syn_exon", ".fq", strict=False, return_name=True)
+    for f, id in files:
+        if ".exon.read" in id:
+            id = id.replace(".exon.read", ".read")
+            runShell(f"ln -s ../{f} {index}.{id}.fq")
+    return index
+
+
 def hisatMapAll(index, sample_index, suffix=""):
     new_suffix = ""
     for f in getSamples(sample_index, suffix + ".read.1.fq"):
@@ -90,8 +103,9 @@ def bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01"):
     return index
 
 
-def bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01"):
-    index = f"{index}/kir_2100_raw_cons"
+def bowtie2BuildConsensus(from_index="index/kir_2100_raw.mut01"):
+    # brute force (remove mut01)
+    index = from_index.split(".")[0] + "_cons"
     if getSamples(index, strict=False):
         return index
     old_index = from_index
@@ -202,12 +216,13 @@ def ping(index, sample_index, suffix=""):
 
 
 if __name__ == "__main__":
-    # sample_index = linkSamples()
+    sample_index = linkSamples()
     # sample_index = link10Samples(sample_index)
     sample_index = link30xSamples()
+    sample_index = linkExonSamples()
 
-    index, suffix = buildPing(), ""
-    ping_sample_index = ping(index, sample_index, "")
+    # index, suffix = buildPing(), ""
+    # ping_sample_index = ping(index, sample_index, "")
 
     index = "index"
     suffix = ""
@@ -215,23 +230,24 @@ if __name__ == "__main__":
     # Using IPDKIR MSA
     # index = kirToMultiMsa(index)           # index = "index/kir_2100_raw.mut01"
     # Merge 2DL1 2DS1
-    # index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
+    index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
     # Split 2DL5A and 2DL5B
     # index = kirToMultiMsa(split_2DL5=True) # index = "index/kir_2100_ab"
     # Merge all KIR
     # index = kirToSingleMsa(index)          # index = "index/kir_2100_merge.mut01"
 
-    # index = kg_build_index.main(index)
-    # suffix += hisatMapAll(index, sample_index, suffix)
-    # suffix += hisatTyping(index, sample_index, suffix)
+    index = kg_build_index.main(index)
+    suffix += hisatMapAll(index, sample_index, suffix)
+    suffix += hisatTyping(index, sample_index, suffix)
     print(index, sample_index, suffix)
 
 
     # Different method mapping test
     index = "index"
     suffix = ""
-    # index = bowtie2BuildConsensus(index, from_index="index/kir_2100_raw.mut01")  # index = "index/kir_2100_raw_cons"
+    # index = bowtie2BuildConsensus(from_index="index/kir_2100_raw.mut01")  # index = "index/kir_2100_raw_cons"
     # index = bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01")       # index = "index/kir_2100_raw_full"
+    # index = bowtie2BuildConsensus(from_index="index/kir_2100_ab.mut01")  # index = "index/kir_2100_ab_cons"
 
     # suffix += bowtie2All(index, sample_index, suffix)
     # suffix += bowtie2All(index, sample_index, suffix, use_arg="ping")
