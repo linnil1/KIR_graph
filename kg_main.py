@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
+import kg_create_data
 import kg_build_index
 import kg_typping
 
@@ -21,142 +22,128 @@ from kg_utils import (
     samtobam,
 )
 
-
-def linkSamples():
-    os.makedirs("data", exist_ok=True)
-    index = "data/linnil1_syn_wide"
-    if getSamples(index, ".fq", strict=False):
-        return index
-
-    files = getSamples("linnil1_syn_wide/linnil1_syn_wide", ".fq", strict=False, return_name=True)
-    for f, id in files:
-        runShell(f"ln -s ../{f} {index}.{id}.fq")
-    return index
+from namepipe import nt, NameTask
 
 
-def link10Samples(sample_index):
-    suffix = ".test10"
-    if getSamples(sample_index + suffix, ".fq", strict=False):
-        return sample_index + suffix
+@nt
+def link10Samples(input_name):
+    output_name = input_name.template.format("test10.{}")
+    if not input_name.template_args[0].isdigit() or int(input_name.template_args[0]) >= 10:
+        return output_name
 
-    # yes, brute force
-    for id in range(10):
-        runShell(f"ln -s {os.path.basename(sample_index)}.{id:02d}.read.1.fq {sample_index}{suffix}.{id:02d}.read.1.fq")
-        runShell(f"ln -s {os.path.basename(sample_index)}.{id:02d}.read.2.fq {sample_index}{suffix}.{id:02d}.read.2.fq")
-    return sample_index + suffix
+    id = input_name.template_args[0]
+    name = output_name.format(id)
+    if Path(f"{name}.read.1.fq").exists():
+        return output_name
 
-
-def link30xSamples():
-    os.makedirs("data", exist_ok=True)
-    index = "data/linnil1_syn_30x"
-    if getSamples(index, ".fq", strict=False):
-        return index
-
-    files = getSamples("linnil1_syn_30x/linnil1_syn_30x", ".fq", strict=False, return_name=True)
-    for f, id in files:
-        runShell(f"ln -s ../{f} {index}.{id}.fq")
-    return index
+    runShell(f"ln -s {Path(input_name).name}.read.1.fq {output_name.format(id)}.read.1.fq")
+    runShell(f"ln -s {Path(input_name).name}.read.2.fq {output_name.format(id)}.read.2.fq")
+    return output_name
 
 
-def linkExonSamples():
-    os.makedirs("data", exist_ok=True)
-    index = "data/linnil1_syn_exon"
-    if getSamples(index, ".fq", strict=False):
-        return index
-    files = getSamples("linnil1_syn_exon/linnil1_syn_exon", ".fq", strict=False, return_name=True)
-    for f, id in files:
-        if ".exon.read" in id:
-            id = id.replace(".exon.read", ".read")
-            runShell(f"ln -s ../{f} {index}.{id}.fq")
-    return index
+@nt
+def createSamples(input_name):
+    # 0 -> 1
+    # "linnil1_syn_30x_seed87/linnil1_syn_30x_seed87"
+    name = input_name + "/" + input_name
+    output_name = name + ".{}.read"
+    N = 10
+    for i in range(N):
+        if Path(f"{name}.{i:02d}.read.1.fq").exists():
+            return output_name
+    kg_create_data.createSamples(N=10, basename=name, depth=30, seed=87)
+    return output_name
 
 
-def hisatMapAll(index, sample_index, suffix=""):
-    new_suffix = ""
-    for f in getSamples(sample_index, suffix + ".read.1.fq"):
-        name = f[:-len(".read.1.fq")]
-        new_suffix = hisatMap(index, name)
-    return new_suffix
+@nt
+def linkSamples(input_name, data_folder):
+    # 1 -> 1
+    name = input_name.split('/')[0]
+    output_name = os.path.join(data_folder, name + ".{}")
+    new_name = output_name.format(input_name.template_args[0])
+    if Path(new_name + ".read.1.fq").exists():
+        return output_name
+    runShell(f"ln -s ../{input_name}.1.fq {new_name}.read.1.fq")  # add .read is for previous naming
+    runShell(f"ln -s ../{input_name}.2.fq {new_name}.read.2.fq")
+    return output_name
 
 
-def hisatMap(index, name):
-    suffix = "." + index.replace("/", "_")
-    if os.path.exists(f"{name}{suffix}.bam"):
-        return suffix
-    f1, f2 = name + ".read.1.fq", name + ".read.2.fq"
+@nt
+def hisatMap(input_name, index):
+    # 1 to 1
+    output_name = input_name + "." + index.replace("/", "_")
+    if Path(f"{output_name}.bam").exists():
+        return output_name
+    f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
     runDocker("hisat", f"""\
               hisat2 --threads {threads} -x {index}.graph -1 {f1} -2 {f2} \
               --no-spliced-alignment --max-altstried 64 --haplotype \
-              -S {name}{suffix}.sam """)
-    samtobam(f"{name}{suffix}")
-    return suffix
+              -S {output_name}.sam """)
+    samtobam(output_name)
+    return output_name
 
 
-def bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01"):
+@nt
+def bowtie2BuildFull(input_name):
     # No matter what index, this file will have the same sequences
-    index = f"{index}/kir_2100_raw_full"
-    if getSamples(index, strict=False):
-        return index
-    old_index = from_index
+    name = input_name
+    assert "kir_2100_raw" in name
+    if ".mut01" in name:
+        name = name.replace(".mut01", "")
+    name += "_full"
+    if Path(name + ".1.bt2").exists():
+        return name
     runDocker("bowtie",
-              f"bowtie2-build {old_index}_sequences.fa {index} --threads {threads}")
-    return index
+              f"bowtie2-build {input_name}_sequences.fa {name} --threads {threads}")
+    return name
 
 
-def bowtie2BuildConsensus(from_index="index/kir_2100_raw.mut01"):
+@nt
+def bowtie2BuildConsensus(input_name="index/kir_2100_raw.mut01"):
     # brute force (remove mut01)
-    index = from_index.split(".")[0] + "_cons"
-    if getSamples(index, strict=False):
-        return index
-    old_index = from_index
+    name = input_name
+    assert "kir_2100_raw" in name
+    if ".mut01" in name:
+        name = name.replace(".mut01", "")
+    name += "_cons"
+    if Path(name + ".1.bt2").exists():
+        return name
     runDocker("bowtie",
-              f"bowtie2-build {old_index}_backbone.fa {index} --threads {threads}")
-    return index
+              f"bowtie2-build {input_name}_backbone.fa {name} --threads {threads}")
+    return name
 
 
-def bowtie2All(index, sample_index, suffix="", use_arg="default"):
-    def runBowtie(name):
-        name = name[:-len(".read.1.fq")]
-        new_suffix = bowtie2(index, name, use_arg)
-        return new_suffix
-
-    new_suffix = ""
-    for i in runAll(runBowtie,
-                    getSamples(sample_index, suffix + ".read.1.fq"),
-                    concurrent=False):
-        new_suffix = i
-    return new_suffix
-
-
-def bowtie2(index, name, use_arg="default"):
+@nt
+def bowtie2(input_name, index, use_arg="default"):
     suffix = "." + index.replace("/", "_") + ".bowtie2"
     args = ""
     if use_arg == "ping":
         args = "  -5 0  -3 6  -N 0  --end-to-end  --score-min L,-2,-0.08  " + \
                "  -I 75  -X 1000  -a  --np 1  --mp 2,2  --rdg 1,1  --rfg 1,1  "
         suffix += "_ping"
-    if os.path.exists(f"{name}{suffix}.bam"):
-        return suffix
+
+    output_name = input_name + suffix
+    if Path(f"{output_name}.bam").exists():
+        return output_name
 
     # main
-    f1, f2 = name + ".read.1.fq", name + ".read.2.fq"
+    f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
     runDocker("bowtie",
               f"bowtie2 {args} --threads {threads} -x {index} "
-              f"-1 {f1} -2 {f2} -a -S {name}{suffix}.sam")
-    samtobam(name + suffix)
-    return suffix
+              f"-1 {f1} -2 {f2} -a -S {output_name}.sam")
+    samtobam(output_name)
+    return output_name
 
 
-def hisatTyping(index, sample_index, suffix=""):
-    new_suffix = ""
+@nt
+def hisatTyping(input_name, index):
     kg_typping.setIndex(index)
-    samples = getSamples(sample_index, suffix + ".bam")
-    for i in runAll(kg_typping.main, samples):
-        new_suffix = i
-    return new_suffix
+    suffix = kg_typping.main(input_name + ".bam")
+    return input_name + suffix
 
 
-def buildPing():
+@nt
+def buildPing(input_name):
     folder = "PING"
     if os.path.exists(folder):
         return folder
@@ -166,20 +153,27 @@ def buildPing():
     return folder
 
 
-def ping(index, sample_index, suffix=""):
-    assert index == "PING"
-
+@nt
+def pingCopyFile(input_name, index="PING"):
     # generate isolated fastq folder
-    folder_in = os.path.join(index, sample_index.replace("/", "_"))
-    folder_out = folder_in + ".result"
-    if not os.path.exists(folder_in):
-        os.makedirs(folder_in, exist_ok=True)
-        read1 = getSamples(sample_index, suffix + ".read.1.fq")
-        read2 = getSamples(sample_index, suffix + ".read.2.fq")
-        for name in [*read1, *read2]:
-            out_name = Path(folder_in) / Path(name).name
-            rel_name = "../" * (len(out_name.parents) - 1) + name
-            runShell(f"ln -fs {rel_name} {out_name}")
+    name = Path(input_name).name
+    folder_in = os.path.join(index, input_name.replace("/", "_").replace(f".{input_name.template_args[0]}", ""))
+    Path(folder_in).mkdir(exist_ok=True)
+    if Path(f"{folder_in}/{name}.read.1.fq").exists():
+        return folder_in
+
+    # ln -fs ../data2/linnil1_syn_30x_seed87.00.read.1.fq PING/data2_linnil1_syn_30x_seed87/linnil1_syn_30x_seed87.00.read.1.fq
+    relative = "../" * len(Path(folder_in).parents)
+    runShell(f"ln -s {relative}{input_name}.read.1.fq {folder_in}/{name}.read.1.fq")
+    runShell(f"ln -s {relative}{input_name}.read.2.fq {folder_in}/{name}.read.2.fq")
+    return folder_in
+
+
+@nt
+def ping(input_name, index):
+    assert index == "PING"
+    folder_in = input_name
+    folder_out = input_name + ".result"
 
     # first time will fail
     # but we'll get locusRatioFrame.csv
@@ -198,11 +192,15 @@ def ping(index, sample_index, suffix=""):
         # Use answer and ratio to cut thresholds
         from kg_ping_threshold_plot import cutThresholdByAns
         assert os.path.exists(folder_out + "/locusRatioFrame.csv")
-        assert "linnil1_syn_30x" in sample_index
+        # data2_linnil1_syn_30x_seed87/
+        # -> linnil1_syn_30x_seed87
+        name = input_name.split('/')[-1].split('.')[0].split("_", maxsplit=1)[1]
+        print(f"Set CN threshold fro PING", name)
         cutThresholdByAns(
-            "linnil1_syn_30x/linnil1_syn_30x.summary.csv",
+            f"{name}/{name}.summary.csv",
             folder_out
         )
+
 
     # This will success
     if not os.path.exists(folder_out + "/finalAlleleCalls.csv"):
@@ -216,41 +214,43 @@ def ping(index, sample_index, suffix=""):
 
 
 if __name__ == "__main__":
-    sample_index = linkSamples()
-    # sample_index = link10Samples(sample_index)
-    sample_index = link30xSamples()
-    sample_index = linkExonSamples()
+    data_folder = "data2"
+    Path(data_folder).mkdir(exist_ok=True)
 
-    # index, suffix = buildPing(), ""
-    # ping_sample_index = ping(index, sample_index, "")
+    answer_folder = "linnil1_syn_wide"
+    answer_folder = "linnil1_syn_exon"
+    answer_folder = "linnil1_syn_30x_seed87"
+    Path(answer_folder).mkdir(exist_ok=True)
 
-    index = "index"
-    suffix = ""
-    os.makedirs("index", exist_ok=True)
-    # Using IPDKIR MSA
-    # index = kirToMultiMsa(index)           # index = "index/kir_2100_raw.mut01"
-    # Merge 2DL1 2DS1
-    index = kirMerge2dl1s1(index)          # index = "index/kir_2100_2dl1s1.mut01"
-    # Split 2DL5A and 2DL5B
-    # index = kirToMultiMsa(split_2DL5=True) # index = "index/kir_2100_ab"
-    # Merge all KIR
-    # index = kirToSingleMsa(index)          # index = "index/kir_2100_merge.mut01"
+    index_folder = "index2"
+    os.makedirs(index_folder, exist_ok=True)
 
-    index = kg_build_index.main(index)
-    suffix += hisatMapAll(index, sample_index, suffix)
-    suffix += hisatTyping(index, sample_index, suffix)
-    print(index, sample_index, suffix)
+    samples = answer_folder >> createSamples >> linkSamples.set_args(data_folder)
+    if answer_folder == "linnil1_syn_wide":
+        samples = samples >> link10Samples
 
+    print(samples)
+    msa_index = index_folder >> NameTask(func=kirToMultiMsa) # "index2/kir_2100_raw.mut01"
+    # msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
+    # msa_index = index_folder >> NameTask(func=kirToMultiMsa).set_args(split_2DL5=True) # index = "index/kir_2100_ab.mut01"
+    # msa_index = index_folder >> NameTask(func=kirToSingleMsa) # index = "index/kir_2100_merge.mut01"
+
+    index = msa_index >> NameTask(func=kg_build_index.main)
+    print(index)
+    # mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index))
+    # print(mapping)
+
+    ping_index = None >> buildPing
+    ping_predict = samples >> pingCopyFile.set_args(index=str(ping_index)) >> ping.set_args(index=str(ping_index))
+    print(ping_predict)
 
     # Different method mapping test
-    index = "index"
-    suffix = ""
-    # index = bowtie2BuildConsensus(from_index="index/kir_2100_raw.mut01")  # index = "index/kir_2100_raw_cons"
-    # index = bowtie2BuildFull(index, from_index="index/kir_2100_raw.mut01")       # index = "index/kir_2100_raw_full"
-    # index = bowtie2BuildConsensus(from_index="index/kir_2100_ab.mut01")  # index = "index/kir_2100_ab_cons"
+    bowtie2_index = index >> bowtie2BuildConsensus >> "index2/kir_2100_raw_cons"
+    bowtie2_index = index >> bowtie2BuildFull >> "index2/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
+    # bowtie2_index = index >> "index2/kir_2100_ab.mut01" >> bowtie2BuildConsensus >> "index2/kir_2100_ab_cons"
 
-    # suffix += bowtie2All(index, sample_index, suffix)
-    # suffix += bowtie2All(index, sample_index, suffix, use_arg="ping")
+    # samples >> bowtie2.set_args(index=str(bowtie2_index))
+    # samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
     """
     index = "index/kir_2100_muscle"
     # kirToSingleMsa(method='muscle')

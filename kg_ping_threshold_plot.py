@@ -58,7 +58,7 @@ def saveThreshold(threshold_list, filename):
     df = df[df["gene"] != "KIR3DL3"]
     df = df.reindex(columns=columns)
     df = df.fillna("NA")
-    # df.to_csv(filename, index=False)
+    df.to_csv(filename, index=False)
     print(df)
     return df
 
@@ -104,9 +104,11 @@ if __name__ == "__main__":
     import plotly.express as px
 
     # main
+    name = "linnil1_syn_30x_seed87"
+    name = "linnil1_syn_30x"
     ratio_df, threshold_df = cutThresholdByAns(
-        "linnil1_syn_30x/linnil1_syn_30x.summary.csv",
-        "PING/data_linnil1_syn_30x.result"
+        f"{name}/{name}.summary.csv",
+        f"PING/data_{name}.result"
     )
 
     # plot

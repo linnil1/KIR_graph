@@ -88,7 +88,7 @@ def randomSelectAlleles(haplo_df, gene_dict):
     return haplos, alleles
 
 
-def generateFastq(name, depth=50, fragment_length=400):
+def generateFastq(name, depth=50, fragment_length=400, seed=444):
     """
     Use art_illumina to generate the fastq
 
@@ -119,7 +119,7 @@ def generateFastq(name, depth=50, fragment_length=400):
         -m {fragment_length} \
         -s 10 \
         -sam -na\
-        -rs 444 \
+        -rs {seed} \
         -o {name}.read. \
     """)
 
@@ -139,22 +139,13 @@ def rewriteSam(file_in, file_out):
             f_out.write(line)
 
 
-if __name__ == "__main__":
-    N = 10
-    # output_name = "linnil1_syn"
-    # output_name = "linnil1_syn_full"  # m = 200, N=10, seed=444
-    # output_name = "linnil1_syn_wide"  # m = 400, N=100, seed=44
-    basename = "linnil1_syn_30x/linnil1_syn_30x"
-    depth = 30
-    basename = "linnil1_syn_exon/linnil1_syn_exon"
-    depth = 90
-
+def createSamples(N, basename, depth=30, seed=44):
     # read
     seqs_dict = readSequences()
     seqs_dict = {k: v for k, v in seqs_dict.items() if len(v.seq) > 4200}  # remove exon-only sequence, min 3DP1 4240
     gene_dict = groupSequences(seqs_dict)
     haplo = readHaplo()
-    random.seed(44)
+    random.seed(seed)
 
     # main
     summary = []
@@ -170,10 +161,20 @@ if __name__ == "__main__":
             "alleles": "_".join([i.id.split("-")[0] for i in alleles]),
         })
         SeqIO.write(alleles, f"{name}.fa", "fasta")
-        generateFastq(name, depth=depth)
+        generateFastq(name, depth=depth, seed=seed)
         rewriteSam(name + ".read..sam", name + ".sam")
 
     # write summary
     summary = pd.DataFrame(summary)
     print(summary)
     summary.to_csv(f"{basename}.summary.csv", sep="\t", index=False)
+
+
+if __name__ == "__main__":
+    N = 10
+    # output_name = "linnil1_syn"
+    # output_name = "linnil1_syn_full"  # m = 200, N=10, seed=444
+    # output_name = "linnil1_syn_wide"  # m = 400, N=100, seed=44
+    # change note: 30x and exon use seed=44 for allele seelct seed=444 for fastq generation
+    createSamples(N, "linnil1_syn_30x/linnil1_syn_30x", 30)
+    createSamples(N, "linnil1_syn_exon/linnil1_syn_exon", 90)

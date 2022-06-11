@@ -2,7 +2,7 @@ import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from Bio import SeqIO, AlignIO
-from pyhlamsa import KIRmsa, Genemsa
+from pyhlamsa import KIRmsa, Genemsa, msaio
 
 from kg_utils import runDocker, getSamples, threads
 
@@ -126,7 +126,7 @@ def genesToBlocks(genes, intron34="intron3", intron56="intron5"):
                 block_name = msa.blocks[i].name
             blocks[block_name].extend(
                 filter(lambda i: len(i.seq),
-                       msa.select_block([i]).to_fasta(gap=False))
+                       msa.select_block([i]).to_records(gap=False))
             )
     return blocks
 

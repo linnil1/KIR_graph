@@ -540,8 +540,6 @@ def getCNDistBest(norm_read_count, assume_base=None):
     num_read_count, _ = np.histogram(norm_read_count, bins=500, range=(0, norm_max))
     space = norm_max / 500
     base_dev = 0.02
-    if count_only_exon:
-        base_dev = 0.05
 
     for base in np.arange(0, norm_max, 0.01):
         _, y = getCNDist(base, base_dev)

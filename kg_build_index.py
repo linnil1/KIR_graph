@@ -165,12 +165,12 @@ def writeMsa(index_out, msa):
 
     # Backbone Sequence
     with open(index_out + "_backbone.fa", 'a') as seq_backbone_f:
-        SeqIO.write(msa.select_allele([ref_name]).to_fasta(gap=False),
+        SeqIO.write(msa.select_allele([ref_name]).to_records(gap=False),
                     seq_backbone_f, "fasta")
 
     # All sequence
     with open(index_out + "_sequences.fa", 'a') as seq_f:
-        SeqIO.write(msa.copy().remove(ref_name).to_fasta(gap=False),
+        SeqIO.write(msa.copy().remove(ref_name).to_records(gap=False),
                     seq_f, "fasta")
 
     # Allele allele name
@@ -188,7 +188,8 @@ def writeMsa(index_out, msa):
     with open(index_out + ".locus", 'a') as locus_f:
         # TODO: bounardy
         exon_pos = []
-        for b, pos in zip(msa.blocks, msa._get_block_position()):
+        for b in msa.blocks:
+            pos = msa.get_block_position(b)
             if b.type == "exon":
                 exon_pos.append((pos + 1, pos + 1 + b.length))
         exon_str = " ".join(f"{s}-{e}" for s, e in exon_pos)
