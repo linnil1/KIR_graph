@@ -1,4 +1,5 @@
 # This script is inspired from hisat-genotype/hisatgenotype_typing_core
+import io
 import re
 import os
 import sys
@@ -7,26 +8,11 @@ import copy
 import bisect
 from typing import Union, ClassVar
 from collections import defaultdict, Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 import numpy as np
 from Bio import SeqIO
 
 from kg_utils import runDocker, getSamples, samtobam
-
-# sam
-num_editdist = 4
-# sam
-NH_filtering = False
-# em
-diff_threshold = 0.0001
-# em
-iter_max = 100
-# em
-norm_by_length = False
-# pileup
-error_correction = True
-# output
-extend_allele = True # set false if merge(too big)
 
 
 @dataclass
@@ -44,7 +30,6 @@ class Variant:
     # freq: float = None
     order_type: ClassVar[dict] = {"insertion": 0, "single": 1, "deletion": 2}
     order_nuc: ClassVar[dict] = {"A": 0, "C": 1, "G": 2, "T": 3}
-    novel_count: ClassVar[int] = 0
 
     def __lt__(self, othr):
         # The sorted sta
@@ -59,6 +44,7 @@ class Variant:
 
     def __repr__(self):
         return self.id
+
 
 def getNH(sam_info):
     """ Extract NH from record """
@@ -115,50 +101,6 @@ def readPair(alignment_fname):
 
     # summary
     print("Reads:", num_reads, "Pairs:", num_pairs)
-
-
-def filterRead(line):
-    """ Filter some reads (same in hisat2) """
-    flag = int(line.split('\t')[1])
-
-    # Concordantly mapped?
-    if flag & 2 == 0:
-        # print("Not concordantly mapped read")
-        # print(line)
-        return False
-
-    # unmapped(not needed)
-    # if flag & 4 or flag & 8:
-    #     return False
-
-    # read additional flag
-    NH, NM = None, None
-    for col in line.strip().split('\t')[11:]:
-        if col.startswith("NM"):
-            NM = int(col[5:])
-        elif col.startswith("NH"):
-            NH = int(col[5:])
-
-    # filter
-    if NH_filtering and NH > 1:
-        # print("Read not unique aligned")
-        return False
-    if NM > num_editdist:
-        # print(f"Read > editdist (NM = {NM})")
-        # print(line)
-        return False
-
-    # secondary
-    # if flag & 256:
-    #     print("Secondary Read")
-    #     return False
-    return True
-
-
-def filterPair(i):
-    """ Discard pair reads if one of pair is failed """
-    line_l, line_r = i
-    return filterRead(line_l) and filterRead(line_r)
 
 
 def readZsMd(cols):
@@ -445,24 +387,6 @@ def readAlleleLength(index):
     }
 
 
-def findVariantId(variant):
-    """ Match variant to hisat2 .snp """
-    # The variant is not located in .snp.index but in .snp
-    if variant in variants:
-        # print("Find it", variant)
-        return variants[variant]
-    # cannot find: set it novel
-    elif variant.typ in ["single", "insertion", "deletion"]:
-        # print("Cannot find", variant)
-        variant.id = f"nv{Variant.novel_count}"
-        Variant.novel_count += 1
-        return variant
-    else:
-        # print("Other", variant)
-        assert variant.typ == "match"
-        return variant
-
-
 def extendMatch(variant_list):
     """ Remove novel variant """
     # force to transfer single novel variant to match
@@ -486,94 +410,6 @@ def extendMatch(variant_list):
 def findAlts():
     pass
     # = typing_common.identify_ambigious_diffs(ref_seq,
-
-
-def getVariantsBoundary(variant_list):
-    """
-    Find the lower and upper bound of list of variant
-
-    Return [left, right) (of .snp variants)
-    """
-    left = variant_list[0].pos
-    rigt = variant_list[-1].pos + variant_list[-1].length
-    ref = variant_list[0].ref
-    return (
-        bisect.bisect_left(variants_sorted_list, Variant(ref=ref, pos=left, typ="single")),
-        bisect.bisect_left(variants_sorted_list, Variant(ref=ref, pos=rigt, typ="single"))
-    )
-
-
-def variantList2Allele(variant_list):
-    """ Varinats -> list of allele """
-    return [v.allele for v in variant_list]
-
-
-def getPNFromVariantList(variant_list, exon_only=False):
-    """
-    Extract **useful** positive and negative varinat from the list
-
-    Note:
-      * Remove novel insertion and deletion
-      * Find negative variant (exclude deletion at the front and end)
-    """
-    # Find all variant in the region
-    variant_list = list(variant_list)
-    if not variant_list:
-        return [], []
-    left, right = getVariantsBoundary(variant_list)
-    pos_right = variant_list[-1].pos + variant_list[-1].length
-    assert left <= right
-
-    # TODO: linnil1
-    # insert or novel deletion = mapping error
-    if any(v.typ == "insertion" for v in variant_list):
-        return [], []
-    if any(v.typ == "deletion" and v.id.startswith("nv") for v in variant_list):
-        return [], []
-
-    # exclude for negative
-    exclude_variants = set()
-
-    # exclude cannot error correction variant
-    for v in variant_list:
-        if v.val == "N":
-            for i in "ATCG":
-                va = copy.deepcopy(v)
-                va.val = i
-                exclude_variants.add(va)
-
-    # remove match
-    variant_list = [v for v in variant_list if v.typ != "match"]
-    # remove novel
-    variant_list = [v for v in variant_list if v.id and not v.id.startswith("nv")]
-
-    # positive variation
-    if exon_only:
-        positive_variants = [v for v in variant_list if v.in_exon]
-    else:
-        positive_variants = variant_list
-    exclude_variants.update(positive_variants)
-
-    # print('positive', variant_list)
-
-    # negative
-    negative_variants = []
-    for v in variants_sorted_list[left:right]:
-        if v in exclude_variants:
-            continue
-        if exon_only and not v.in_exon:
-            continue
-        # Deletion should not over the right end of read
-        # Because some deletion is ambiguous until last one
-        # TODO: change 10 -> to repeat length
-        if v.typ == "deletion" and v.pos + v.val + 10 >= pos_right:
-            continue
-        # print('negative', v)
-        negative_variants.append(v)
-        # TODO: maybe some deletion is before left
-        # they use gene_var_maxrights to deal with
-
-    return positive_variants, negative_variants
 
 
 def hisat2getCandidateAllele(positive_allele, negative_allele):
@@ -608,69 +444,7 @@ def hisat2CountAllelePerPair(candidates):
     return max_allele
 
 
-def hisatEMnp(allele_per_read):
-    """
-    single_abundance in hisat-genotype
-
-    Accelerated version of EM - SQUAREM iteration
-    Varadhan, R. & Roland, C. Scand. J. Stat. 35, 335-353 (2008)
-    Also, this algorithm is used in Sailfish
-    http://www.nature.com/nbt/journal/v32/n5/full/nbt.2862.html
-    """
-    # init probility (all allele has even probility)
-    allele_name = sorted(set(allele for alleles in allele_per_read for allele in alleles))
-    allele_map = dict(zip(allele_name, range(len(allele_name))))
-    if norm_by_length:
-        allele_len = np.array([seq_len[i] for i in allele_name])
-    else:
-        allele_len = np.ones(len(allele_name))
-    allele_select_one = []
-    for alleles in allele_per_read:
-        x = np.zeros(len(allele_map))
-        for i in map(allele_map.get, alleles):
-            x[i] = 1
-        allele_select_one.append(x)
-    allele_select_one = np.array(allele_select_one)
-
-    def getNextProb(prob_per_allele):
-        a = prob_per_allele * allele_select_one
-        b = a.sum(axis=1)[:, None]
-        a = np.divide(a, b,
-                      out=np.zeros(a.shape),
-                      where=b != 0)
-        a /= allele_len
-        a = a.sum(axis=0)
-        return a / a.sum()
-
-    # Run EM
-    prob = getNextProb(np.ones(len(allele_map)))
-    for iters in range(0, iter_max):
-        # SQUAREM
-        prob_next = getNextProb(prob)
-        prob_next2 = getNextProb(prob_next)
-        r = prob_next - prob
-        v = prob_next2 - prob_next - r
-        r_sum = (r ** 2).sum()
-        v_sum = (v ** 2).sum()
-        if v_sum > 0.0:
-            g = -np.sqrt(r_sum / v_sum)
-            prob_next3 = prob - r * g * 2 + v * g ** 2
-            prob_next3 = np.maximum(prob_next3, 0)
-            prob_next = getNextProb(prob_next3)
-
-        # Recalculate diff between previous stage
-        diff = np.abs(prob - prob_next).sum()
-        if diff <= diff_threshold:
-            break
-
-        # next
-        # print(f"Iter: {iters} Diff: {diff}")
-        prob = prob_next
-
-    return dict(zip(allele_name, prob))
-
-
-def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
+def hisat2StatAlleleCount(allele_counts, em_func, file=sys.stdout):
     # all candidates from all pairs
     count = defaultdict(int)
     for allele_count in allele_counts:
@@ -681,13 +455,13 @@ def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
     # sort and print
     count = sorted(count.items(), key=lambda i: i[1], reverse=True)
     for i, (allele, c) in enumerate(count[:first_n]):
-        print(f"{i+1} {allele} (count: {c})", file=file)
+        print(f"  {i+1} {allele} (count: {c})", file=file)
 
-    allele_prob = hisatEMnp(allele_counts)
+    allele_prob = em_func(allele_counts)
     allele_prob = sorted(allele_prob.items(), key=lambda i: i[1], reverse=True)
 
     for i, (allele, prob) in enumerate(allele_prob[:first_n]):
-        print(f"{i+1} ranked {allele} (abundance: {prob:.2f})", file=file)
+        print(f"  {i+1} ranked {allele} (abundance: {prob:.2f})", file=file)
 
     return {
         'count': count,
@@ -695,37 +469,28 @@ def hisat2StatAlleleCount(allele_counts, file=sys.stdout):
     }
 
 
-def recordToVariants(record, pileup):
-    variant_list, soft_clip = record2Variant(record)
-    # linnil1: soft clip = mapping error
-    if sum(soft_clip) > 0:
-        return []
-    variant_list = flatten(map(lambda i: pileupModify(pileup, i), variant_list))
-    variant_list = map(findVariantId, variant_list)
-    # no sure what's this doing
-    # variant_list = extendMatch(variant_list)  # remove novel -> extend
-    return variant_list
-
-
-def writeBam(records, filename, filename_out):
+def getBamHeader(bam_file):
     proc = runDocker("samtools",
-                     f"samtools view -H {filename}",
+                     f"samtools view -H {bam_file}",
                      capture_output=True)
-    with open(filename_out, "w") as f:
-        f.writelines(proc.stdout)
+    return str(proc.stdout)
+
+
+def read2Bam(backbones_reads, header, output_name, skip_duplicate=False):
+    records = []
+    for backbone_reads in backbones_reads.values():
+        for read in backbone_reads:
+            if skip_duplicate and getNH(read['l_sam']) != 1:
+                continue
+            records.append(read['l_sam'])
+            records.append(read['r_sam'])
+
+    # output to sam
+    with open(f"{output_name}.sam", "w") as f:
+        f.writelines(header)
         f.writelines(map(lambda i: i + "\n", records))
-
-
-# index
-def setIndex(index):
-    global variants, variants_sorted_list, seq_len
-    exon_region = readLocus(index)
-    variants = readVariants(index)
-    for v in variants:
-        v.in_exon = isInExon(exon_region[v.ref], v)
-    variants = {v: v for v in variants}
-    variants_sorted_list = sorted([i for i in variants])
-    seq_len = readAlleleLength(index)
+    # sam to bam
+    samtobam(output_name)
 
 
 def readPileupBase(bases: str):
@@ -789,158 +554,428 @@ def flatten(its):
         yield from it
 
 
-def pileupModify(pileup, variant):
-    if variant.typ == "single":
-        p = pileup.get((variant.ref, variant.pos))
-        if not p:
-            # print("error pileup", variant)
+# code that related to index will writen in this class
+# otherwise, write in function
+class Hisat2:
+    def __init__(self, index):
+        self.exon_region = readLocus(index)
+        variants = readVariants(index)
+        for v in variants:
+            v.in_exon = isInExon(self.exon_region[v.ref], v)
+
+        # global setup
+        self.variants = {v: v for v in variants}
+        self.variants_sorted_list = sorted([i for i in variants])
+        self.seq_len = readAlleleLength(index)
+
+        # instance
+        self.novel_variant = {}
+        self.pileup = {}
+
+        # sam
+        self.num_editdist = 4
+        # sam
+        self.NH_filtering = False
+        # em
+        self.diff_threshold = 0.0001
+        # em
+        self.iter_max = 100
+        # em
+        self.norm_by_length = False
+        # pileup
+        self.error_correction = True
+
+    def filterRead(self, line):
+        """ Filter some reads (same in hisat2) """
+        flag = int(line.split('\t')[1])
+
+        # Concordantly mapped?
+        if flag & 2 == 0:
+            # print("Not concordantly mapped read")
+            # print(line)
+            return False
+
+        # unmapped(not needed)
+        # if flag & 4 or flag & 8:
+        #     return False
+
+        # read additional flag
+        NH, NM = None, None
+        for col in line.strip().split('\t')[11:]:
+            if col.startswith("NM"):
+                NM = int(col[5:])
+            elif col.startswith("NH"):
+                NH = int(col[5:])
+
+        # filter
+        if self.NH_filtering and NH > 1:
+            # print("Read not unique aligned")
+            return False
+        if NM > self.num_editdist:
+            # print(f"Read > editdist (NM = {NM})")
+            # print(line)
+            return False
+
+        # secondary
+        # if flag & 256:
+        #     print("Secondary Read")
+        #     return False
+        return True
+
+    def filterPair(self, lr):
+        """ Discard pair reads if one of pair is failed """
+        line_l, line_r = lr
+        return self.filterRead(line_l) and self.filterRead(line_r)
+
+    def extractVariant(self, bam_file):
+        # error correctino depeneded on pileup
+        if self.error_correction:
+            print("Reading pileup")
+            self.pileup = getPileupDict(bam_file)
+            print("Reading pileup Done")
+        else:
+            self.pileup = {}
+
+        # read bam file
+        pair_reads = readPair(bam_file)
+        pair_reads = filter(self.filterPair, pair_reads)
+
+        save_reads = defaultdict(list)
+        id_map_variant = {v.id: asdict(v) for v in self.variants.values()}
+        tot_pair = 0
+        for left_record, right_record in pair_reads:
+            tot_pair += 1
+            # debug
+            # if tot_pair > 100:
+            #     break
+
+            # group read by gene name
+            backbone = left_record.split("\t")[2]
+
+            # main: extract bam -> variant
+            # main: + annotate ID
+            lv = self.recordToVariants(left_record)
+            rv = self.recordToVariants(right_record)
+
+            # (left, right) x (positive, negative)
+            lpv, lnv = self.getPNFromVariantList(lv)
+            rpv, rnv = self.getPNFromVariantList(rv)
+
+            # save the allele information for the read
+            save_reads[backbone].append({
+                'lpv': [v.id for v in lpv],
+                'lnv': [v.id for v in lnv],
+                'rpv': [v.id for v in rpv],
+                'rnv': [v.id for v in rnv],
+                'l_sam': left_record,
+                'r_sam': right_record,
+            })
+            for v in flatten([lpv, lnv, rpv, rnv]):
+                if v.id not in id_map_variant:
+                    id_map_variant[v.id] = asdict(v)
+
+            # if extend_allele:
+            #     save_reads[backbone][-1].update({
+            #         'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
+            #     })
+
+
+            # TODO:
+            # * typing_common.identify_ambigious_diffs(ref_seq,
+            # print(i, j)
+
+        print("Filterd pairs", tot_pair)
+        return save_reads, id_map_variant
+
+    def findVariantId(self, variant):
+        """ Match variant to hisat2 .snp """
+        # The variant is not located in .snp.index but in .snp
+        if variant in self.variants:
+            # print("Find it", variant)
+            return self.variants[variant]
+        # cannot find: set it novel
+        elif variant.typ in ["single", "insertion", "deletion"]:
+            # print("Cannot find", variant)
+            if variant in self.novel_variant:
+                return self.novel_variant[variant]
+            variant.id = f"nv{len(self.novel_variant)}"
+            self.novel_variant[variant] = variant
+            return variant
+        else:
+            # print("Other", variant)
+            assert variant.typ == "match"
+            return variant
+
+    def recordToVariants(self, record):
+        variant_list, soft_clip = record2Variant(record)
+        # linnil1: soft clip = mapping error
+        if sum(soft_clip) > 0:
+            return []
+        if self.error_correction:
+            variant_list = flatten(map(self.pileupModify, variant_list))
+        variant_list = map(self.findVariantId, variant_list)
+        # no sure what's this doing
+        # variant_list = extendMatch(variant_list)  # remove novel -> extend
+        return variant_list
+
+    def getVariantsBoundary(self, variant_list):
+        """
+        Find the lower and upper bound of list of variant
+
+        Return [left, right) (of .snp variants)
+        """
+        left = variant_list[0].pos
+        rigt = variant_list[-1].pos + variant_list[-1].length
+        ref = variant_list[0].ref
+        return (
+            bisect.bisect_left(self.variants_sorted_list, Variant(ref=ref, pos=left, typ="single")),
+            bisect.bisect_left(self.variants_sorted_list, Variant(ref=ref, pos=rigt, typ="single"))
+        )
+
+    def getPNFromVariantList(self, variant_list, exon_only=False):
+        """
+        Extract **useful** positive and negative varinat from the list
+
+        Note:
+          * Remove novel insertion and deletion
+          * Find negative variant (exclude deletion at the front and end)
+        """
+        # Find all variant in the region
+        variant_list = list(variant_list)
+        if not variant_list:
+            return [], []
+        left, right = self.getVariantsBoundary(variant_list)
+        pos_right = variant_list[-1].pos + variant_list[-1].length
+        assert left <= right
+
+        # TODO: linnil1
+        # insert or novel deletion = mapping error
+        if any(v.typ == "insertion" for v in variant_list):
+            return [], []
+        if any(v.typ == "deletion" and v.id.startswith("nv") for v in variant_list):
+            return [], []
+
+        # exclude for negative
+        exclude_variants = set()
+
+        # exclude cannot error correction variant
+        for v in variant_list:
+            if v.val == "N":
+                for i in "ATCG":
+                    va = copy.deepcopy(v)
+                    va.val = i
+                    exclude_variants.add(va)
+
+        # remove match
+        variant_list = [v for v in variant_list if v.typ != "match"]
+        # remove novel
+        # variant_list = [v for v in variant_list if v.id and not v.id.startswith("nv")]
+
+        # positive variation
+        if exon_only:
+            positive_variants = [v for v in variant_list if v.in_exon]
+        else:
+            positive_variants = variant_list
+        exclude_variants.update(positive_variants)
+
+        # print('positive', variant_list)
+
+        # negative
+        negative_variants = []
+        for v in self.variants_sorted_list[left:right]:
+            if v in exclude_variants:
+                continue
+            if exon_only and not v.in_exon:
+                continue
+            # Deletion should not over the right end of read
+            # Because some deletion is ambiguous until last one
+            # TODO: change 10 -> to repeat length
+            if v.typ == "deletion" and v.pos + v.val + 10 >= pos_right:
+                continue
+            # print('negative', v)
+            negative_variants.append(v)
+            # TODO: maybe some deletion is before left
+            # they use gene_var_maxrights to deal with
+
+        return positive_variants, negative_variants
+
+    def pileupModify(self, variant):
+        if variant.typ == "single":
+            p = self.pileup.get((variant.ref, variant.pos))
+            if not p:
+                # print("error pileup", variant)
+                yield variant
+                return
+
+            # error correction critria
+            if p['all'] > 20:
+                if p.get(variant.val, 0) > 0.2:
+                    # print("reserve", variant, p)
+                    yield variant
+                    return
+
+                # case: AAAAAAAATAAAA where REF = G
+                if any(i[1] >= 0.8 for i in p.items() if i[0] != "all"):
+                    variant.val = max([i for i in p.items() if i[0] != "all"], key=lambda i: i[1])[0]
+                    yield variant
+                    return
+
+                # if variant.id.startswith("hv"):
+                #     print("to_match", variant, p)
+                # case: AAAAAACCCCCCCCCCC REF = C
+                # neither set to A or C is wrong
+                # if I set it to match or novel -> it will become negative
+                # variant.typ = "match"
+                variant.val = "N"
+                yield variant
+
+            # else -> insufficient info
             yield variant
             return
 
-        # error correction critria
-        if p['all'] > 20:
-            if p.get(variant.val, 0) > 0.2:
-                # print("reserve", variant, p)
-                yield variant
-                return
-
-            # case: AAAAAAAATAAAA where REF = G
-            if any(i[1] >= 0.8 for i in p.items() if i[0] != "all"):
-                variant.val = max([i for i in p.items() if i[0] != "all"], key=lambda i: i[1])[0]
-                yield variant
-                return
-
-            # if variant.id.startswith("hv"):
-            #     print("to_match", variant, p)
-            # case: AAAAAACCCCCCCCCCC REF = C
-            # neither set to A or C is wrong
-            # if I set it to match or novel -> it will become negative
-            # variant.typ = "match"
-            variant.val = "N"
-            yield variant
-
-        # else -> insufficient info
+        # TODO: split the match when some base in match is sequencing error
         yield variant
         return
 
-    # TODO: split the match when some base in match is sequencing error
-    yield variant
-    return
+    def typing(self, name, force=False):
+        bam_file = name + ".bam"
+        new_suffix = ".hisatgenotype"
+        # if exon_only: new_suffix += ".exon"
+
+        if self.error_correction:
+            new_suffix += ".errcorr"
+
+        name_out = name + new_suffix
+
+        if not force and os.path.exists(f"{name_out}.hisat.json"):
+            return new_suffix
 
 
-def main(bam_file):
-    new_suffix = ".hisatgenotype"
-    # if exon_only: new_suffix += ".exon"
-    if error_correction:
-        # pileup
-        new_suffix += ".errcorr"
-        print("Reading pileup")
-        pileup = getPileupDict(bam_file)
-        print("Reading pileup Done")
-    else:
-        pileup = {}
+        # TODO: test
+        # global extend_allele
+        # if "_merge" in bam_file:
+        #     extend_allele = False
+        save_reads, id_map_variant = self.extractVariant(bam_file)
 
-    name_out = os.path.splitext(bam_file)[0] + new_suffix
+        print(f"Save allele per reads in {name_out}.id_only.json")
+        json.dump({
+            'variants': id_map_variant,
+            'reads': dict(save_reads),
+        }, open(f"{name_out}.id_only.json", "w"))
 
-    # TODO: test
-    global extend_allele
-    if "_merge" in bam_file:
-        extend_allele = False
+        print(f"Save hisat-genotype calling in {name_out}.hisat.*")
+        hisat_result, hisat_result_txt = self.original_typing(save_reads, id_map_variant)
+        print(hisat_result_txt)
+        open(f"{name_out}.hisat.report", "w").write(hisat_result_txt)
+        json.dump(hisat_result, open(f"{name_out}.hisat.json", "w"))
 
-    # read bam file
-    pair_reads = readPair(bam_file)
-    pair_reads = filter(filterPair, pair_reads)
+        print(f"Save filtered bam in {name_out}.sam")
+        sam_header = getBamHeader(bam_file)
+        read2Bam(save_reads, sam_header, name_out)
+        runDocker("samtools", f"samtools depth -a {name_out}.bam -o {name_out}.depth.tsv")
 
-    save_reads = defaultdict(list)
-    hisat_gene_alleles = defaultdict(list)
-    tot_pair = 0
-    for left_record, right_record in pair_reads:
-        tot_pair += 1
-        # if tot_pair > 100:
-        #     break
+        # additional multiple alignment depth
+        name_out += ".no_multi"
+        read2Bam(save_reads, sam_header, name_out, skip_duplicate=True)
+        print(f"Save read detph in {name_out}.depth.tsv")
+        runDocker("samtools", f"samtools depth -a {name_out}.bam -o {name_out}.depth.tsv")
 
-        # group read by gene name
-        backbone = left_record.split("\t")[2]
+        return new_suffix
 
-        # if "KIR3DL3*0090101-1-2942" not in left_record:
-        #     continue
+    def original_typing(self, backbones_reads, id_map_variant):
+        # hisat2 method
+        hisat_gene_alleles = defaultdict(list)
 
-        lv = recordToVariants(left_record, pileup)
-        rv = recordToVariants(right_record, pileup)
-
-        # (left, right) x (positive, negative)
-        lpv, lnv = getPNFromVariantList(lv)
-        rpv, rnv = getPNFromVariantList(rv)
-        lp = [v.allele for v in lpv]
-        ln = [v.allele for v in lnv]
-        rp = [v.allele for v in rpv]
-        rn = [v.allele for v in rnv]
-        # exit()
-
-        # save the allele information for the read
-        save_reads[backbone].append({
-            'lpv': [v.id for v in lpv],
-            'lnv': [v.id for v in lnv],
-            'rpv': [v.id for v in rpv],
-            'rnv': [v.id for v in rnv],
-            'l_sam': left_record,
-            'r_sam': right_record,
-        })
-        if extend_allele:
-            save_reads[backbone][-1].update({
-                'lp': lp, 'ln': ln, 'rp': rp, 'rn': rn,
-            })
+        for reads in backbones_reads.values():
+            for read in reads:
+                if getNH(read['l_sam']) != 1:
+                    continue
+                lp = [id_map_variant[v]['allele'] for v in read['lpv']]
+                ln = [id_map_variant[v]['allele'] for v in read['lnv']]
+                rp = [id_map_variant[v]['allele'] for v in read['rpv']]
+                rn = [id_map_variant[v]['allele'] for v in read['rnv']]
+                backbone = read['l_sam'].split("\t")[2]
+                hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
+                    hisat2getCandidateAllele(lp, ln) +
+                    hisat2getCandidateAllele(rp, rn)
+                ))
 
         # hisat2 method
-        if getNH(left_record) == 1:
-            hisat_gene_alleles[backbone].append(hisat2CountAllelePerPair(
-                hisat2getCandidateAllele(lp, ln) +
-                hisat2getCandidateAllele(rp, rn)
-            ))
+        hisat_result = {}
+        hisat_report_f = io.StringIO()
+        for backbone, hisat_alleles in sorted(hisat_gene_alleles.items(), key=lambda i: i[0]):
+            print(backbone, file=hisat_report_f)
+            hisat_result[backbone] = hisat2StatAlleleCount(hisat_alleles, self.hisatEMnp, file=hisat_report_f)
 
-        # TODO:
-        # * typing_common.identify_ambigious_diffs(ref_seq,
-        # print(i, j)
+        return hisat_result, hisat_report_f.getvalue()
 
-    print("Filterd pairs", tot_pair)
+    def hisatEMnp(self, allele_per_read):
+        """
+        single_abundance in hisat-genotype
 
-    print(f"Save allele per reads in {name_out}.json")
-    json.dump(dict(save_reads.items()), open(f"{name_out}.json", "w"))
+        Accelerated version of EM - SQUAREM iteration
+        Varadhan, R. & Roland, C. Scand. J. Stat. 35, 335-353 (2008)
+        Also, this algorithm is used in Sailfish
+        http://www.nature.com/nbt/journal/v32/n5/full/nbt.2862.html
+        """
+        # init probility (all allele has even probility)
+        allele_name = sorted(set(allele for alleles in allele_per_read for allele in alleles))
+        allele_map = dict(zip(allele_name, range(len(allele_name))))
+        if self.norm_by_length:
+            allele_len = np.array([self.seq_len[i] for i in allele_name])
+        else:
+            allele_len = np.ones(len(allele_name))
+        allele_select_one = []
+        for alleles in allele_per_read:
+            x = np.zeros(len(allele_map))
+            for i in map(allele_map.get, alleles):
+                x[i] = 1
+            allele_select_one.append(x)
+        allele_select_one = np.array(allele_select_one)
 
-    print(f"Save filtered bam in {name_out}.sam")
-    records = []
-    records_dup = []
-    for reads in save_reads.values():
-        for i in reads:
-            if getNH(i['l_sam']) == 1:
-                records.append(i['l_sam'])
-                records.append(i['r_sam'])
-            else:
-                records_dup.append(i['l_sam'])
-                records_dup.append(i['r_sam'])
-    writeBam(records + records_dup, bam_file, name_out + ".sam")
-    name_out += ".no_multi"
-    writeBam(records, bam_file, name_out + ".sam")
-    samtobam(name_out, keep=True)
-    runDocker("samtools", f"samtools depth -a {name_out}.bam -o {name_out}.depth.tsv")
+        def getNextProb(prob_per_allele):
+            a = prob_per_allele * allele_select_one
+            b = a.sum(axis=1)[:, None]
+            a = np.divide(a, b,
+                          out=np.zeros(a.shape),
+                          where=b != 0)
+            a /= allele_len
+            a = a.sum(axis=0)
+            return a / a.sum()
 
-    # hisat2 method
-    hisat_result = {}
-    # hisat_report_f = open(f"{name_out}.report", "w")
-    hisat_report_f = sys.stdout
-    for backbone, hisat_alleles in sorted(hisat_gene_alleles.items(), key=lambda i: i[0]):
-        print(backbone)
-        hisat_result[backbone] = hisat2StatAlleleCount(hisat_alleles, file=hisat_report_f)
+        # Run EM
+        prob = getNextProb(np.ones(len(allele_map)))
+        for iters in range(0, self.iter_max):
+            # SQUAREM
+            prob_next = getNextProb(prob)
+            prob_next2 = getNextProb(prob_next)
+            r = prob_next - prob
+            v = prob_next2 - prob_next - r
+            r_sum = (r ** 2).sum()
+            v_sum = (v ** 2).sum()
+            if v_sum > 0.0:
+                g = -np.sqrt(r_sum / v_sum)
+                prob_next3 = prob - r * g * 2 + v * g ** 2
+                prob_next3 = np.maximum(prob_next3, 0)
+                prob_next = getNextProb(prob_next3)
 
-    print(f"Save hisat-genotype calling in {name_out}.report*")
-    json.dump(hisat_result, open(f"{name_out}.report.json", "w"))
-    return new_suffix
+            # Recalculate diff between previous stage
+            diff = np.abs(prob - prob_next).sum()
+            if diff <= self.diff_threshold:
+                break
+
+            # next
+            # print(f"Iter: {iters} Diff: {diff}")
+            prob = prob_next
+
+        return dict(zip(allele_name, prob))
+
+
+def main(index, bam_file, force=False):
+    if not bam_file.endswith(".bam"):
+        raise ValueError("The filename not ends with bam")
+    return Hisat2(index).typing(bam_file[:-4], force=force)
 
 
 if __name__ == "__main__":
-    # setIndex("index/kir_2100_raw.mut01")
-    setIndex("index/kir_2100_2dl1s1.mut01")
-    # name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.nosingle.bam"
-    # name = "data/linnil1_syn_wide.00.kir_2100_raw.mut01.bam"
-    name = "data/linnil1_syn_wide.00.kir_2100_2dl1s1.mut01.bam"
-    main(name)
+    main("index2/kir_2100_raw.mut01", "data2/linnil1_syn_30x_seed87.00.index2_kir_2100_raw.mut01.bam")

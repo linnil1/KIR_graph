@@ -2,10 +2,12 @@ import os
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+import pandas as pd
+from namepipe import nt, NameTask
+
 
 import kg_create_data
 import kg_build_index
-import kg_typping
 
 from kg_build_msa import (
     kirToMultiMsa,
@@ -22,7 +24,11 @@ from kg_utils import (
     samtobam,
 )
 
-from namepipe import nt, NameTask
+import kg_typping
+import kg_typping_linnil1
+from kg_eval import EvaluateKIR
+from kg_extract_exon_seq import extractExonPairReads
+from kg_ping_threshold_plot import cutThresholdByAns
 
 
 @nt
@@ -137,9 +143,48 @@ def bowtie2(input_name, index, use_arg="default"):
 
 @nt
 def hisatTyping(input_name, index):
-    kg_typping.setIndex(index)
-    suffix = kg_typping.main(input_name + ".bam")
+    suffix = kg_typping.main(index, input_name + ".bam")
     return input_name + suffix
+
+
+@nt
+def hisatKIRTyping(input_name, index, exon=False):
+    kir = kg_typping_linnil1.HisatKIR(index)
+    if exon:
+        kir.cn_type = "sam_exon_depth"
+        kir.cn_median = True
+    else:
+        kir.cn_type = "sam_depth"
+    kir.typing_by = "likelihood"
+    suffix = kir.main(input_name)
+    print(input_name, suffix)
+    return input_name + suffix
+
+
+@nt
+def hisatKIRRessult(input_name, answer):
+    ans = EvaluateKIR(f"{answer}/{answer}.summary.csv")
+
+    called_alleles_dict = {}
+    predict_list = []
+
+    for name in input_name.get_input_names():
+        predict = kg_typping_linnil1.readAlleleResult(name + ".tsv")[0]
+        id = name.template_args[0]
+        predict['id'] = id
+        predict_list.append({
+            'id': id,
+            'name': predict['name'],
+            'alleles': '_'.join(predict['alleles']),
+        })
+        called_alleles_dict[id] = predict['alleles']
+
+    df = pd.DataFrame(predict_list)
+    output_name = input_name.replace_wildcard("_merge")
+    df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
+    print(df)
+    ans.compareCohert(called_alleles_dict, skip_empty=True)
+    return output_name
 
 
 @nt
@@ -190,7 +235,6 @@ def ping(input_name, index):
             pass
 
         # Use answer and ratio to cut thresholds
-        from kg_ping_threshold_plot import cutThresholdByAns
         assert os.path.exists(folder_out + "/locusRatioFrame.csv")
         # data2_linnil1_syn_30x_seed87/
         # -> linnil1_syn_30x_seed87
@@ -200,7 +244,6 @@ def ping(input_name, index):
             f"{name}/{name}.summary.csv",
             folder_out
         )
-
 
     # This will success
     if not os.path.exists(folder_out + "/finalAlleleCalls.csv"):
@@ -213,42 +256,75 @@ def ping(input_name, index):
     return folder_out + "/finalAlleleCalls"
 
 
+@nt
+def pingResult(input_name, answer_name):
+    kir = EvaluateKIR(f"{answer_name}/{answer_name}.summary.csv")
+    ping_called_alleles = readPingResult(f"{input_name}.csv")
+    kir.compareCohert(ping_called_alleles)
+    return input_name
+
+
+@nt
+def extractExon(input_name, folder):
+    Path(folder).mkdir(exist_ok=True)
+    copy_name = f"{folder}/{Path(input_name).name.replace('.read', '')}"
+    output_name  = copy_name + "_exon"
+
+    if Path(f"{output_name}.read.1.fq").exists():
+        return output_name.replace(input_name.template_args[0], "{}") + ".read"
+
+    runShell(f"ln -s ../{input_name.replace('.read', '')}.fa {copy_name}.fa")
+    runShell(f"ln -s ../{input_name}..sam                    {copy_name}.sam")
+    extractExonPairReads(f"{copy_name}.fa", f"{copy_name}.sam", f"{output_name}")
+    return output_name.replace(input_name.template_args[0], "{}") + ".read"
+
+
 if __name__ == "__main__":
-    data_folder = "data2"
+    data_folder = "data"
     Path(data_folder).mkdir(exist_ok=True)
+    extract_exon = True
 
     answer_folder = "linnil1_syn_wide"
     answer_folder = "linnil1_syn_exon"
     answer_folder = "linnil1_syn_30x_seed87"
+    answer_folder = "linnil1_syn_30x"
     Path(answer_folder).mkdir(exist_ok=True)
 
-    index_folder = "index2"
+    index_folder = "index"
     os.makedirs(index_folder, exist_ok=True)
 
-    samples = answer_folder >> createSamples >> linkSamples.set_args(data_folder)
+    samples = answer_folder >> createSamples
+
+    if extract_exon:
+        samples = samples >> extractExon.set_args(folder=answer_folder + "_exon")
+        runShell(f"ln -fs ../{answer_folder}/{answer_folder}.summary.csv {answer_folder}_exon/{answer_folder}_exon.summary.csv")
+        answer_folder = answer_folder + "_exon"
+
+    samples = samples >> linkSamples.set_args(data_folder)
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    print(samples)
-    msa_index = index_folder >> NameTask(func=kirToMultiMsa) # "index2/kir_2100_raw.mut01"
+    msa_index = index_folder >> NameTask(func=kirToMultiMsa)  # "index/kir_2100_raw.mut01"
     # msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
     # msa_index = index_folder >> NameTask(func=kirToMultiMsa).set_args(split_2DL5=True) # index = "index/kir_2100_ab.mut01"
     # msa_index = index_folder >> NameTask(func=kirToSingleMsa) # index = "index/kir_2100_merge.mut01"
 
     index = msa_index >> NameTask(func=kg_build_index.main)
     print(index)
-    # mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index))
+    # samples = "data2/linnil1_syn_30x_seed87.{}"
+    mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index)) >> hisatKIRTyping.set_args(index=str(index), exon=extractExon)
+    mapping >> hisatKIRRessult.set_args(answer=answer_folder).set_depended(0)
     # print(mapping)
 
-    ping_index = None >> buildPing
-    ping_predict = samples >> pingCopyFile.set_args(index=str(ping_index)) >> ping.set_args(index=str(ping_index))
-    print(ping_predict)
+    # ping_index = None >> buildPing
+    # ping_predict = samples >> pingCopyFile.set_args(index=str(ping_index)) >> ping.set_args(index=str(ping_index)) 
+    # ping_predict >> pingResult.set_args(answer_name=answer_folder)
+    # print(ping_predict)
 
-    # Different method mapping test
-    bowtie2_index = index >> bowtie2BuildConsensus >> "index2/kir_2100_raw_cons"
-    bowtie2_index = index >> bowtie2BuildFull >> "index2/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
+    # bowtie mapping rate
+    # bowtie2_index = index >> bowtie2BuildConsensus >> "index2/kir_2100_raw_cons"
+    # bowtie2_index = index >> bowtie2BuildFull >> "index2/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
     # bowtie2_index = index >> "index2/kir_2100_ab.mut01" >> bowtie2BuildConsensus >> "index2/kir_2100_ab_cons"
-
     # samples >> bowtie2.set_args(index=str(bowtie2_index))
     # samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
     """

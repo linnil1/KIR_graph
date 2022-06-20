@@ -1,6 +1,7 @@
 pandas
 biopython
-git+git://github.com/linnil1/pyHLAMSA
+git+https://github.com/linnil1/pyHLAMSA
+git+https://github.com/linnil1/name-based-pipeline
 tqdm
 dash
 plotly
