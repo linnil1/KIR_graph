@@ -13,6 +13,11 @@ images = {
     'hisat':    "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
     "muscle":   "quay.io/biocontainers/muscle:5.1--h9f5acd7_1",
     "bowtie":   "quay.io/biocontainers/bowtie2:2.4.4--py39hbb4e92a_0",
+    "picard":   "quay.io/biocontainers/picard:2.27.3--hdfd78af_0",
+    "gatk3":    "docker.io/broadinstitute/gatk3:3.6-0",
+    "bwa":      "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
+    "deepvariant": "docker.io/google/deepvariant:1.4.0",
+    "bcftools": "quay.io/biocontainers/bcftools:1.13--h3a49de5_0",
 }
 
 
