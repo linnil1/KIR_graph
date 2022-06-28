@@ -26,7 +26,7 @@ from kg_utils import (
 
 import kg_typping
 import kg_typping_linnil1
-from kg_eval import EvaluateKIR
+from kg_eval import EvaluateKIR, readPingResult
 from kg_extract_exon_seq import extractExonPairReads
 from kg_ping_threshold_plot import cutThresholdByAns
 
@@ -108,7 +108,6 @@ def bowtie2BuildFull(input_name):
 def bowtie2BuildConsensus(input_name="index/kir_2100_raw.mut01"):
     # brute force (remove mut01)
     name = input_name
-    assert "kir_2100_raw" in name
     if ".mut01" in name:
         name = name.replace(".mut01", "")
     name += "_cons"
@@ -148,17 +147,40 @@ def hisatTyping(input_name, index):
 
 
 @nt
-def hisatKIRTyping(input_name, index, exon=False):
+def hisatKIRTyping(input_name, index, exon=False, cohert=False):
     kir = kg_typping_linnil1.HisatKIR(index)
+    if cohert:
+        kir.cn_cohert = True
+
     if exon:
         kir.cn_type = "sam_exon_depth"
-        kir.cn_median = True
     else:
         kir.cn_type = "sam_depth"
+
+    # kir.typing_by = "hisat"
+    kir.cn_dev = 0.04
+    kir.cn_median = False
     kir.typing_by = "likelihood"
     suffix = kir.main(input_name)
     print(input_name, suffix)
     return input_name + suffix
+
+
+@nt
+def hisatKIRCohertCN(input_name, index):
+    names = input_name.get_input_names()
+    kir = kg_typping_linnil1.HisatKIR(index)
+    # must be same as hisatKIRTyping
+    kir.cn_dev = 0.04
+    kir.cn_median = False
+    kir.cn_type = "sam_depth"     
+    kir.typing_by = "likelihood"
+
+    print(names)
+    gene_cns = kir.calcAndSaveCohertCN(names, input_name.replace_wildcard("_mergeforCN"))
+    print(gene_cns)
+
+    return input_name.replace_wildcard("_mergeforCN")
 
 
 @nt
@@ -304,27 +326,31 @@ if __name__ == "__main__":
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    msa_index = index_folder >> NameTask(func=kirToMultiMsa)  # "index/kir_2100_raw.mut01"
-    # msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
+    # msa_index = index_folder >> NameTask(func=kirToMultiMsa)  # "index/kir_2100_raw.mut01"
+    msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
     # msa_index = index_folder >> NameTask(func=kirToMultiMsa).set_args(split_2DL5=True) # index = "index/kir_2100_ab.mut01"
     # msa_index = index_folder >> NameTask(func=kirToSingleMsa) # index = "index/kir_2100_merge.mut01"
 
     index = msa_index >> NameTask(func=kg_build_index.main)
     print(index)
     # samples = "data2/linnil1_syn_30x_seed87.{}"
-    mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index)) >> hisatKIRTyping.set_args(index=str(index), exon=extractExon)
-    mapping >> hisatKIRRessult.set_args(answer=answer_folder).set_depended(0)
-    # print(mapping)
+    mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index))
+    # typing = mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon)
+    # typing_cohert = mapping >> hisatKIRCohertCN.set_args(index=str(index)).set_depended(0)
+    # typing =        mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon, cohert=True)
 
-    # ping_index = None >> buildPing
+    # typing = typing >> hisatKIRRessult.set_args(answer=answer_folder).set_depended(0)
+    print(mapping)
+
+    ping_index = None >> buildPing
     # ping_predict = samples >> pingCopyFile.set_args(index=str(ping_index)) >> ping.set_args(index=str(ping_index)) 
+    print(ping_predict)
     # ping_predict >> pingResult.set_args(answer_name=answer_folder)
-    # print(ping_predict)
+    print(ping_predict)
 
     # bowtie mapping rate
-    # bowtie2_index = index >> bowtie2BuildConsensus >> "index2/kir_2100_raw_cons"
-    # bowtie2_index = index >> bowtie2BuildFull >> "index2/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
-    # bowtie2_index = index >> "index2/kir_2100_ab.mut01" >> bowtie2BuildConsensus >> "index2/kir_2100_ab_cons"
+    # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
+    # bowtie2_index = index >> bowtie2BuildFull >> "index/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
     # samples >> bowtie2.set_args(index=str(bowtie2_index))
     # samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
     """

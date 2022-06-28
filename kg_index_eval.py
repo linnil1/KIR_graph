@@ -1,4 +1,5 @@
 import os
+from glob import glob
 from pprint import pprint
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
@@ -8,7 +9,7 @@ import plotly.express as px
 from Bio import AlignIO
 from dash import Dash, dcc, html, Input, Output
 
-from pyHLAMSA import Genemsa
+from pyhlamsa import msaio
 from kg_utils import threads, runDocker, runShell, samtobam
 from kg_build_msa import muscle
 
@@ -19,7 +20,7 @@ def calculate400bpReadMatchness(a1, a2):
     output_name = f"{index}.400bp_match.{a1}_{a2}.csv"
     if os.path.exists(output_name):
         return pd.read_csv(output_name)
-    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
 
     # separate
     msa = msa.select_allele(f"{a1}.*|{a2}.*").shrink().reset_index().sort_name()
@@ -111,7 +112,7 @@ def plotVariantPosBetweenPairs():
 def plotVariantPosBetweenPair(a1, a2):
     figs = []
     index = "index/kir_2100_merge.save"
-    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
 
     """
     # gene vs base difference
@@ -161,7 +162,7 @@ def getVariantPosition(msa, reg):
 def plotVariationAllGene():
     # load data
     index = "index/kir_2100_merge.save"
-    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
 
     # Remove some strange sequences
     del msa.alleles['KIR*BACKBONE']
@@ -335,8 +336,8 @@ def extractRepeatSequence(index, gene, print_style="7_all"):
     """
     Extract the repeat region (about 500bp - 3000bp)
     """
-    msa = Genemsa.load_msa(f"{index}.{gene}.fa",
-                           f"{index}.{gene}.json")
+    msa = msaio.load_msa(f"{index}.{gene}.fa",
+                         f"{index}.{gene}.json")
     # get repeat seqs
     seq_list = [msa.get(f"{gene}*BACKBONE")[:5000]]
     seq_list = seqSplit(seq_list, "AATATGG")
@@ -410,15 +411,49 @@ def extractRepeatSequence(index, gene, print_style="7_all"):
         print(msa_part.format_alignment_diff())
 
 
+def dbLength(index):
+    kir = {}
+    for name in glob(index + ".*.json"):
+        kir[name.split('.')[-2]] = msaio.load_msa(name.replace(".json", ".fa"), name)
+
+
+    lengths = []
+    for gene, msa in sorted(kir.items()):
+        for allele, seq in msa.alleles.items():
+            lengths.append({
+                'gene': gene,
+                'allele': allele,
+                'length': len(seq.replace('-', "")),
+            })
+    lengths = pd.DataFrame(lengths)
+
+    df = []
+    for gene, msa in sorted(kir.items()):
+        df.append({
+            'gene': gene,
+            'num_alleles': len(msa.alleles),
+            'msa_length': msa.get_length(),
+            'average_length': np.mean(lengths[lengths['gene'] == gene]["length"]),
+        })
+    df = pd.DataFrame(df)
+    # df.to_csv("tmp.csv", index=False)
+    print(df)
+    return [px.box(lengths, x="gene", y="length", points="all")]
+
+
+
+
 if __name__ == "__main__":
     # extractRepeatSequence("index/kir_2100_raw.save", "KIR3DL2", "7")
-    extractRepeatSequence("index/kir_2100_merge.save", "KIR", "5")
+    # extractRepeatSequence("index/kir_2100_merge.save", "KIR", "5")
     # addGroupName("index/kir_2100_merge.save.KIR")
-    addGroupName("index/kir_2100_merge_assign1.save.KIR")
+    # addGroupName("index/kir_2100_merge_assign1.save.KIR")
+    # exit()
     figs = []
     # figs.extend(plot400bpMatchness())
     # figs.extend(plotVariantPosBetweenPairs())
     # figs.extend(plotVariationAllGene())
+    figs.extend(dbLength("index/kir_2100_ab"))
 
     # dash
     app = Dash(__name__)

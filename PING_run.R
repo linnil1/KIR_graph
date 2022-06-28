@@ -48,7 +48,7 @@ copy.readBoost <- T
 setup.readBoost <- T
 final.readBoost <- F
 readBoost.thresh <- 2
-allele.fullAlign <- F
+allele.fullAlign <- T  # F -> _nofull
 copy.fullAlign <- F
 
 
@@ -83,7 +83,7 @@ source('Resources/genotype_alignment_functions.R')
 source('Resources/alleleSetup_functions.R')
 cat('\n\n----- Moving to PING gene content and copy determination -----')
 
-sampleList <- ping_copy.graph(sampleList=sampleList,threads=threads,resultsDirectory=outDir$path,forceRun=F,onlyKFF=F,fullAlign = F) # set forceRun=T if you want to force alignments
+sampleList <- ping_copy.graph(sampleList=sampleList,threads=threads,resultsDirectory=outDir$path,forceRun=F,onlyKFF=F,fullAlign = copy.fullAlign) # set forceRun=T if you want to force alignments
 sampleList <- ping_copy.manual_threshold(sampleList=sampleList,resultsDirectory=outDir$path,use.threshFile = T) # this function sets copy thresholds
 sampleList <- ping_copy.load_copy_results( sampleList, outDir$path )
 

@@ -2,8 +2,10 @@ import os
 import json
 import numpy as np
 import pandas as pd
+from pprint import pprint
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy.stats import norm
 from dash import Dash, dcc, html
 from collections import defaultdict, Counter
@@ -27,10 +29,6 @@ def cropSamtoolsDepthInExon(df, exon_region):
     df_exon = pd.concat(df_exon)
     return df_exon
 
-
-def readCN(csv_file):
-    df = pd.read_csv(csv_file, sep="\t")
-    return dict(zip(df['gene'], df['cn']))
 
 
 def avgGeneLength(seq_len):
@@ -134,6 +132,14 @@ def readAlleleResult(filename):
     for record in records:
         record['alleles'] = record['alleles'].split("_")
     return records
+
+
+def readCNResult(filename):
+    df = pd.read_csv(filename, sep="\t")
+    cn = {}
+    for record in df.itertuples():
+        cn[record.gene] = record.cn
+    return cn
 
 
 class AlleleTypping:
@@ -385,7 +391,7 @@ class CNDist:
         self.assume_3DL3_diploid = True
 
         # result (saved for plotting)
-        self.read_count = {}
+        self.values = []
         self.loss = []
         self.base = None
 
@@ -401,7 +407,7 @@ class CNDist:
         y = np.stack([y0, *[norm.pdf(x, loc=base*n, scale=self.base_dev*n) for n in cn]])
         return y * space  # * space is to make y-sum = 1
 
-    def searchBestBase(self, count_list):
+    def fit(self, count_list):
         loss = []  # loss
         max_count = max(count_list) * 1.2
 
@@ -421,6 +427,7 @@ class CNDist:
 
         self.loss = loss
         self.base = base
+        self.values = count_list
 
         # special case
         # if self.assume_base and base / self.assume_base > 1.7:  # TODO: maybe more CN?
@@ -429,23 +436,24 @@ class CNDist:
 
         return base
 
-    def assignCN(self, count_list, base):
-        y = self.calcProb(base)
+    def assignCN(self, count_list):
+        y = self.calcProb(self.base)
         max_cn_arg = y.argmax(axis=0)
         space = self.x_max / self.bin_num
         return [max_cn_arg[int(cn / space)] for cn in count_list]
 
     def predictCN(self, read_count):
-        self.read_count = read_count
+        """ fit + assign """
         count_list = list(read_count.values())
-        base = self.searchBestBase(count_list)
-        cn = self.assignCN(count_list, base)
+        base = self.fit(count_list)
+        cn = self.assignCN(count_list)
         return dict(zip(
             read_count.keys(),
             cn
         ))
 
     def predictKIRCN(self, read_count):
+        """ fit + assign + 3DL3 calibrated """
         assert self.base is None
         predict_cn = self.predictCN(read_count)
         if self.assume_3DL3_diploid and predict_cn["KIR3DL3*BACKBONE"] != 2:
@@ -472,12 +480,13 @@ class CNDist:
             yaxis_title="likelihood",
         )
 
-        fig_dist = go.Figure()
+        fig_dist = make_subplots(specs=[[{"secondary_y": True}]])
         fig_dist.add_vline(x=self.base, line_dash="dash", line_color="gray",
                            annotation_text=f"CN=1 value={self.base}")
-        fig_dist.add_trace(go.Scatter(x=list(self.read_count.values()),
-                                      y=[0 for i in range(len(self.read_count))],
-                                      mode='markers', name="Observed"))
+        fig_dist.add_trace(go.Histogram(x=list(self.values), name="Observed", nbinsx=self.bin_num, histnorm="probability"), secondary_y=True)
+        # fig_dist.add_trace(go.Scatter(x=list(self.values),
+        #                               y=[0 for i in range(len(self.values))],
+        #                               mode='markers', name="Observed"))
         fig_dist.update_layout(
             xaxis_title="read-depth",
             yaxis_title="probility",
@@ -499,13 +508,15 @@ class HisatKIR(Hisat2):
         self.exon_only_cn = False
         self.cn_median = True
         self.cn_multi = False
+        self.cn_cohert = False
+        self.cn_dev = 0.08
         # self.assume_depth = None
         self.figs = []
 
         self.cn_type = "sam_exon_depth"
         self.cn_type = "ans"
-        self.cn_type = "sam_depth"
         self.cn_type = "variant_depth"
+        self.cn_type = "sam_depth"
 
         self.typing_by = "likelihood"
         self.typing_by = "hisat"
@@ -522,14 +533,17 @@ class HisatKIR(Hisat2):
             for fig in self.figs:
                 f.write(fig.to_html(full_html=False, include_plotlyjs='cdn'))
 
-    def getCNbySamtoolsDepth(self, depth_filename): # , assume_depth=None):
+    def getGeneDepthbySamtools(self, depth_filename): # , assume_depth=None):
         df = readSamtoolsDepth(depth_filename)
         if self.exon_only_cn:
             df = cropSamtoolsDepthInExon(df, self.exon_region)
 
-        self.figs.append(px.line(df, x="pos", y="depth", color="gene", title="Read Depth"))
+        # self.figs.append(px.line(df, x="pos", y="depth", color="gene", title="Read Depth"))
         self.figs.append(px.box(df, x="gene", y="depth", title="Read Depth"))
 
+        return df
+
+    def depth2CN(self, df):
         # main
         if self.cn_median:
             gene_total = df.groupby(by="gene", as_index=False)['depth'].median()
@@ -538,6 +552,7 @@ class HisatKIR(Hisat2):
         print(gene_total)
 
         dist = CNDist()  # assume_base=self.assume_depth)
+        dist.base_dev = self.cn_dev
         gene_total = dict(zip(gene_total['gene'], gene_total['depth']))
         gene_cn = dist.predictKIRCN(gene_total)
         self.figs.extend(dist.plot())
@@ -557,52 +572,60 @@ class HisatKIR(Hisat2):
             best_id = 0
         return result['allele_name'][best_id]
 
-    def getCN(self, name, input_gene_cn=None):
+    def getCNFunc(self, input_gene_cn=None, return_df=False):
         if self.cn_type:
             suffix = ".cn_" + self.cn_type
         if self.cn_multi:
             suffix += "_multi"
         if not self.cn_median:
             suffix += "_p75"
+        if self.cn_dev != 0.08:
+            suffix += f"_dev{str(self.cn_dev).replace('.', ',')}"
 
-        # TODO
+        if self.cn_cohert:  # this cn is pre-computed in getCNbyCohert, already saved in tsv
+            suffix += "_cohert"
+            return suffix, None
+
+        if return_df:
+            depth2CN = lambda i: i
+        else:
+            depth2CN = self.depth2CN
+
         # check existence ere
 
         if self.cn_type == "sam_depth":
-            # if os.path.exists(f"{name}{suffix}.tsv"):
-            #     gene_cn = readCN(f"{name}{suffix}.tsv")
-            #     return suffix, gene_cn
             if not self.cn_multi:
-                gene_cn = self.getCNbySamtoolsDepth(f"{name}.no_multi.depth.tsv")
+                gene_cn_func = lambda name: depth2CN(self.getGeneDepthbySamtools(f"{name}.no_multi.depth.tsv"))
             else:
-                gene_cn = self.getCNbySamtoolsDepth(f"{name}.depth.tsv")
+                gene_cn_func = lambda name: depth2CN(self.getGeneDepthbySamtools(f"{name}.depth.tsv"))
 
         elif self.cn_type == "sam_exon_depth":
             self.exon_only_cn = True
-            gene_cn = self.getCNbySamtoolsDepth(f"{name}.no_multi.depth.tsv")
+            if not self.cn_multi:
+                gene_cn_func = lambda name: depth2CN(self.getGeneDepthbySamtools(f"{name}.no_multi.depth.tsv"))
+            else:
+                gene_cn_func = lambda name: depth2CN(self.getGeneDepthbySamtools(f"{name}.depth.tsv"))
 
         elif self.cn_type == "variant_depth":
-            save_reads = reconstructReadsVariants(f"{name}.id_only.json")
-            save_reads = removeMultipleAlignmentRead(save_reads)
-            if not self.cn_multi:
-                gene_cn = self.getCNbyVariantDepth(save_reads)
+            def tmpVariantDepth(name):
+                save_reads = reconstructReadsVariants(f"{name}.id_only.json")
+                if not self.cn_multi:
+                    save_reads = removeMultipleAlignmentRead(save_reads)
+                return depth2CN(self.getGeneDepthbySamtools(save_reads))
+            gene_cn_func = tmpVariantDepth
 
         elif self.cn_type == "ans":
             assert input_gene_cn is not None
             gene_cn = input_gene_cn
-
             if "KIR2DL5*BACKBONE" in self.reference:
                 gene_cn = merge2DL5CN(gene_cn)
             if "KIR2DL1S1*BACKBONE" in self.reference:
                 gene_cn = merge2DL1S1CN(gene_cn)
-            gene_cn = {k + "*BACKBONE": v for k, v in input_gene_cn.items()}
+            gene_cn_func = lambda name: {k + "*BACKBONE": v for k, v in gene_cn.items()}
 
-        return suffix, gene_cn
+        return suffix, gene_cn_func
 
     def plotHisatAbundance(self, hisat_report):
-        import plotly.graph_objs as go
-        from plotly.subplots import make_subplots
-
         fig_count = make_subplots(
             rows=1, cols=len(hisat_report),
             subplot_titles=list(map(getGeneName, hisat_report.keys())),
@@ -654,31 +677,39 @@ class HisatKIR(Hisat2):
 
     def main(self, name, input_gene_cn=None, force=False):
         suffix = ".linnil1"
-        new_suffix, gene_cn = self.getCN(name, input_gene_cn)
+        new_suffix, gene_cn_func = self.getCNFunc(input_gene_cn)
         suffix += new_suffix
+        print(f"{name}{suffix}.tsv")
 
-        # save CN
-        df = pd.DataFrame(gene_cn.items(), columns=["gene", "cn"])
-        df.to_csv(f"{name}{suffix}.tsv", sep="\t", index=False)
+        if os.path.exists(f"{name}{suffix}.tsv"):
+            gene_cn = readCNResult(f"{name}{suffix}.tsv")
+        else:
+            gene_cn = gene_cn_func(name)
+            df = pd.DataFrame(gene_cn.items(), columns=["gene", "cn"])
+            df.to_csv(f"{name}{suffix}.tsv", sep="\t", index=False)
+            self.savePlot(f"{name}{suffix}.html")
         print(gene_cn)
 
         new_suffix, typing_func = self.getTypingFunc(name)
         suffix += new_suffix
 
-        called_alleles = []
-        for gene, cn in gene_cn.items():
-            if not cn:
-                continue
-            print(gene, cn)
-            # main
-            called_alleles.extend(typing_func(gene, cn))
+        if os.path.exists(f"{name}{suffix}.tsv"):
+            called_alleles = readAlleleResult(f"{name}{suffix}.tsv")[0]
+        else:
+            called_alleles = []
+            for gene, cn in gene_cn.items():
+                if not cn:
+                    continue
+                print(gene, cn)
+                # main
+                called_alleles.extend(typing_func(gene, cn))
+            df = pd.DataFrame([{
+                'name': name,
+                'alleles': "_".join(called_alleles),
+            }])
+            df.to_csv(f"{name}{suffix}.tsv", sep="\t", index=False)
+            self.savePlot(f"{name}{suffix}.html")
 
-        df = pd.DataFrame([{
-            'name': name,
-            'alleles': "_".join(called_alleles),
-        }])
-        df.to_csv(f"{name}{suffix}.tsv", sep="\t", index=False)
-        self.savePlot(f"{name}{suffix}.html")
         print(called_alleles)
         return suffix
 
@@ -730,7 +761,7 @@ class HisatKIR(Hisat2):
                 continue
             yield allele['id']
 
-    def getCNbyVariantDepth(self, data):
+    def getGeneDepthbyVariant(self, data):
         # insertion deletion has more count of course
         variants = []
         for gene, reads in data.items():
@@ -780,32 +811,78 @@ class HisatKIR(Hisat2):
                             title="Depth of each gene (no del/ins)") )
 
         print(df.groupby(by="gene", as_index=False).size())
-        if self.cn_median:
-            gene_total = df.groupby(by="gene", as_index=False)['total'].median()
-        else:
-            gene_total = df.groupby(by="gene", as_index=False)['total'].quantile(.75)
-        print(gene_total)
+        return df.rename(columns={'total': 'depth'})
 
-        # copy from before
-        dist = CNDist()  # assume_base=self.assume_depth)
-        gene_total = dict(zip(gene_total['gene'], gene_total['total']))
-        gene_cn = dist.predictKIRCN(gene_total)
+    def getCNbyCohert(self, names):
+        assert self.cn_cohert == False
+        dfs = [self.getCNFunc(return_df=True)[1](name) for name in names]
+
+        dfs = [df.groupby(by="gene", as_index=False)['depth'] for df in dfs] 
+        if self.cn_median:
+            dfs = [df.median() for df in dfs] 
+        else:
+            dfs = [df.quantile(.75) for df in dfs] 
+        values = [v for df in dfs for v in df['depth']]
+        # print(values)
+        dist = CNDist()
+        dist.base_dev = self.cn_dev
+        dist.fit(values)
         self.figs.extend(dist.plot())
-        return gene_cn
+
+        gene_cns = {}
+        for name, df in zip(names, dfs):
+            gene_cns[name] = dict(zip(
+                df['gene'],
+                dist.assignCN(df['depth'])
+            ))
+        return gene_cns
+
+    def calcAndSaveCohertCN(self, names, output_name):
+        suffix = ".linnil1"  # same in main
+        new_suffix = self.getCNFunc(return_df=True)[0]
+        suffix += new_suffix + "_cohert"
+
+        if os.path.exists(f"{output_name}{suffix}.tsv"):
+            gene_cn_df = pd.read_csv(f"{output_name}{suffix}.tsv", sep="\t")
+        else:
+            # main
+            gene_cns = self.getCNbyCohert(names)
+            pprint(gene_cns)
+
+            # write all cn into tsv
+            dfs = []
+            for name, gene_cn in gene_cns.items():
+                df = pd.DataFrame(gene_cn.items(), columns=["gene", "cn"])
+                df['name'] = name
+                dfs.append(df)
+            gene_cn_df = pd.concat(dfs)
+            gene_cn_df.to_csv(f"{output_name}{suffix}.tsv", sep="\t", index=False)
+            self.savePlot(f"{output_name}{suffix}.html")
+
+            # write cn to tsv separtely
+            for name in names:
+                gene_cn_df[gene_cn_df['name'] == name].to_csv(f"{name}{suffix}.tsv", sep="\t", index=False, columns=["gene", "cn"])
+
+        return gene_cn_df
 
 
 if __name__ == "__main__":
     # main("index2/kir_2100_raw.mut01", "data2/linnil1_syn_30x_seed87.00.index2_kir_2100_raw.mut01.bam")
-    kir = HisatKIR("index2/kir_2100_raw.mut01")
+    kir = HisatKIR("index/kir_2100_raw.mut01")
 
-    cohert_name = "data2/linnil1_syn_30x_seed87"
+    cohert_name = "data/linnil1_syn_30x_seed87"
     name = cohert_name.split("/")[1]
     ans = EvaluateKIR(f"{name}/{name}.summary.csv")
 
-    n = 1
+    n = 10
+    names = [f"data/linnil1_syn_30x_seed87.{i:02d}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr" for i in range(n)]
+    gene_cns = kir.calcAndSaveCohertCN(names, "tmp")
+    kir.plot()
+    exit()
+
     for i in range(n):
         id = f"{i:02d}"
-        name = f"data2/linnil1_syn_30x_seed87.{id}.index2_kir_2100_raw.mut01.hisatgenotype.errcorr"
+        name = f"data/linnil1_syn_30x_seed87.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
         gene_cn = dict(Counter(map(getGeneName, ans.getAns(id))))
         suffix = kir.main(name, input_gene_cn=gene_cn)
 
@@ -813,7 +890,7 @@ if __name__ == "__main__":
     predict_list = []
     for i in range(n):
         id = f"{i:02d}"
-        name = f"data2/linnil1_syn_30x_seed87.{id}.index2_kir_2100_raw.mut01.hisatgenotype.errcorr"
+        name = f"data/linnil1_syn_30x_seed87.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
         predict = readAlleleResult(name + suffix + ".tsv")[0]
         predict['id'] = id
         predict_list.append(predict)
