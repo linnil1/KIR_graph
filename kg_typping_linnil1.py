@@ -10,6 +10,8 @@ from scipy.stats import norm
 from dash import Dash, dcc, html
 from collections import defaultdict, Counter
 from Bio import SeqIO
+from sklearn.neighbors import KernelDensity
+from scipy.signal import argrelextrema
 
 from kg_typping import Hisat2, getNH
 from kg_eval import EvaluateKIR
@@ -464,7 +466,7 @@ class CNDist:
 
             predict_cn = dict(zip(
                 read_count.keys(),
-                self.assignCN(list(read_count.values()), self.base)
+                self.assignCN(list(read_count.values()))
             ))
             assert predict_cn["KIR3DL3*BACKBONE"] == 2
         return predict_cn
@@ -499,6 +501,56 @@ class CNDist:
         return [fig_loss, fig_dist]
 
 
+class KDEcut:
+    def __init__(self):
+        self.bandwidth = 0.05
+        self.points = 100
+        self.neighbor = 5  # 5 / 100 = 0.05
+
+    def fit(self, values):
+        # normalize to 0 - 1
+        self.max = np.max(values)
+        data = np.array(values)[:, None] / self.max
+        self.kde = KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(data)
+
+        # cut
+        x = np.linspace(0, 1.1, self.points)
+        y = self.kde.score_samples(x[:, None])
+        self.local_min = x[argrelextrema(y, np.less, order=self.neighbor)[0]]
+        print(self.local_min)
+
+        # for plot
+        self.data = values
+
+    def assignCN(self, values):
+        x = np.array(values) / self.max
+        cn = np.searchsorted(self.local_min, x)
+        return cn
+
+    def predictCN(self, read_count):
+        """ fit + assign """
+        count_list = list(read_count.values())
+        base = self.fit(count_list)
+        cn = self.assignCN(count_list)
+        return dict(zip(
+            read_count.keys(),
+            cn
+        ))
+
+    def plot(self):
+        x = np.linspace(0, 1.1, self.points)
+        y = self.kde.score_samples(x[:, None])
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(go.Scatter(x=x, y=y, name="kde"))
+        for cn, m in enumerate(self.local_min):
+            fig.add_vline(x=m, line_width=2, line_dash="dash", annotation_text=f"cn={cn}")
+
+        fig.add_trace(go.Histogram(
+            x=np.array(self.data) / self.max,
+            name="Relative Depth", nbinsx=100, histnorm="probability"), secondary_y=True)
+        return [fig]
+
+
 class HisatKIR(Hisat2):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -510,6 +562,8 @@ class HisatKIR(Hisat2):
         self.cn_multi = False
         self.cn_cohert = False
         self.cn_dev = 0.08
+        self.cn_kde = False
+
         # self.assume_depth = None
         self.figs = []
 
@@ -550,12 +604,18 @@ class HisatKIR(Hisat2):
         else:
             gene_total = df.groupby(by="gene", as_index=False)['depth'].quantile(.75)
         print(gene_total)
-
-        dist = CNDist()  # assume_base=self.assume_depth)
-        dist.base_dev = self.cn_dev
         gene_total = dict(zip(gene_total['gene'], gene_total['depth']))
-        gene_cn = dist.predictKIRCN(gene_total)
-        self.figs.extend(dist.plot())
+
+        if self.cn_kde:
+            kde = KDEcut()
+            gene_cn = kde.predictCN(gene_total)
+            self.figs.extend(kde.plot())
+        else:
+            dist = CNDist()  # assume_base=self.assume_depth)
+            dist.base_dev = self.cn_dev
+            gene_cn = dist.predictKIRCN(gene_total)
+            self.figs.extend(dist.plot())
+
         return gene_cn
 
     @staticmethod
@@ -581,7 +641,8 @@ class HisatKIR(Hisat2):
             suffix += "_p75"
         if self.cn_dev != 0.08:
             suffix += f"_dev{str(self.cn_dev).replace('.', ',')}"
-
+        if self.cn_kde:
+            suffix += f"_kde"
         if self.cn_cohert:  # this cn is pre-computed in getCNbyCohert, already saved in tsv
             suffix += "_cohert"
             return suffix, None
@@ -816,18 +877,26 @@ class HisatKIR(Hisat2):
     def getCNbyCohert(self, names):
         assert self.cn_cohert == False
         dfs = [self.getCNFunc(return_df=True)[1](name) for name in names]
-
+        self.figs.append(px.histogram(pd.concat(dfs), x="depth", color="gene"))
         dfs = [df.groupby(by="gene", as_index=False)['depth'] for df in dfs] 
         if self.cn_median:
             dfs = [df.median() for df in dfs] 
         else:
             dfs = [df.quantile(.75) for df in dfs] 
         values = [v for df in dfs for v in df['depth']]
+        print(values)
+        self.figs.append(px.histogram(values, nbins=30))
         # print(values)
-        dist = CNDist()
-        dist.base_dev = self.cn_dev
-        dist.fit(values)
-        self.figs.extend(dist.plot())
+
+        if self.cn_kde:
+            dist = KDEcut()
+            dist.fit(values)
+            self.figs.extend(dist.plot())
+        else:
+            dist = CNDist()
+            dist.base_dev = self.cn_dev
+            dist.fit(values)
+            self.figs.extend(dist.plot())
 
         gene_cns = {}
         for name, df in zip(names, dfs):

@@ -69,8 +69,8 @@ def kirToSingleMsa(index="index", method="clustalo"):
     else:
         raise NotImplementedError
 
-    assign_intron_method = 0
     assign_intron_method = 1  # test
+    assign_intron_method = 0
     if assign_intron_method == 1:
         index += "_assign1"
     if getSamples(index + ".save", strict=False):

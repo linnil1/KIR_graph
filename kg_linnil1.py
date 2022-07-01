@@ -854,7 +854,7 @@ if __name__ == "__main__":
     # index = "index/kir_2100_raw.mut01"
     # ans_csv = "linnil1_syn_wide/linnil1_syn_wide.summary.csv"
     basename = "data/linnil1_syn_30x"
-    # basename = "data/linnil1_syn_exon"
+    basename = "data/linnil1_syn_exon"
     index = "index/kir_2100_2dl1s1.mut01"
     suffix = ".index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
     # index = "index/kir_2100_merge.mut01"

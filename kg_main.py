@@ -141,6 +141,38 @@ def bowtie2(input_name, index, use_arg="default"):
 
 
 @nt
+def bwaIndex(input_name="index/kir_2100_raw.mut01"):
+    # brute force (remove mut01)
+    name = input_name
+    if ".mut01" in name:
+        name = name.replace(".mut01", "")
+
+    name += "_cons_bwa"
+    if Path(name + ".bwt").exists():
+        return name
+    runDocker("bwa",
+              f"bwa index {input_name}_backbone.fa -p {name}")
+    return name
+
+
+@nt
+def bwa(input_name, index, use_arg="default"):
+    suffix = "." + index.replace("/", "_") + ".bwa"
+    args = ""
+    output_name = input_name + suffix
+    if Path(f"{output_name}.bam").exists():
+        return output_name
+
+    # main
+    f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
+    runDocker("bwa",
+              f"bwa mem -t {threads} {index} "
+              f" {f1} {f2} -a -o {output_name}.sam")
+    samtobam(output_name)
+    return output_name
+
+
+@nt
 def hisatTyping(input_name, index):
     suffix = kg_typping.main(index, input_name + ".bam")
     return input_name + suffix
@@ -304,12 +336,12 @@ def extractExon(input_name, folder):
 if __name__ == "__main__":
     data_folder = "data"
     Path(data_folder).mkdir(exist_ok=True)
-    extract_exon = True
+    extract_exon = False
 
     answer_folder = "linnil1_syn_wide"
     answer_folder = "linnil1_syn_exon"
-    answer_folder = "linnil1_syn_30x_seed87"
     answer_folder = "linnil1_syn_30x"
+    answer_folder = "linnil1_syn_30x_seed87"
     Path(answer_folder).mkdir(exist_ok=True)
 
     index_folder = "index"
@@ -326,8 +358,8 @@ if __name__ == "__main__":
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    # msa_index = index_folder >> NameTask(func=kirToMultiMsa)  # "index/kir_2100_raw.mut01"
-    msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
+    msa_index = index_folder >> NameTask(func=kirToMultiMsa)  # "index/kir_2100_raw.mut01"
+    # msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
     # msa_index = index_folder >> NameTask(func=kirToMultiMsa).set_args(split_2DL5=True) # index = "index/kir_2100_ab.mut01"
     # msa_index = index_folder >> NameTask(func=kirToSingleMsa) # index = "index/kir_2100_merge.mut01"
 
@@ -336,23 +368,27 @@ if __name__ == "__main__":
     # samples = "data2/linnil1_syn_30x_seed87.{}"
     mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index))
     # typing = mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon)
-    # typing_cohert = mapping >> hisatKIRCohertCN.set_args(index=str(index)).set_depended(0)
-    # typing =        mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon, cohert=True)
+    typing_cohert = mapping >> hisatKIRCohertCN.set_args(index=str(index)).set_depended(0)
+    typing =        mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon, cohert=True)
+    typing = typing >> hisatKIRRessult.set_args(answer=answer_folder).set_depended(0)
+    # print(mapping)
 
-    # typing = typing >> hisatKIRRessult.set_args(answer=answer_folder).set_depended(0)
-    print(mapping)
-
-    ping_index = None >> buildPing
+    # ping_index = None >> buildPing
     # ping_predict = samples >> pingCopyFile.set_args(index=str(ping_index)) >> ping.set_args(index=str(ping_index)) 
-    print(ping_predict)
+    # print(ping_predict)
     # ping_predict >> pingResult.set_args(answer_name=answer_folder)
-    print(ping_predict)
+    # print(ping_predict)
 
     # bowtie mapping rate
     # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
-    # bowtie2_index = index >> bowtie2BuildFull >> "index/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
-    # samples >> bowtie2.set_args(index=str(bowtie2_index))
-    # samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
+    # bowtie2_index = index >> "index/kir_2100_raw.mut01" >> bowtie2BuildFull >> "index/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
+    # mapping = samples >> bowtie2.set_args(index=str(bowtie2_index))
+    # mapping = samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
+
+    # bwa
+    # bwa_index = index >> bwaIndex  # "index/kir_2100_?_cons"
+    # mapping = samples >> bwa.set_args(index=str(bwa_index))
+
     """
     index = "index/kir_2100_muscle"
     # kirToSingleMsa(method='muscle')
