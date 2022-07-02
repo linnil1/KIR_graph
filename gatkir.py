@@ -377,7 +377,7 @@ def readGatkirAlleles(filename):
     raw_df = pd.read_csv(filename, header=None, sep="\t")
     raw_df.columns = ["id", "gene", "alleles", "type"]
     alleles = []
-    select_all = True
+    select_all = False
     for i in raw_df.itertuples():
         if i.type == "known":
             alleles_text = i.alleles.replace("_", "*")
@@ -452,30 +452,31 @@ def answerPloidy(folder_name, answer):
     return output_name
 
 
-data_folder = "data3"
-answer = "linnil1_syn_30x"
-Path(data_folder).mkdir(exist_ok=True)
-index = None >> setupGATKIR
-samples = answer + "/" + answer + ".{}.read" >> linkSamples.set_args(data_folder)
-mapping = samples >> bwa.set_args(index=index) \
-                  >> addGroup \
-                  >> markDupliate
-# switch this
-ploidy = mapping >> analysisTK.set_args(index=index) \
-                 >> getCoverage \
-                 >> ploidyEstimate.set_depended(-1)
-ploidy = data_folder >> answerPloidy.set_args(answer=answer)
+if __name__ == "__main__":
+    data_folder = "data3"
+    answer = "linnil1_syn_30x_seed87"
+    Path(data_folder).mkdir(exist_ok=True)
+    index = None >> setupGATKIR
+    samples = answer + "/" + answer + ".{}.read" >> linkSamples.set_args(data_folder)
+    mapping = samples >> bwa.set_args(index=index) \
+                      >> addGroup \
+                      >> markDupliate
+    # switch this
+    ploidy = mapping >> analysisTK.set_args(index=index) \
+                     >> getCoverage \
+                     >> ploidyEstimate.set_depended(-1)
+    ploidy = data_folder >> answerPloidy.set_args(answer=answer)
 
-genotype_joint = mapping >> ploidyExploded.set_args(ploidy_name=str(ploidy)) >> \
-                            haplotypeCaller.set_args(index=index) >> \
-                            jointGenotype.set_args(index=index).set_depended([0, 1])
-gatk = mapping >> separteVCFSample.set_args(genotype=str(genotype_joint)) \
-               >> vcfNorm.set_args(index=index)
-gatk >> calling.set_args(index=index) \
-     >> mergeCall.set_depended(-1) \
-     >> mergeAlleles.set_args(answer=answer).set_depended(-1)
+    genotype_joint = mapping >> ploidyExploded.set_args(ploidy_name=str(ploidy)) >> \
+                                haplotypeCaller.set_args(index=index) >> \
+                                jointGenotype.set_args(index=index).set_depended([0, 1])
+    gatk = mapping >> separteVCFSample.set_args(genotype=str(genotype_joint)) \
+                   >> vcfNorm.set_args(index=index)
+    gatk >> calling.set_args(index=index) \
+         >> mergeCall.set_depended(-1) \
+         >> mergeAlleles.set_args(answer=answer).set_depended(-1)
 
-# TODO
-# deep_variant = mapping >> deepVariant.set_args(index=index) \
-#                        >> vcfNorm.set_args(index=index)
-# How to use deep_variant in gatkir_call
+    # TODO
+    # deep_variant = mapping >> deepVariant.set_args(index=index) \
+    #                        >> vcfNorm.set_args(index=index)
+    # How to use deep_variant in gatkir_call

@@ -1,5 +1,5 @@
 import re
-from collections import defaultdict
+from collections import defaultdict, Counter
 import pandas as pd
 
 
@@ -22,6 +22,10 @@ class EvaluateKIR:
     def getAns(self, id):
         """ Return allelelist of str """
         return self.ans[id]
+
+    def getAnsCN(self, id):
+        alleles = self.getAns(id)
+        return Counter(map(getGeneName, alleles))
 
     def compareSample(self, id, predict_list):
         return EvaluateKIR.test(self.getAns(id), predict_list, title=f"Sample {id}")
@@ -60,6 +64,8 @@ class EvaluateKIR:
         comparison_tuple = []
 
         for gene in set(getGeneName(i) for i in ans_list + predict_list):
+            # if gene in ["KIR2DP1", "KIR3DP1"]:
+            #     continue
             if "KIR2DL5*unresolved" in predict_list and gene in ["KIR2DL5A", "KIR2DL5B"]:
                 continue  # skip 2DL5A 2DL5B only run when gene == "KIR2DL5"
             comparison_tuple.extend(
@@ -170,32 +176,6 @@ class EvaluateKIR:
         print(f"    * FN = {summary['FN']}")
         print(f"    * FP = {summary['FP']}")
         return summary
-
-
-def readPingResult(csv_file):
-    """ Read ping result """
-    # read
-    data = pd.read_csv(csv_file, sep=',')
-    data = data.rename(columns={"Unnamed: 0": "name"})
-    """
-    print(data)
-    name                      KIR3DP1                                        KIR2DS35
-    linnil1_syn_wide.00.read. KIR3DP1*026+KIR3DP1*null                       KIR2DS3*009+KIR2DS3*024+KIR2DS5*02701
-    linnil1_syn_wide.01.read. KIR3DP1*00302+KIR3DP1*03201 KIR3DP1*00304+KIR3
-    """
-    called_alleles = {}
-    for sample in data.to_dict('records'):
-        id = extractID(sample['name'])
-        alleles = []
-        for gene, alleles_str in sample.items():
-            if gene == "name":
-                continue
-            alleles.extend(alleles_str.split(' ')[0].split('+'))
-        alleles = [i for i in alleles if "null" not in i]
-        # alleles = [i for i in alleles if "unresolved" not in i]
-        called_alleles[id] = alleles
-        print(id, alleles)
-    return called_alleles
 
 
 if __name__ == "__main__":

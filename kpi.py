@@ -42,8 +42,7 @@ def runKPI(input_name, kpi_folder):
             print(basename + ".kpi", name + ".read.2.fq",sep="\t", file=f)
     folder = Path(input_name).parents[0]
 
-    runDocker("docker.io/droeatumn/kpi",
-              f"./main.nf --map {mapping_file}.txt --output {folder}",
+    runDocker("kpi", f"./main.nf --map {mapping_file}.txt --output {folder}",
               opts=f"-v $PWD/{folder}:/opt/kpi/{folder}", workdir="/opt/kpi")
     return input_name + ".kpi_prediction"
 
@@ -74,11 +73,13 @@ def collectResult(input_name, kpi_folder):
     return output_name
 
 
-kpi_folder = "kirkpi"
-kpi = None >> setup.set_args(kpi_folder)
-answer = "linnil1_syn_30x"
-answer = "linnil1_syn_30x_seed87"
-data_folder = "data4"
-Path(data_folder).mkdir(exist_ok=True)
-samples = answer + "/" + answer + ".{}.read" >> linkSamples.set_args(data_folder)
-samples >> runKPI.set_depended(-1).set_args(kpi_folder) >> collectResult.set_depended(-1).set_args(kpi_folder)
+if __name__ == "__main__":
+    kpi_folder = "kirkpi"
+    kpi = None >> setup.set_args(kpi_folder)
+    answer = "linnil1_syn_30x"
+    answer = "linnil1_syn_30x_seed87"
+    data_folder = "data3"
+    Path(data_folder).mkdir(exist_ok=True)
+    samples = answer + "/" + answer + ".{}.read" >> linkSamples.set_args(data_folder)
+    samples >> runKPI.set_depended(-1).set_args(kpi_folder) >> collectResult.set_depended(-1).set_args(kpi_folder)
+    # ignore pseduo gene in kg_eval.py

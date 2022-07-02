@@ -17,7 +17,9 @@ images = {
     "gatk3":    "docker.io/broadinstitute/gatk3:3.6-0",
     "bwa":      "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
     "deepvariant": "docker.io/google/deepvariant:1.4.0",
+    "kpi":      "docker.io/droeatumn/kpi",
     "bcftools": "quay.io/biocontainers/bcftools:1.13--h3a49de5_0",
+    "vg":       "quay.io/vgteam/vg:v1.40.0",
 }
 
 
