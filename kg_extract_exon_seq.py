@@ -103,6 +103,7 @@ def extractExonPairReads(reference_fasta, bam_file, output_name, kir=None):
     runShell(f"ln -fs ../{name_extract}.bam     {output_name}.bam")
     runShell(f"ln -fs ../{name_extract}.bam.bai {output_name}.bam.bai")
     name_extract = bam2fastq(name_extract)
+    # name_extract = name + ".exon.reserve_pair.sortn.read"
     name = rename(name_extract, output_name)
     return name
 

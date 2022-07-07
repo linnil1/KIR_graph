@@ -215,7 +215,7 @@ def writeVariant(index_out, variants_dict):
             writeTSV(snp_link_f, [v.id, ' '.join(v.allele)])
 
 
-def writeHaplo(index_out, variants_per_allele):
+def writeHaplo(index_out, variants_per_allele, msa):
     haplo_id = 0  # set variable in function (static)
     if hasattr(writeHaplo, "haplo_id"):
         haplo_id = writeHaplo.haplo_id
@@ -223,12 +223,18 @@ def writeHaplo(index_out, variants_per_allele):
     with open(index_out + ".haplotype", 'a') as haplo_f:
         for allele, variants in variants_per_allele.items():
             variants_index = [v for v in variants if not v.ignore]
-            left = min([v.pos for v in variants_index])
-            right = max([v.pos if v.typ != "deletion" else v.pos + v.val - 1 for v in variants_index])
+            if variants_index:
+                left = min([v.pos for v in variants_index])
+                right = max([v.pos if v.typ != "deletion" else v.pos + v.val - 1 for v in variants_index])
+                ref = variants[0].ref
+            else:
+                continue
+                left = 0
+                right = msa.get_length() - 1
+                ref = msa.get_reference()[0]
             ids = ','.join([v.id for v in variants_index])
             writeTSV(haplo_f, [f"ht{haplo_id}",
-                               variants[0].ref,
-                               left, right, ids])
+                               ref, left, right, ids])
             haplo_id += 1
     writeHaplo.haplo_id = haplo_id
 
@@ -284,7 +290,7 @@ def main(index, force=False):
         # write to hisat format for hisat build
         writeMsa(index_out, msa)
         writeVariant(index_out, variants_dict)
-        writeHaplo(index_out, variants_per_allele)
+        writeHaplo(index_out, variants_per_allele, msa=msa)
 
     # hisat build
     buildHisat(index_out)

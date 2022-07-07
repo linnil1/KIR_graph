@@ -62,20 +62,21 @@ def plotBamStat():
         # Figure: Proper Paired Perecetage
         id = 0
         data = []
-        for id in range(1):
+        for id in range(10):
             name = f"{sample_index}.{id:02d}"
             dat = [
                 {'method': "answer",                    'file': f"{answer}/{answer}.{id:02d}.read..sam"},
-                # {'method': "vg",                        'file': f"{name}.mapped.bam"},
                 {'method': "linear",                    'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
                 {'method': "linear_ab",                 'file': f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
                 {'method': "linear_2dl1s1",             'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
                 {'method': "linear_full",               'file': f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
-                # {'method': "bwa_2dl1s1",                'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
-                # {'method': "ping",             'id': 0, 'file': f"data/linnil1_syn_wide.00.kir_2100_raw_full.ping.sam"},
+                {'method': "bwa_raw",                   'file': f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
+                {'method': "bwa_2dl1s1",                'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
+                {'method': "bwa_splitab",               'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
+                {'method': "bwa_merge",                 'file': f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
                 {'method': "hisat_merge",               'file': f"{name}.index_kir_2100_merge.mut01.bam"},
                 # {'method': "hisat_merge_right",         'file': f"{name}.index_kir_2100_merge_assign1.mut01.bam"},
-                # {'method': "hisat_merge_type", 'id': id, 'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.hisatgenotype.sam"},
+                # {'method': "hisat_merge_type", 'id': id,'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.hisatgenotype.sam"},
                 {'method': "hisat_raw",                 'file': f"{name}.index_kir_2100_raw.mut01.bam"},
                 # {'method': "hisat_raw_type",            'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.sam"},
                 # {'method': "hisat_raw_type_nomulti",    'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.sam"},
@@ -85,6 +86,10 @@ def plotBamStat():
                 {'method': "hisat_splitab",             'file': f"{name}.index_kir_2100_ab.mut01.bam"},
                 # {'method': "hisat_splitab_type",        'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.sam"},
                 # {'method': "hisat_splitab_type_nomulti",'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.sam"},
+                # {'method': "hisat_271-2dl1s1",          'file': f"{name}.index_kir_271_2dl1s1.mut01.bam"},
+                {'method': "vg_raw",                    'file': f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
+                {'method': "vg_merge",                  'file': f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
+                {'method': "ping_allele_setup",         'file': f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
             ]
             for i in dat:
                 i['id'] = id
@@ -250,10 +255,10 @@ def plotGenewiseMapping():
                 {'method': "hisat_ab",      'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab.mut01.bam"},
                 {'method': "linear",        'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
                 {'method': "linear_ab",     'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
-                {'method': "linear_2dl1s1",     'gene_compare_type': "",           'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
-                # {'method': "bwa",           'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
-                # {'method': "bwa_2dl1s1",    'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
-                # {'method': "bwa_ab",        'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
+                {'method': "linear_2dl1s1", 'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
+                {'method': "bwa",           'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
+                {'method': "bwa_ab",        'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
+                {'method': "bwa_2dl1s1",    'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
             ]
             for i in dat:
                 i['id'] = id

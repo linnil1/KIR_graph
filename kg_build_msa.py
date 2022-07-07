@@ -35,15 +35,17 @@ def kirToMultiMsa(index="index", split_2DL5=False):
     """
     Read KIR and output {index}.save.{gene_name}.xx
     """
+    # version = "271"
+    version = "2100"
     if split_2DL5:
-        index = f"{index}/kir_2100_ab"
+        index = f"{index}/kir_{version}_ab"
     else:
-        index = f"{index}/kir_2100_raw"
+        index = f"{index}/kir_{version}_raw"
 
     if getSamples(index + ".save", strict=False):
         return index + ".save"
 
-    kir = KIRmsa(filetype=["gen"], version="2100")
+    kir = KIRmsa(filetype=["gen"], version=version)
     if split_2DL5:
         kir.genes['KIR2DL5A'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5A.*")
         kir.genes['KIR2DL5B'] = kir.genes['KIR2DL5'].select_allele("KIR2DL5B.*")
@@ -211,14 +213,16 @@ def blocksToMsa(blocks):
 def kirMerge2dl1s1(index="index"):
     """ Build msa from IPDKIR but merge 2dl1 and 2ds1 """
     kir2dls1 = ["KIR2DS1", "KIR2DL1"]
-    index = f"{index}/kir_2100_2dl1s1"
+    # version = "271"
+    version = "2100"
+    index = f"{index}/kir_{version}_2dl1s1"
     if getSamples(index + ".save", strict=False):
         return index + ".save"
 
     # Step1: Extract 2DL1 2DS1
     index += ".tmp"
     suffix = ""
-    kir = KIRmsa(filetype=["gen"], version="2100")
+    kir = KIRmsa(filetype=["gen"], version=version)
     blocks = genesToBlocks({i: kir.genes[i] for i in kir2dls1})
     for block_name, seqs in blocks.items():
         filename = f"{index}.{block_name}.fa"

@@ -9,6 +9,7 @@ from namepipe import nt, NameTask
 
 from kg_eval import EvaluateKIR, extractID
 from kg_utils import runDocker, runShell, threads
+from kg_main import linkSamples
 
 
 def readPingLocusCount(locus_csv):
@@ -70,11 +71,11 @@ def saveThreshold(threshold_list, filename):
     return df
 
 
-def cutThresholdByAns(ans_csv, sample_index):
+def cutThresholdByAns(answer, sample_index):
     """ Find the threshold by answer """
     # read
     df_ping = readPingLocusCount(f"{sample_index}/locusRatioFrame.csv")
-    df_ans = readAns(ans_csv)
+    df_ans = readAns(f"{answer}/{answer}.summary.csv")
     """
        id method  KIR2DL1  KIR2DL2  KIR2DL4  KIR2DL5  
        0  00    ans      0.5      1.0      1.0      1.5
@@ -106,53 +107,44 @@ def cutThresholdByAns(ans_csv, sample_index):
     return df, threshold_df
 
 
-def plotPing():
+@nt
+def plotPing(input_name, answer):
+    folder = input_name + ".result"
     from dash import Dash, dcc, html
     import plotly.express as px
 
-    # main
-    name = "linnil1_syn_30x_seed87"
-    name = "linnil1_syn_30x"
-    ratio_df, threshold_df = cutThresholdByAns(
-        f"{name}/{name}.summary.csv",
-        f"PING/data_{name}.result"
-    )
+    df_ping = readPingLocusCount(f"{folder}/locusRatioFrame.csv")
+    df_ans = readAns(f"{answer}/{answer}.summary.csv")
+    threshold_df = pd.read_csv(f"{folder}/manualCopyThresholds.csv")
+    threshold_df.columns = ["gene", *threshold_df.columns[1:]]
+    df = pd.concat([df_ping, df_ans])
+    print(df)
+    print(threshold_df)
+    df = df.melt(["id", "method"], var_name="gene")
+    df = df.sort_values(["method", "value"], ascending=[False, True])  # PING value is ascending
 
     # plot
     figs = []
-    for gene in sorted(set(ratio_df["gene"])):
-        df_part = ratio_df[ratio_df["gene"] == gene]
-        threshold = threshold_df[threshold_df["gene"] == gene].to_dict('records')
-        if not threshold:
-            continue
-        threshold = threshold[0]
-        print(threshold)
-        fig = px.scatter(df_part, x="id", y="value", color="method", title=gene)
+    for gene in sorted(set(df["gene"])):
+        df_gene = df[df["gene"] == gene]
+        fig = px.scatter(df_gene, x="id", y="value", color="method", title=gene)
+
+        # plot
         for i in range(6):
             id = f"{i}-{i+1}"
-            if threshold.get(id) != "NA":
-                fig.add_hline(y=threshold[id], annotation_text=f"CN{i} - {i+1}",
+            threshold = threshold_df[threshold_df["gene"] == gene][threshold_df.columns[i + 1]]
+            if not threshold.isnull().sum() and len(threshold):
+                fig.add_hline(y=float(threshold), annotation_text=f"CN{i} - {i+1}",
                               line_dash="dash", line_color="gray")
         figs.append(fig)
 
+    with open(f"{folder}/plots_of_cn_threashold.html", 'w') as f:
+        for fig in figs:
+            f.write(fig.to_html(full_html=False, include_plotlyjs='cdn'))
     # start dash
     app = Dash(__name__)
     app.layout = html.Div(children=[dcc.Graph(figure=fig) for fig in figs])
     app.run_server(debug=True)
-
-
-@nt
-def linkSamples(input_name, data_folder):
-    # 1 -> 1
-    name = input_name.split('/')[0]
-    output_name = os.path.join(data_folder, name + ".{}")
-    new_name = output_name.format(input_name.template_args[0])
-    if Path(new_name + ".read.1.fq").exists():
-        return output_name
-    # using hard link because we change data folder
-    runShell(f"ln -s ../{input_name}.1.fq {new_name}.read.1.fq")
-    runShell(f"ln -s ../{input_name}.2.fq {new_name}.read.2.fq")
-    return output_name
 
 
 @nt
@@ -189,7 +181,7 @@ def pingMain(index, folder_in, folder_out):
 
 
 @nt
-def ping(input_name, index):
+def ping(input_name, index, answer_name):
     assert index == "PING"
     folder_in = input_name
     folder_out = input_name + ".result"
@@ -207,12 +199,8 @@ def ping(input_name, index):
         assert os.path.exists(folder_out + "/locusRatioFrame.csv")
         # data2_linnil1_syn_30x_seed87/
         # -> linnil1_syn_30x_seed87
-        name = input_name.split('/')[-1].split('.')[0].split("_", maxsplit=1)[1]
-        print(f"Set CN threshold fro PING", name)
-        cutThresholdByAns(
-            f"{name}/{name}.summary.csv",
-            folder_out
-        )
+        print(f"Set CN threshold fro PING", answer_name)
+        cutThresholdByAns(answer_name, folder_out)
 
     # This will success
     if not os.path.exists(folder_out + "/finalAlleleCalls.csv"):
@@ -255,12 +243,14 @@ def readPingResult(csv_file):
 
 
 if __name__ == "__main__":
+    answer = "linnil1_syn_30x"
     answer = "linnil1_syn_30x_seed87"
+    # answer += "_exon"
     data_folder = "data3"
     Path(data_folder).mkdir(exist_ok=True)
-    samples = f"{answer}/{answer}" + ".{}.read" >> linkSamples.set_args(data_folder)
-
+    samples = f"{answer}/{answer}" + ".{}.read" >> linkSamples.set_args(data_folder) >> pingCopyFile
     ping_index = "PING" >> buildPing
-    ping_predict = samples >> pingCopyFile >> ping.set_args(index=str(ping_index)) 
+    ping_predict = samples >> ping.set_args(index=str(ping_index), answer_name=answer) 
     ping_predict >> pingResult.set_args(answer=answer)
+    samples >> plotPing.set_args(answer=answer)
     print(ping_predict)

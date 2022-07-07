@@ -582,7 +582,6 @@ class HisatKIR(Hisat2):
         app.run_server(debug=True, port=8051)
 
     def savePlot(self, html_filename):
-        app = Dash(__name__)
         with open(html_filename, 'w') as f:
             for fig in self.figs:
                 f.write(fig.to_html(full_html=False, include_plotlyjs='cdn'))

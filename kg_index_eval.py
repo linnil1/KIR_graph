@@ -1,4 +1,5 @@
 import os
+import json
 from glob import glob
 from pprint import pprint
 from collections import Counter
@@ -163,14 +164,10 @@ def plotVariationAllGene():
     # load data
     index = "index/kir_2100_merge.save"
     msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    output_name = f"{index}.gene_variation"
 
     # Remove some strange sequences
     del msa.alleles['KIR*BACKBONE']
-    del msa.alleles['KIR2DS4*0010103']
-    # remove 2DL5 short sequences
-    for i in map(lambda i: i[0], filter(lambda i: len(i[1].replace("-", "")) < 3000, msa.select_allele("KIR2DL5.*").alleles.items())):
-        print(f"delete {i}")
-        del msa.alleles[i]
 
     # get All available gene
     genes = sorted(set(map(lambda i: i.split("*")[0], msa.alleles.keys())))
@@ -180,16 +177,29 @@ def plotVariationAllGene():
     # genes.remove("KIR2DL5B")
     gene_id = {gene: id for id, gene in enumerate(genes)}
 
-    outputfile = f"{index}.variation.csv"
-    if not os.path.exists(outputfile):
+    if not os.path.exists(output_name + ".json"):
+        # remove short sequences
+        for gene in genes:
+            msa_gene = msa.select_allele(f"{gene}\*")
+            allele_length = {name: len(seq.replace("-", "")) for name, seq in msa_gene.alleles.items()}
+            threshold = np.max(list(allele_length.values())) * 0.7
+            c = 0
+            print(f"{gene} {threshold=}")
+            for allele, length in allele_length.items():
+                if length < threshold:
+                    del msa.alleles[allele]
+                    c += 1
+                    print(f"delete {allele}, {length=}")
+            print(f"{gene} delete {c} alleles from {len(msa_gene.alleles)}")
+
         # get variantion in gene
         bases = {}
         for gene in genes:
             bases[gene] = set(msa.select_allele(f"{gene}").get_variantion_base())
 
         # get variantion across gene
-        diff_genes = []
         exes = {}
+        diff_pos = {}
         with ProcessPoolExecutor(max_workers=threads) as executor:
             # run concurrent
             for gene1 in genes:
@@ -201,15 +211,35 @@ def plotVariationAllGene():
             for gene1 in genes:
                 for gene2 in genes:
                     if gene1 != gene2:
-                        print(gene1, gene2)
-                        b = exes[(gene1, gene2)].result()
-                        diff_genes.append({'from': gene1, 'to': gene2, 'value': len(b - bases[gene1] - bases[gene2])})
+                        diff_pos[gene1 + ";" + gene2] = list(exes[(gene1, gene2)].result())
                     else:
-                        diff_genes.append({'from': gene1, 'to': gene2, 'value': len(bases[gene1])})
-        diff_genes_df = pd.DataFrame(diff_genes)
-        diff_genes_df.to_csv(outputfile, index=False)
+                        diff_pos[gene1 + ";" + gene1] = list(bases[gene1])
+        json.dump(diff_pos, open(output_name + ".json", "w"))
+        diff_pos = {tuple(k.split(";")): set(v) for k, v in diff_pos.items()}
     else:
-        diff_genes_df = pd.read_csv(outputfile)
+        # load data
+        diff_pos = json.load(open(output_name + ".json"))
+        diff_pos = {tuple(k.split(";")): set(v) for k, v in diff_pos.items()}
+
+    # calculation 
+    diff_genes = []
+    for gene1 in genes:
+        for gene2 in genes:
+            if gene1 != gene2:
+                diff_genes.append({
+                    'from': gene1,
+                    'to': gene2,
+                    'value': len(diff_pos[(gene1, gene2)] - diff_pos[(gene1, gene1)]),
+                })
+            else:
+                diff_genes.append({
+                    'from': gene1,
+                    'to': gene2,
+                    'value': len(diff_pos[(gene1, gene2)]),
+                })
+    diff_genes_df = pd.DataFrame(diff_genes)
+    print(diff_genes_df)
+    print(diff_genes_df[diff_genes_df['value'] < 1000])
 
     # pandas to 2d array
     data = np.zeros((len(genes), len(genes)))
@@ -220,7 +250,10 @@ def plotVariationAllGene():
                     width=1200, height=1200,
                     labels=dict(color="Base"),
                     x=list(gene_id.keys()), y=list(gene_id.keys())
-                    ).update_xaxes(side="top")
+                    )
+    fig.update_layout(xaxis_side="top",
+                      xaxis_title="from",
+                      yaxis_title="to")
 
     return [fig]
 
@@ -438,9 +471,13 @@ def dbLength(index):
     df = pd.DataFrame(df)
     # df.to_csv("tmp.csv", index=False)
     print(df)
+    summary = lengths.groupby("gene")["length"].describe()
+    summary['mean'] = summary['mean'].apply(lambda i: "{:,.0f}".format(i))
+    summary['std'] = summary['std'].apply(lambda i: "{:,.0f}".format(i))
+    print(summary['mean'] + " ± " + summary['std'])
+    # for row in summary.itertuples():
+    #     print(row.Index, f"{row.mean}", row.std)
     return [px.box(lengths, x="gene", y="length", points="all")]
-
-
 
 
 if __name__ == "__main__":

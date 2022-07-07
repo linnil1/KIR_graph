@@ -245,21 +245,22 @@ def hisatKIRRessult(input_name, answer):
 def extractExon(input_name, folder):
     Path(folder).mkdir(exist_ok=True)
     copy_name = f"{folder}/{Path(input_name).name.replace('.read', '')}"
-    output_name  = copy_name + "_exon"
+    output_template = f"{folder}/{Path(input_name.template).name.replace('.read', '').replace('.{}', '_exon.{}')}"
+    output_name = output_template.format(input_name.template_args[0])
 
     if Path(f"{output_name}.read.1.fq").exists():
-        return output_name.replace(input_name.template_args[0], "{}") + ".read"
+        return output_template + ".read"
 
     runShell(f"ln -s ../{input_name.replace('.read', '')}.fa {copy_name}.fa")
     runShell(f"ln -s ../{input_name}..sam                    {copy_name}.sam")
-    extractExonPairReads(f"{copy_name}.fa", f"{copy_name}.sam", f"{output_name}")
-    return output_name.replace(input_name.template_args[0], "{}") + ".read"
+    extractExonPairReads(f"{copy_name}.fa", f"{copy_name}.sam", output_name)
+    return output_template + ".read"
 
 
 if __name__ == "__main__":
     data_folder = "data"
     Path(data_folder).mkdir(exist_ok=True)
-    extract_exon = False
+    extract_exon = True
 
     answer_folder = "linnil1_syn_wide"
     answer_folder = "linnil1_syn_exon"
