@@ -474,6 +474,7 @@ class CNDist:
     def plot(self):
         assert self.base is not None
 
+        # loss function of distribution
         fig_loss = px.line(x=self.loss[:, 0], y=self.loss[:, 1])
         fig_loss.add_vline(x=self.base, line_dash="dash", line_color="gray",
                            annotation_text=f"max value={self.base}")
@@ -482,22 +483,29 @@ class CNDist:
             yaxis_title="likelihood",
         )
 
+        # histogram of read depth
         fig_dist = make_subplots(specs=[[{"secondary_y": True}]])
-        fig_dist.add_vline(x=self.base, line_dash="dash", line_color="gray",
-                           annotation_text=f"CN=1 value={self.base}")
-        fig_dist.add_trace(go.Histogram(x=list(self.values), name="Observed", nbinsx=self.bin_num, histnorm="probability"), secondary_y=True)
-        # fig_dist.add_trace(go.Scatter(x=list(self.values),
-        #                               y=[0 for i in range(len(self.values))],
-        #                               mode='markers', name="Observed"))
+        fig_dist.add_trace(go.Histogram(x=list(self.values), name="Observed", nbinsx=self.bin_num),
+                           secondary_y=True)
         fig_dist.update_layout(
             xaxis_title="read-depth",
+            yaxis_showticklabels=False,
             yaxis_title="probility",
         )
+        fig_dist.update_yaxes(title_text="Number of read depth", secondary_y=True)
 
+        # distribution
         x = np.linspace(0, self.x_max, self.bin_num)
         y = self.calcProb(self.base)
         for n in range(len(y)):
             fig_dist.add_trace(go.Scatter(x=x, y=y[n], name=f"cn={n}"))
+
+        prev_y = 0
+        for i, yi in enumerate(np.argmax(y, axis=0)):
+            if yi != prev_y:
+                fig_dist.add_vline(x=x[i], annotation_text=f"CN {yi-1}-{yi}", line_dash="dash", line_color="gray")
+            prev_y = yi
+
         return [fig_loss, fig_dist]
 
 
@@ -558,7 +566,7 @@ class HisatKIR(Hisat2):
 
         # instance
         self.exon_only_cn = False
-        self.cn_median = True
+        self.cn_groupby_op = "p75"
         self.cn_multi = False
         self.cn_cohert = False
         self.cn_dev = 0.08
@@ -592,15 +600,21 @@ class HisatKIR(Hisat2):
             df = cropSamtoolsDepthInExon(df, self.exon_region)
 
         # self.figs.append(px.line(df, x="pos", y="depth", color="gene", title="Read Depth"))
-        self.figs.append(px.box(df, x="gene", y="depth", title="Read Depth"))
+        new_df = df.copy()
+        print(new_df)
+        new_df["gene"] = new_df["gene"].str.replace("\*BACKBONE", "")
+        # self.figs.append(px.box(new_df, x="gene", y="depth", title="Read Depth"))
+        self.figs.append(px.box(new_df, y="gene", x="depth", title="Read Depth"))
 
         return df
 
     def depth2CN(self, df):
         # main
-        if self.cn_median:
+        if self.cn_groupby_op == "median":
             gene_total = df.groupby(by="gene", as_index=False)['depth'].median()
-        else:
+        elif self.cn_groupby_op == "mean":
+            gene_total = df.groupby(by="gene", as_index=False)['depth'].mean()
+        elif self.cn_groupby_op == "p75":
             gene_total = df.groupby(by="gene", as_index=False)['depth'].quantile(.75)
         print(gene_total)
         gene_total = dict(zip(gene_total['gene'], gene_total['depth']))
@@ -636,8 +650,8 @@ class HisatKIR(Hisat2):
             suffix = ".cn_" + self.cn_type
         if self.cn_multi:
             suffix += "_multi"
-        if not self.cn_median:
-            suffix += "_p75"
+        if self.cn_groupby_op != "median":
+            suffix += f"_{self.cn_groupby_op}"
         if self.cn_dev != 0.08:
             suffix += f"_dev{str(self.cn_dev).replace('.', ',')}"
         if self.cn_kde:
@@ -725,6 +739,7 @@ class HisatKIR(Hisat2):
             self.plotAlignConfusion(save_reads,                 title=f"Reads (gene level, weighted) {name}")
             self.plotAlignConfusion(save_reads, weighted=False, title=f"Reads (gene level) {name}")
             self.plotAlignConfusion(save_reads, level="allele", title=f"Reads (allele level) {name}")
+            self.plotAlignConfusion(save_reads, level="allele", no_multi=True, title=f"Reads (allele level, no-duplication) {name}")
 
             def tmpLikelihoodTyping(gene, cn):
                 reads = save_reads[gene]
@@ -878,9 +893,11 @@ class HisatKIR(Hisat2):
         dfs = [self.getCNFunc(return_df=True)[1](name) for name in names]
         self.figs.append(px.histogram(pd.concat(dfs), x="depth", color="gene"))
         dfs = [df.groupby(by="gene", as_index=False)['depth'] for df in dfs] 
-        if self.cn_median:
+        if self.cn_groupby_op == "median":
             dfs = [df.median() for df in dfs] 
-        else:
+        elif self.cn_groupby_op == "mean":
+            dfs = [df.mean() for df in dfs] 
+        elif self.cn_groupby_op == "p75":
             dfs = [df.quantile(.75) for df in dfs] 
         values = [v for df in dfs for v in df['depth']]
         print(values)
@@ -935,37 +952,14 @@ class HisatKIR(Hisat2):
 
 
 if __name__ == "__main__":
-    # main("index2/kir_2100_raw.mut01", "data2/linnil1_syn_30x_seed87.00.index2_kir_2100_raw.mut01.bam")
-    kir = HisatKIR("index/kir_2100_raw.mut01")
+    index = "index/kir_2100_2dl1s1.mut01"
+    answer = "linnil1_syn_30x_seed87"
+    ans = EvaluateKIR(f"{answer}/{answer}.summary.csv")
 
-    cohert_name = "data/linnil1_syn_30x_seed87"
-    name = cohert_name.split("/")[1]
-    ans = EvaluateKIR(f"{name}/{name}.summary.csv")
-
-    n = 10
-    names = [f"data/linnil1_syn_30x_seed87.{i:02d}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr" for i in range(n)]
-    gene_cns = kir.calcAndSaveCohertCN(names, "tmp")
-    kir.plot()
-    exit()
-
-    for i in range(n):
+    kir = HisatKIR(index)
+    for i in range(3,4):
         id = f"{i:02d}"
-        name = f"data/linnil1_syn_30x_seed87.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
-        gene_cn = dict(Counter(map(getGeneName, ans.getAns(id))))
-        suffix = kir.main(name, input_gene_cn=gene_cn)
-
-    called_alleles_dict = {}
-    predict_list = []
-    for i in range(n):
-        id = f"{i:02d}"
-        name = f"data/linnil1_syn_30x_seed87.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr"
-        predict = readAlleleResult(name + suffix + ".tsv")[0]
-        predict['id'] = id
-        predict_list.append(predict)
-        called_alleles_dict[id] = predict['alleles']
-
-    df = pd.DataFrame(predict_list)
-    # df.to_csv(f"{cohert_name}_merge{suffix}.{kir.typing_by}.tsv", index=False, sep="\t")
-
-    ans.compareCohert(called_alleles_dict, skip_empty=True)
+        name = f"data/{answer}.{id}.{index.replace('/', '_')}.hisatgenotype.errcorr"
+        suffix = kir.main(name)
+    # ans.compareCohert(called_alleles_dict, skip_empty=True)
     kir.plot()

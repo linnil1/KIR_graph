@@ -1,13 +1,15 @@
-from dash import Dash, dcc, html, Input, Output
-import plotly.graph_objects as go
-import plotly.express as px
-import numpy as np
-import pandas as pd
+from itertools import chain
 import os
 import json
 import subprocess
 from collections import defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor
+import numpy as np
+import pandas as pd
+from dash import Dash, dcc, html, Input, Output
+import plotly.graph_objects as go
+import plotly.express as px
+
 from kg_utils import runDocker, samtobam
 
 
@@ -53,9 +55,7 @@ def getStat(filename):
 def plotBamStat():
     # sample_index = "data/linnil1_syn_wide.test10"
     answer = "linnil1_syn_30x_seed87"
-    sample_index = f"data/{answer}"
-    filename = "123"
-    # filename = f"{sample_index}.bam_stat"
+    filename = f"data/{answer}.bam_stat"
     # filename = f"{sample_index}.bam_stat_vg"
 
     if not os.path.exists(filename + ".json"):
@@ -63,33 +63,34 @@ def plotBamStat():
         id = 0
         data = []
         for id in range(10):
-            name = f"{sample_index}.{id:02d}"
+            name = f"data/{answer}.{id:02d}"
             dat = [
-                {'method': "answer",                    'file': f"{answer}/{answer}.{id:02d}.read..sam"},
-                {'method': "linear",                    'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
-                {'method': "linear_ab",                 'file': f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
-                {'method': "linear_2dl1s1",             'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
-                {'method': "linear_full",               'file': f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
-                {'method': "bwa_raw",                   'file': f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
-                {'method': "bwa_2dl1s1",                'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
-                {'method': "bwa_splitab",               'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
-                {'method': "bwa_merge",                 'file': f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
-                {'method': "hisat_merge",               'file': f"{name}.index_kir_2100_merge.mut01.bam"},
-                # {'method': "hisat_merge_right",         'file': f"{name}.index_kir_2100_merge_assign1.mut01.bam"},
-                # {'method': "hisat_merge_type", 'id': id,'file': f"data/linnil1_syn_wide.{id:02d}.kir_2100_merge.mut01.hisatgenotype.sam"},
-                {'method': "hisat_raw",                 'file': f"{name}.index_kir_2100_raw.mut01.bam"},
-                # {'method': "hisat_raw_type",            'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.sam"},
-                # {'method': "hisat_raw_type_nomulti",    'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.sam"},
-                {'method': "hisat_2dl1s1",              'file': f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
-                # {'method': "hisat_2dl1s1_type",         'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.sam"},
-                # {'method': "hisat_2dl1s1_type_nomulti", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.sam"},
-                {'method': "hisat_splitab",             'file': f"{name}.index_kir_2100_ab.mut01.bam"},
-                # {'method': "hisat_splitab_type",        'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.sam"},
-                # {'method': "hisat_splitab_type_nomulti",'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.sam"},
-                # {'method': "hisat_271-2dl1s1",          'file': f"{name}.index_kir_271_2dl1s1.mut01.bam"},
-                {'method': "vg_raw",                    'file': f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
-                {'method': "vg_merge",                  'file': f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
-                {'method': "ping_allele_setup",         'file': f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
+                {'method': "answer",                       'file': f"{answer}/{answer}.{id:02d}.read..sam"},
+                {'method': "linear_ab",                    'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
+                {'method': "linear",                       'file': f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
+                {'method': "linear_ab_2dl1s1",             'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
+                {'method': "linear_full",                  'file': f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
+                {'method': "bwa_ab",                       'file': f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
+                {'method': "bwa_ab_2dl1s1",                'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
+                {'method': "bwa",                          'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
+                {'method': "bwa_merge",                    'file': f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
+                {'method': "hisat_merge",                  'file': f"{name}.index_kir_2100_merge.mut01.bam"},
+                {'method': "hisat_merge_type",             'file': f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_merge_type_nomulti",     'file': f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "hisat_ab",                     'file': f"{name}.index_kir_2100_raw.mut01.bam"},
+                {'method': "hisat_ab_type",                'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_ab_type_nomulti",        'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "hisat_ab_2dl1s1",              'file': f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
+                {'method': "hisat_ab_2dl1s1_type",         'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_ab_2dl1s1_type_nomulti", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "hisat",                        'file': f"{name}.index_kir_2100_ab.mut01.bam"},
+                {'method': "hisat_type",                   'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_type_nomulti",           'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "hisat_271-ab-2dl1s1",          'file': f"{name}.index_kir_271_2dl1s1.mut01.bam"},
+                {'method': "hisat_290-ab-2dl1s1",          'file': f"{name}.index_kir_290_2dl1s1.mut01.bam"},
+                {'method': "vg_ab",                        'file': f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
+                {'method': "vg_merge",                     'file': f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
+                {'method': "ping_allele_setup",            'file': f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
             ]
             for i in dat:
                 i['id'] = id
@@ -249,16 +250,23 @@ def plotGenewiseMapping():
         for id in range(10):
             name = f"{sample_index}.{id:02d}"
             dat = [
-                {'method': "answer",        'gene_compare_type': "",           'file': f"{answer}/{answer}.{id:02d}.read..sam"},
-                {'method': "hisat",         'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw.mut01.bam"},
-                {'method': "hisat_2dl1s1",  'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
-                {'method': "hisat_ab",      'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab.mut01.bam"},
-                {'method': "linear",        'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
-                {'method': "linear_ab",     'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
-                {'method': "linear_2dl1s1", 'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
-                {'method': "bwa",           'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
-                {'method': "bwa_ab",        'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
-                {'method': "bwa_2dl1s1",    'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
+                {'method': "answer",        'gene_compare_type': "",
+                 'file': f"{answer}/{answer}.{id:02d}.read..sam"},
+                {'method': "hisat_ab",                     'gene_compare_type': "ab",        'file': f"{name}.index_kir_2100_raw.mut01.bam"},
+                {'method': "hisat_ab_type",                'gene_compare_type': "ab",        'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_ab_type_nomulti",        'gene_compare_type': "ab",        'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "hisat",                        'gene_compare_type': "",          'file': f"{name}.index_kir_2100_ab.mut01.bam"},
+                {'method': "hisat_type",                   'gene_compare_type': "",          'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_type_nomulti",           'gene_compare_type': "",          'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "hisat_ab_2dl1s1",              'gene_compare_type': "ab_2dl1s1", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
+                {'method': "hisat_ab_2dl1s1_type",         'gene_compare_type': "ab_2dl1s1", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
+                {'method': "hisat_ab_2dl1s1_type_nomulti", 'gene_compare_type': "ab_2dl1s1", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
+                {'method': "linear_ab",                    'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
+                {'method': "linear",                       'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
+                {'method': "linear_ab_2dl1s1",             'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
+                {'method': "bwa_ab",                       'gene_compare_type': "ab",         'file': f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
+                {'method': "bwa",                          'gene_compare_type': "",           'file': f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
+                {'method': "bwa_ab_2dl1s1",                'gene_compare_type': "ab_2dl1s1",  'file': f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
             ]
             for i in dat:
                 i['id'] = id
@@ -293,7 +301,7 @@ def plotGenewiseMapping():
         name_to_color = {}
         for i, m in enumerate(set(arr1)):
             for j, t in enumerate(set(arr2)):
-                name_to_color[m + " - " + t] = colors[j][i]
+                name_to_color[m + " - " + t] = colors[j % len(colors[0])][i % len(colors[1])]
         return group_name, name_to_color
 
     def findAnswerSample(id):
@@ -431,6 +439,125 @@ def extractTargetReadFromBam(bamfile, mapped_ref, wanted_gene):
     return suffix
 
 
+def plotGeneFromToBar(df, x, y):
+    order = {x: sorted(set(df[x])), y: sorted(set(df[y]))}
+    df['txt'] = df[y] + ["*" if i else "" for i in df["is_multi"]]
+    return px.bar(df, x=x, y="value", color=y, text='txt',
+                  category_orders=order, color_discrete_sequence=px.colors.qualitative.Light24)
+
+
+def plotGeneFromTo(df, title, x="from"):
+    df = df.rename(columns={"size": "value"})
+    figs = [
+        plotGeneFromToBar(df, x, "to"),
+        plotGeneFromToBar(df[df['is_multi'] == False], x, "to"),
+        # reverse
+        plotGeneFromToBar(df, "to", x),
+        plotGeneFromToBar(df[df['is_multi'] == False], "to", x),
+    ]
+    for fig in figs:
+        fig.update_layout(title=title)
+
+    return figs
+
+
+def isGeneCorrect(a, b):
+    if a == "KIR2DL5":
+        # b = "KIR2DL5A" or "KIR2DL5B"
+        return a in b
+    elif a == "KIR2DL1S1":
+        return b in ["KIR2DL1", "KIR2DS1"]
+    return a == b
+
+
+def plotGeneMappedAcc():
+    from kg_typping import getNH
+
+    # sample_index = "data/linnil1_syn_wide.test10"
+    answer = "linnil1_syn_30x_seed87"
+    sample_index = f"data/{answer}"
+    # filename = f"{sample_index}.bam_gene_data_30x"
+
+    # Figure: Proper Paired Perecetage
+    data = []
+    for id in range(10):
+        name = f"{sample_index}.{id:02d}"
+        dat = [
+            {'method': "hisat_raw",    'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.id_only.json"},
+            {'method': "hisat_2dl1s1", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.id_only.json"},
+            {'method': "hisat_ab",     'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.id_only.json"},
+        ]
+        for i in dat:
+            i['id'] = id
+        data.extend(dat)
+
+    figs = []
+    df_multi_acc = []
+    df_nomulti_acc = []
+    for i in data:
+        print(i)
+        data = json.load(open(i['file']))
+        df_ori = []
+        for backbone, reads in data['reads'].items():
+            gene = getGeneName(backbone)
+            for read in reads:
+                ans_gene = getGeneName(read['l_sam'])
+                df_ori.append({
+                    'from_allele': getAlleleName(read['l_sam']),
+                    'from': ans_gene,
+                    'to': gene,
+                    'correct': isGeneCorrect(gene, ans_gene),
+                    'is_multi': getNH(read['l_sam']) > 1,
+                    'multi': getNH(read['l_sam']),
+                })
+
+        df_ori = pd.DataFrame(df_ori)
+
+        # gene-level
+        """
+        df = df_ori.groupby(["from", "to", "is_multi", "correct"], as_index=False).size()
+        figs.extend(plotGeneFromTo(df, i['file'], "from"))
+
+        # allele-level
+        df = df_ori.groupby(["from_allele", "to", "is_multi", "correct"], as_index=False).size()
+        figs.extend(plotGeneFromTo(df, i['file'], "from_allele"))
+        """
+
+        # Ratio of correct gene
+        df = df_ori.groupby(["to", "correct"]).size()
+        df.name = "acc"
+        df = df / df.groupby("to").sum(0)
+        df = df.reset_index()
+        df = df[df['correct'] == True]
+        df['method'] = i['method']
+        df_multi_acc.append(df)
+
+        # Ratio of correct gene without mutliple alignment
+        df = df_ori[df_ori['is_multi'] == False].groupby(["to", "correct"]).size()
+        df.name = "acc"
+        df = df / df.groupby("to").sum(0)
+        df = df.reset_index()
+        df = df[df['correct'] == True]
+        df['method'] = i['method']
+        df_nomulti_acc.append(df)
+
+    df1 = pd.concat(df_multi_acc)
+    df1['multi'] = True
+    df2 = pd.concat(df_nomulti_acc)
+    df2['multi'] = False
+    df = pd.concat([df1, df2])
+    df['method-multi'] = df['method'] + "-" + df['multi'].astype(str)
+    order = {
+        'method-multi': sorted(set(df['method-multi']), key=lambda i: (i.split('-')[0], i.split('-')[1] == "False")),
+        'to': sorted(set(df['to'])),
+    }
+    color = list(chain.from_iterable(zip(px.colors.qualitative.Pastel2, px.colors.qualitative.Dark2)))
+    figs.append(px.box(df, x="to", y="acc", color="method-multi", category_orders=order, color_discrete_sequence=color)
+                  .update_layout(yaxis_title="Gene-level correct reads / all reads on the gene"))
+
+    return figs
+
+
 if __name__ == '__main__':
     """
     extractTargetReadFromBam("data/linnil1_syn_wide.test10.00.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.sam",
@@ -441,8 +568,9 @@ if __name__ == '__main__':
                              wanted_gene="KIR2DS1")
     """
     figs = []
-    # figs.extend(plotBamStat())
+    figs.extend(plotBamStat())
     # figs.extend(plotGenewiseMapping())
+    # figs.extend(plotGeneMappedAcc())
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
     app.run_server(debug=True, port=8052)

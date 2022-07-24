@@ -54,59 +54,79 @@ def mergeDict(d_from, d_to):
 answer = "linnil1_syn_30x_seed87"
 ans = EvaluateKIR(f"{answer}/{answer}.summary.csv")
 data = []
-id_list = list(range(10))
+id_list = list(f"{id:02d}"for id in range(10))
 # for kpi
 # id_list = list(filter(lambda i: i not in [4,5], id_list))
 for id in id_list:
-    base = f"data/linnil1_syn_30x_seed87.{id:02d}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
+    base = f"data/{answer}.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
     data.extend([{
-        'id': f"{id:02d}", 'method': "2dl1s1_sam_depth",
+        'id': id, 'method': "ab2dl1s1_sam_depth",
         'file': f"{base}.cn_sam_depth.tsv",
     },{
-        'id': f"{id:02d}", 'method': "2dl1s1_sam_depth_p75",
+        'id': id, 'method': "ab2dl1s1_sam_depth_p75",
         'file': f"{base}.cn_sam_depth_p75.tsv",
     },{
-        'id': f"{id:02d}", 'method': "2dl1s1_sam_depth_p75_kde",
+        'id': id, 'method': "ab2dl1s1_sam_depth_p75_kde",
         'file': f"{base}.cn_sam_depth_p75_kde.tsv",
     },{
-        'id': f"{id:02d}", 'method': "2dl1s1_sam_depth_kde_cohert",
+        'id': id, 'method': "ab2dl1s1_sam_depth_kde_cohert",
         'file': f"{base}.cn_sam_depth_kde_cohert.tsv",
     },{
-        'id': f"{id:02d}", 'method': "2dl1s1_sam_depth_p75_kde_cohert",
+        'id': id, 'method': "ab2dl1s1_sam_depth_p75_kde_cohert",
         'file': f"{base}.cn_sam_depth_p75_kde_cohert.tsv",
     },{
-        'id': f"{id:02d}", 'method': "2dl1s1_sam_depth_cohert",
+        'id': id, 'method': "ab2dl1s1_sam_depth_cohert",
+        'file': f"{base}.cn_sam_depth_cohert.tsv",
+    },{
+        'id': id, 'method': "ab2dl1s1_sam_depth_mean",
         'file': f"{base}.cn_sam_depth_cohert.tsv",
     }])
 
-    base = f"data/linnil1_syn_30x_seed87.{id:02d}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1"
+    base = f"data/{answer}.{id}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1"
     data.extend([{
-        'id': f"{id:02d}", 'method': "raw_sam_depth",
+        'id': id, 'method': "ab_sam_depth",
         'file': f"{base}.cn_sam_depth.tsv",
     },{
-        'id': f"{id:02d}", 'method': "raw_sam_depth_p75",
+        'id': id, 'method': "ab_sam_depth_p75",
         'file': f"{base}.cn_sam_depth_p75.tsv",
     },{
-        'id': f"{id:02d}", 'method': "raw_sam_depth_cohert",
+        'id': id, 'method': "ab_sam_depth_cohert",
         'file': f"{base}.cn_sam_depth_cohert.tsv",
     },{
-        'id': f"{id:02d}", 'method': "raw_sam_depth_kde_cohert",
+        'id': id, 'method': "ab_sam_depth_kde_cohert",
         'file': f"{base}.cn_sam_depth_kde_cohert.tsv",
     },{
-        'id': f"{id:02d}", 'method': "raw_sam_depth_p75_kde_cohert",
+        'id': id, 'method': "ab_sam_depth_p75_kde_cohert",
         'file': f"{base}.cn_sam_depth_p75_kde_cohert.tsv",
     }])
 
-    base = f"data/linnil1_syn_30x_seed87.{id:02d}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1"
+    base = f"data/{answer}.{id}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1"
     data.extend([{
-        'id': f"{id:02d}", 'method': "ab_sam_depth",
+        'id': id, 'method': "split_sam_depth",
         'file': f"{base}.cn_sam_depth.tsv",
     },{
-        'id': f"{id:02d}", 'method': "ab_sam_depth_p75",
+        'id': id, 'method': "split_sam_depth_p75",
         'file': f"{base}.cn_sam_depth_p75.tsv",
     },{
-        'id': f"{id:02d}", 'method': "ab_sam_depth_cohert",
+        'id': id, 'method': "split_sam_depth_cohert",
         'file': f"{base}.cn_sam_depth_cohert.tsv",
+    }])
+
+    base = f"data/{answer}_exon.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
+    data.extend([{
+        'id': id, 'method': "exon-ab2dl1s1_sam_exon_depth",
+        'file': f"{base}.cn_sam_exon_depth.tsv",
+    },{
+        'id': id, 'method': "exon-ab2dl1s1_sam_exon_depth_p75",
+        'file': f"{base}.cn_sam_exon_depth_p75.tsv",
+    }])
+    base = f"data/{answer}.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
+    data.extend([{
+        'id': id, 'method': "ab2dl1s1_sam_exon_depth",
+        'file': f"{base}.cn_sam_exon_depth.tsv",
+    },{
+        'id': id, 'method': "ab2dl1s1_sam_exon_depth_p75",
+        'file': f"{base}.cn_sam_exon_depth_p75.tsv",
     }])
 
 
@@ -118,7 +138,7 @@ for i in data:
     method[i['method']].append(comparison)
 
 # PING
-df = pd.read_csv("PING/data_linnil1_syn_30x_seed87.result/manualCopyNumberFrame.csv", index_col=0)
+df = pd.read_csv(f"data3/ping_{answer}.result/manualCopyNumberFrame.csv", index_col=0)
 for name, data in df.iterrows():
     # "linnil1_syn_30x_seed87.00.read.",2,1,1,1,0,1,2,2,1,1,1,2,1,1,1,1
     id = name.split('.')[1]
@@ -128,7 +148,7 @@ for name, data in df.iterrows():
     method["PING2"].append(comparison)
 
 # KPI
-df = pd.read_csv("data3/linnil1_syn_30x_seed87_merge_cn.kpi_prediction.csv", index_col=0)
+df = pd.read_csv(f"data3/{answer}_merge_cn.kpi_prediction.csv", index_col=0)
 for name, data in df.iterrows():
     id = name.split('.')[1]
     if id not in id_list:
@@ -137,13 +157,12 @@ for name, data in df.iterrows():
     method["KPI"].append(comparison)
 
 # GATKIR
-df = pd.read_csv("data3/linnil1_syn_30x_seed87_merge_depth.bwa.rg.md.coverage.depth_per_gene.ploidy.csv", index_col=0).T
+df = pd.read_csv(f"data3/{answer}_merge_depth.bwa.rg.md.coverage.depth_per_gene.ploidy.csv", index_col=0).T
 for name, data in df.iterrows():
     id = name
     if id not in id_list:
         continue
     comparison = compareCN(ans.getAnsCN(id), dict(data))
-    print(comparison)
     method["GATKIR"].append(comparison)
 
 
@@ -151,9 +170,10 @@ merged_method = []
 for i, compare_list in method.items():
     df = pd.DataFrame([j for i in compare_list for j in i])
     df = df.groupby("gene").sum()
-    df['acc'] = 1 - df['diff'] / df['total']
     print(i)
     print(df)
+    # df = df.drop(index=["KIR3DL2", "KIR3DP1"])
+    df['acc'] = 1 - df['diff'] / df['total']
     summary = {
         'method': i,
         'diff': df['diff'].sum(),

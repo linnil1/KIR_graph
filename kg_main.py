@@ -185,10 +185,14 @@ def hisatKIRTyping(input_name, index, exon=False, cohert=False):
     else:
         kir.cn_type = "sam_depth"
 
+    kir.cn_type = "sam_exon_depth"
     # kir.typing_by = "hisat"
     # kir.cn_dev = 0.04
     kir.cn_kde = False
-    kir.cn_median = False
+    kir.cn_multi = False
+    kir.cn_groupby_op = "p75"
+    # kir.cn_groupby_op = "mean"
+    # kir.cn_groupby_op = "median"
     # kir.typing_by = "hisat"
     # kir.typing_by = "likelihood_multi"
     kir.typing_by = "likelihood"
@@ -204,7 +208,7 @@ def hisatKIRCohertCN(input_name, index):
     # must be same as hisatKIRTyping
     # kir.cn_dev = 0.04
     kir.cn_kde = True
-    kir.cn_median = True
+    kir.cn_groupby_op = "median"
     kir.cn_type = "sam_depth"     
     kir.typing_by = "likelihood"
 
@@ -260,7 +264,7 @@ def extractExon(input_name, folder):
 if __name__ == "__main__":
     data_folder = "data"
     Path(data_folder).mkdir(exist_ok=True)
-    extract_exon = True
+    extract_exon = False
 
     answer_folder = "linnil1_syn_wide"
     answer_folder = "linnil1_syn_exon"

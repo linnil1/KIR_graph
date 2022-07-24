@@ -7,17 +7,14 @@ def getGeneName(s):
     return s.split("*")[0]
 
 
-def extractID(name):
-    return re.findall(r"\.(\w+)\.read", name)[0]
-
-
 class EvaluateKIR:
-    def __init__(self, summary_csv: str):
+    def __init__(self, summary_csv: str, verbose=True):
         """ Get answer alleles from summary.csv """
         data = pd.read_csv(summary_csv, sep="\t", dtype=str)
         print(data)
         # this is ordered dict
         self.ans = {i.id: sorted(i.alleles.split("_")) for i in data.itertuples()}
+        self.verbose = verbose
 
     def getAns(self, id):
         """ Return allelelist of str """
@@ -28,7 +25,7 @@ class EvaluateKIR:
         return Counter(map(getGeneName, alleles))
 
     def compareSample(self, id, predict_list):
-        return EvaluateKIR.test(self.getAns(id), predict_list, title=f"Sample {id}")
+        return self.evaluteList(self.getAns(id), predict_list, title=f"Sample {id}")
 
     def compareCohert(self, predict_cohert, skip_empty=False):
         """
@@ -55,10 +52,11 @@ class EvaluateKIR:
             results = [self.compareSample(id, predict_cohert.get(id, [])) for id in ids]
         else:
             raise NotImplementedError
-        return EvaluateKIR.summarize(results)
+        EvaluateKIR.summarize(results)
+        EvaluateKIR.summarize2(results)
+        return results
 
-    @staticmethod
-    def test(ans_list, predict_list, title=""):
+    def evaluteList(self, ans_list, predict_list, title=""):
         """ Compare two alleles set """
         predict_list = sorted(predict_list)
         comparison_tuple = []
@@ -73,20 +71,21 @@ class EvaluateKIR:
                                         [i for i in predict_list if i.startswith(gene)])
             )
         comparison_tuple.sort(key=lambda i: i[1] or i[2])
-        print(title)
-        for t, a, b in comparison_tuple:
-            if t == "Match7":
-                print(f"{a:18} OK {b:18}")
-            elif t == "Match5":
-                print(f"{a:18} <5 {b:18}")
-            elif t == "Match3":
-                print(f"{a:18} <3 {b:18}")
-            elif t == "MatchGene":
-                print(f"{a:18} <0 {b:18}")
-            elif t == "FN":
-                print(f"{a:18} <-")
-            elif t == "FP":
-                print(f"{'':18} -> {b:18}")
+        if self.verbose:
+            print(title)
+            for t, a, b in comparison_tuple:
+                if t == "Match7":
+                    print(f"{a:18} OK {b:18}")
+                elif t == "Match5":
+                    print(f"{a:18} <5 {b:18}")
+                elif t == "Match3":
+                    print(f"{a:18} <3 {b:18}")
+                elif t == "MatchGene":
+                    print(f"{a:18} <0 {b:18}")
+                elif t == "FN":
+                    print(f"{a:18} <-")
+                elif t == "FP":
+                    print(f"{'':18} -> {b:18}")
         return comparison_tuple
 
     @staticmethod
@@ -177,6 +176,73 @@ class EvaluateKIR:
         print(f"    * FP = {summary['FP']}")
         return summary
 
+    @staticmethod
+    def summarize2(comparison_list):
+        """
+        Summarize the comparison
+
+        Args:
+          comparison_list(list[list[tuple]]): The comparisons of each sample
+        Return:
+          summary(dict[str, int]): The number of each metrics
+        """
+        acc_total7 = [0, 0]
+        acc_total5 = [0, 0]
+        acc_total3 = [0, 0]
+        acc_total0 = [0, 0]
+        FP = 0
+        # TP, FP, FN, match_gene, match_3, match_5, total, cn_error = 0, 0, 0, 0, 0, 0, 0, 0
+        for result in comparison_list:
+            for i in result:
+                if i[1] == None:
+                    FP += 1
+                    continue
+                if len(i[1].split('*')[1]) == 7:
+                    acc_total7[1] += 1
+                    if i[0] == "Match7":
+                        acc_total7[0] += 1
+                if len(i[1].split('*')[1]) >= 5:
+                    acc_total5[1] += 1
+                    if i[0] in ["Match7", "Match5"]:
+                        acc_total5[0] += 1
+                if len(i[1].split('*')[1]) >= 3:
+                    acc_total3[1] += 1
+                    if i[0] in ["Match7", "Match5", "Match3"]:
+                        acc_total3[0] += 1
+                if len(i[1].split('*')[1]) >= 0:
+                    acc_total0[1] += 1
+                    if i[0] in ["Match7", "Match5", "Match3", "MatchGene"]:
+                        acc_total0[0] += 1
+
+        print(f"7-digits: {acc_total7[0]:5d} / {acc_total7[1]:5d} = {acc_total7[0] / acc_total7[1]:.3f}")
+        print(f"5-digits: {acc_total5[0]:5d} / {acc_total5[1]:5d} = {acc_total5[0] / acc_total5[1]:.3f}")
+        print(f"3-digits: {acc_total3[0]:5d} / {acc_total3[1]:5d} = {acc_total3[0] / acc_total3[1]:.3f}")
+        print(f"Gene:     {acc_total0[0]:5d} / {acc_total0[1]:5d} = {acc_total0[0] / acc_total0[1]:.3f}")
+        print(f"CN:       {FP=:5d} FN={acc_total0[1] - acc_total0[0]:5d}")
+
+        print(f"{acc_total7[0]:5d}\t{acc_total7[0] / acc_total7[1]:.3f}\t"
+              f"{acc_total5[0]:5d}\t{acc_total5[0] / acc_total5[1]:.3f}\t"
+              f"{acc_total3[0]:5d}\t{acc_total3[0] / acc_total3[1]:.3f}\t"
+              f"{acc_total0[0]:5d}\t{acc_total0[0] / acc_total0[1]:.3f}\t"
+              f"{FP:5d}")
+
+
+def extractID(name):
+    # linnil1_syn_30x_seed87.00.index_
+    return re.findall(r"\.(\w+)\.index_", name)[0]
+
+
+def readHisatResult(csv_file):
+    """ Read predict alleles (sam format as summary.csv """
+    data = pd.read_csv(csv_file, sep='\t')
+    return {extractID(i.name): sorted(i.alleles.split("_")) for i in data.itertuples()}
+
+
+def readGATKIRResult(csv_file):
+    """ Read predict alleles (sam format as summary.csv """
+    data = pd.read_csv(csv_file, sep='\t')
+    return {f"{i.id:02d}": sorted(i.alleles.split("_")) for i in data.itertuples()}
+
 
 if __name__ == "__main__":
     # test
@@ -194,6 +260,85 @@ if __name__ == "__main__":
     # ping_called_alleles = {k: v for k, v in ping_called_alleles.items() if k.startswith("0")}
     # kir.compareCohert(ping_called_alleles, skip_empty=True)
 
-    kir = EvaluateKIR("linnil1_syn_30x/linnil1_syn_30x.summary.csv")
-    ping_called_alleles = readPingResult(f"./PING/data_linnil1_syn_30x.result/finalAlleleCalls.csv")
-    kir.compareCohert(ping_called_alleles)
+    answer = "linnil1_syn_30x_seed87"
+
+    data = [{
+        'type': 'ping',
+        'file': f"data3/ping_{answer}.result/finalAlleleCalls.csv",
+    }, {
+        'type': 'ping-20220527',
+        'file': f"data3/ping_{answer}.resultPING20220527/finalAlleleCalls.csv",
+    }, {
+        'type': 'hisat-271-ab',
+        'file': f"data/{answer}_merge.index_kir_271_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+       'type': 'hisat-271-ab-2dl1s1',
+       'file': f"data/{answer}_merge.index_kir_271_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+        'type': 'hisat-290-ab',
+        'file': f"data/{answer}_merge.index_kir_290_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+       'type': 'hisat-290-ab-2dl1s1',
+       'file': f"data/{answer}_merge.index_kir_290_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+       'type': 'GATKIR',
+       'file': f"data3/{answer}_merge_called.bwa.rg.md.from_linnil1_syn_30x_seed87_jg_bwa_rg_md_ploidy_linnil1_syn_30x_seed87_answer_cn_jg_hc.norm.call_merge.tsv",
+    }, {
+       'type': 'GATKIR-all',
+       'file': f"data3/{answer}_merge_called_full.bwa.rg.md.from_linnil1_syn_30x_seed87_jg_bwa_rg_md_ploidy_linnil1_syn_30x_seed87_answer_cn_jg_hc.norm.call_merge.tsv",
+    }]
+
+    data.extend([{
+        'type': 'hisat-ab',
+        'file': f"data/{answer}_merge.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+        'type': 'hisat-ab-2dl1s1',
+        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+        'type': 'hisat',
+        'file': f"data/{answer}_merge.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+        'type': 'hisat-ab-2dl1s1-report',
+        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_hisat.tsv"
+    }, {
+        'type': 'hisat-ab-2dl1s1-multi',
+        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood_multi.tsv"
+    }, {
+        'type': 'hisat-ab-2dl1s1-no-errorcorr',
+        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }, {
+        'type': 'hisat-ab-2dl1s1',
+        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
+    }])
+
+    answer += "_exon"
+    data.extend([{
+        'type': 'ping-exon',
+        'file': f"data3/ping_{answer}.result/finalAlleleCalls.csv",
+    }, {
+        'type': 'ping-20220527-exon',
+        'file': f"data3/ping_{answer}.resultPING20220527/finalAlleleCalls.csv",
+    }, {
+        'type': 'hisat-ab-exon',
+        'file': f"data/{answer}_merge.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
+    }, {
+        'type': 'hisat-ab-2dl1s1-exon',
+        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
+    # }, {
+    #     'type': 'hisat-exon',
+    #     'file': f"data/{answer}_merge.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
+    }])
+
+
+    from ping import readPingResult
+    kir = EvaluateKIR(f"{answer}/{answer}.summary.csv", verbose=False)
+
+    for dat in data:
+        print(dat['type'])
+        if "ping" in dat['type']:
+            called_alleles = readPingResult(dat['file'])
+        elif "GATKIR" in dat['type']:
+            called_alleles = readGATKIRResult(dat['file'])
+        else:
+            called_alleles = readHisatResult(dat['file'])
+        kir.compareCohert(called_alleles)

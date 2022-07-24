@@ -36,6 +36,7 @@ def kirToMultiMsa(index="index", split_2DL5=False):
     Read KIR and output {index}.save.{gene_name}.xx
     """
     # version = "271"
+    # version = "290"
     version = "2100"
     if split_2DL5:
         index = f"{index}/kir_{version}_ab"
@@ -214,6 +215,7 @@ def kirMerge2dl1s1(index="index"):
     """ Build msa from IPDKIR but merge 2dl1 and 2ds1 """
     kir2dls1 = ["KIR2DS1", "KIR2DL1"]
     # version = "271"
+    # version = "290"
     version = "2100"
     index = f"{index}/kir_{version}_2dl1s1"
     if getSamples(index + ".save", strict=False):

@@ -850,7 +850,6 @@ class Hisat2:
         if not force and os.path.exists(f"{name_out}.hisat.json"):
             return new_suffix
 
-
         # TODO: test
         # global extend_allele
         # if "_merge" in bam_file:

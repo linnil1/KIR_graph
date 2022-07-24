@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 from pathlib import Path
 from collections import defaultdict
@@ -7,9 +8,13 @@ import pandas as pd
 
 from namepipe import nt, NameTask
 
-from kg_eval import EvaluateKIR, extractID
+from kg_eval import EvaluateKIR
 from kg_utils import runDocker, runShell, threads
 from kg_main import linkSamples
+
+
+def extractID(name):
+    return re.findall(r"\.(\w+)\.read", name)[0]
 
 
 def readPingLocusCount(locus_csv):
@@ -148,12 +153,11 @@ def plotPing(input_name, answer):
 
 
 @nt
-def buildPing(folder):
+def buildPing(input_name, folder):
     if os.path.exists(folder):
         return folder
     runShell(f"git clone https://github.com/wesleymarin/PING.git {folder}")
     runShell(f"docker build {folder} -t ping")
-    runShell(f"ln -s ../{folder} {folder}")
     return folder
 
 
@@ -171,8 +175,8 @@ def pingCopyFile(input_name):
 
 
 def pingMain(index, folder_in, folder_out):
-    assert index == "PING"
-    runDocker("ping", f"Rscript {index}/PING_run.R", opts=f""" \
+    runDocker("ping", f"Rscript PING_run.R", opts=f""" \
+        -e INDEX={index} \
         -e RAW_FASTQ_DIR=../{folder_in} \
         -e FASTQ_PATTERN=fq \
         -e THREADS={threads} \
@@ -182,9 +186,10 @@ def pingMain(index, folder_in, folder_out):
 
 @nt
 def ping(input_name, index, answer_name):
-    assert index == "PING"
     folder_in = input_name
     folder_out = input_name + ".result"
+    if index != "PING":
+        folder_out += index.replace("/", "_")
 
     # first time will fail
     # but we'll get locusRatioFrame.csv
@@ -238,7 +243,7 @@ def readPingResult(csv_file):
         alleles = [i for i in alleles if "null" not in i]
         # alleles = [i for i in alleles if "unresolved" not in i]
         called_alleles[id] = alleles
-        print(id, alleles)
+        # print(id, alleles)
     return called_alleles
 
 
@@ -249,7 +254,8 @@ if __name__ == "__main__":
     data_folder = "data3"
     Path(data_folder).mkdir(exist_ok=True)
     samples = f"{answer}/{answer}" + ".{}.read" >> linkSamples.set_args(data_folder) >> pingCopyFile
-    ping_index = "PING" >> buildPing
+    ping_index = None >> buildPing.set_args("PING")
+    ping_index = None >> buildPing.set_args("PING20220527")
     ping_predict = samples >> ping.set_args(index=str(ping_index), answer_name=answer) 
     ping_predict >> pingResult.set_args(answer=answer)
     samples >> plotPing.set_args(answer=answer)
