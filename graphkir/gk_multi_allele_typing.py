@@ -3,27 +3,45 @@ Our main typing method
 """
 import numpy as np
 from itertools import chain
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from gk_hisat2 import PairRead, Variant
 
 
 @dataclass
 class TypingResult:
+    """
+    Our typing result of each CN step
+
+    Attributes:
+      n: CN
+      value:       The log-likelihood of the top-n allele set
+      allele_id:   The id in top-n allele set
+      allele_name: The allele names in top-n allele set
+      allele_prob: The probility of the top-n allele set for each read
+      fraction:    The perpotion of reads belonging to the allele in allele set
+    """
     n: int
-    value: np.ndarray             # size: top_n
-    allele_id: np.ndarray         # size: top_n x n
+    value:       np.ndarray       # size: top_n
+    allele_id:   np.ndarray       # size: top_n x n
     allele_name: list[list[str]]  # size: top_n x n
     allele_prob: np.ndarray       # size: read x top_n
-    fraction: np.ndarray          # size: top_n x n
+    fraction:    np.ndarray       # size: top_n x n
 
     def selectBest(self) -> list[str]:
         """
-        Select the best allele set whlie considering abundance.
+        Select the best allele set by the maximum of likelihood
+        whlie considering abundance (fraction).
 
         The criteria is that the allele set will be ignore
-        if one the allele has abundance small than 1 / CN.
+        if one the allele has abundance small than 0.5 / CN.
 
         If all allele set cannot meet the criteria, return first result.
+
+        Example:
+          loss -1  fraction 0.1 0.9
+          loss -2  fraction 0.05 0.95
+          loss -3  fraction 0.2 0.8
+          loss -4  fraction 0.4 0.6  -> OK
         """
         best_id = 0
         for i in range(len(self.fraction)):
@@ -37,16 +55,18 @@ class TypingResult:
 
     def print(self, num: int = 10):
         """
-        Example output:
-        ```
-        2
-        0 -52.37587690948907
-          id   1 name KIR3DS1*0130108      fraction 0.35294117647058826
-          id   2 name KIR3DS1*078          fraction 0.6470588235294118
-        1 -52.37587690948907
-          id   0 name KIR3DS1*0130107      fraction 0.4215686274509804
-          id   2 name KIR3DS1*078          fraction 0.5784313725490197
-        ```
+        Print the first `num` typing result
+
+        Example:
+            ```
+            2
+            0 -52.37587690948907
+              id   1 name KIR3DS1*0130108      fraction 0.35294117647058826
+              id   2 name KIR3DS1*078          fraction 0.6470588235294118
+            1 -52.37587690948907
+              id   0 name KIR3DS1*0130107      fraction 0.4215686274509804
+              id   2 name KIR3DS1*078          fraction 0.5784313725490197
+            ```
         """
         print(self.n)
         top_n = len(self.value)
@@ -64,17 +84,27 @@ class TypingResult:
 
 class AlleleTyping:
     """
-    Allele typing for multiple alleles
+    Our proposed method: Allele typing for multiple alleles
 
     Attributes:
-      top_n
-      print_num
-      results
+      top_n (int): Consider top-n maximum likelihood to reduce computation
+      results (list[TypingResult]): The typing result per steps
+      probs (np.ndarray): The probility of read belong to the allele/allele-set
+      log_probs (np.ndarray): log10 of probs
+      id_to_allele (dict[int, str]): map the allele id to allele name
     """
 
     def __init__(self, reads: list[PairRead], variants: list[Variant]):
+        """
+        Parameters:
+          reads: The reads belonged to the gene
+          variants:
+            The variants list.
+            The variant_id in each reads will map to the variant for
+            getting related alleles.
+        """
+
         self.top_n = 300
-        self.print_num = 10
 
         self.variants: dict[str, Variant] = {str(v.id): v for v in variants}
 
@@ -92,7 +122,7 @@ class AlleleTyping:
         # self.allele_length = allele_length / 10000.  # just a non-important normalize
 
     def collectAlleleNames(self, reads: list[PairRead]) -> set[str]:
-        """ Get all allele name from all the reads """
+        """ Get all allele names from all the reads """
         allele_names = set()
         for read in reads:
             variants = chain(read.lpv, read.rpv, read.lnv, read.rnv)
@@ -109,41 +139,38 @@ class AlleleTyping:
 
     @staticmethod
     def onehot2Prob(onehot: np.ndarray) -> np.ndarray:
-        """ Onehot encoding to Probility"""
+        """ Onehot encoding -> probility"""
         # TODO: use quality
         prob = np.ones(onehot.shape) * 0.001
         prob[onehot] = 0.999
         return prob
 
-    def calcProbInRead(self, read: PairRead) -> list[np.ndarray]:
-        """ Position/Negative variants in read -> probility of read belonged to allele """
-        return [
-            *[self.onehot2Prob(               self.read2Onehot(i) ) for i in read.lpv],
-            *[self.onehot2Prob(               self.read2Onehot(i) ) for i in read.rpv],
-            *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.lnv],
-            *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.rnv],
-        ]
-
     def reads2AlleleProb(self, reads: list[PairRead]) -> np.ndarray:
-        """ read -> probility of read belonged to allele """
+        """ Position/Negative variants in read -> probility of read belonged to allele """
         probs = []
         for read in reads:
-            prob = self.calcProbInRead(read)
+            prob = [
+                *[self.onehot2Prob(               self.read2Onehot(i) ) for i in read.lpv],
+                *[self.onehot2Prob(               self.read2Onehot(i) ) for i in read.rpv],
+                *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.lnv],
+                *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.rnv],
+            ]
             if not len(prob):
                 continue
             probs.append(np.stack(prob).prod(axis=0))
         # probs = [i for i in probs if i is not None]
         return np.stack(probs)
 
-    def typing(self, n: int) -> TypingResult:
+    def typing(self, cn: int) -> TypingResult:
         """
-        Typing n alleles.
+        Typing cn alleles.
 
-        The result top-n allele-set are the set that best fit the reads
-        (with maximum probility)
+        Returns:
+          The top-n allele-set are best fit the reads (with maximum probility).
+            Each set has CN alleles.
         """
         self.result = []
-        for _ in range(n):
+        for _ in range(cn):
             res = self.addCandidate()
             res.print()
         return self.result[-1]
@@ -154,12 +181,20 @@ class AlleleTyping:
 
     @staticmethod
     def argSortRow(data: np.ndarray) -> list[int]:
-        """ arg sort the data by row """
+        """ Argsort the data by row """
         return sorted(range(len(data)), key=lambda i: tuple(data[i]))
 
     @staticmethod
     def uniqueAllele(data: np.ndarray) -> np.ndarray:
-        """ sort the allele in allele set and return a bool array where unqiue = 1"""
+        """
+        Unique the allele set, return the mask.
+
+        The boolean in the mask: 1 for unqiue allele set 0 for non-unique.
+
+        Example:
+          * data [[0,1], [1,0], [2,0], [2, 2], [2,0], [1, 0]]
+          * return [1, 0, 1, 1, 0, 0]
+        """
         s = set()
         index_unique = []
         for ids in data:
@@ -173,9 +208,9 @@ class AlleleTyping:
 
     def addCandidate(self) -> TypingResult:
         """
-        The step of finding the maximum probility of allele-set that can fit all reads
+        The step of finding the maximum likelihood allele-set that can fit all reads
 
-        Once call this function, the number alleles to call increase
+        Once call this function, the number alleles in the allele set increate 1.
         """
         if not len(self.result):
             # first time: i.e. CN = 1
@@ -275,7 +310,6 @@ class AlleleTyping:
 
 
 if __name__ == "__main__":
-    from collections import defaultdict
     from gk_hisat2 import loadReadsAndVariantsData
     from gk_kir_typing import removeMultipleMapped, groupReads
     reads_data = loadReadsAndVariantsData(
@@ -285,7 +319,7 @@ if __name__ == "__main__":
     gene_reads = groupReads(reads_data['reads'])
     for gene, reads in gene_reads.items():
         print(gene)
-        typ = AlleleTyping(reads, reads_data['variants'], {})
+        typ = AlleleTyping(reads, reads_data['variants'])
         typ.addCandidate()
         typ.result[-1].print()
         typ.addCandidate()

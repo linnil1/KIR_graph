@@ -1,3 +1,6 @@
+"""
+MSA -> hisat index
+"""
 import os
 from glob import glob
 import itertools
@@ -259,7 +262,8 @@ def writeHaplo(index_prefix: str,
             variants_index = [v for v in variants if not v.ignore]
             if variants_index:
                 left = min([v.pos for v in variants_index])
-                right = max([v.pos if v.typ != "deletion" else v.pos + v.val - 1  # type: ignore
+                right = max([v.pos if v.typ != "deletion"
+                             else v.pos + v.val - 1  # type: ignore
                              for v in variants_index])
                 ref = variants[0].ref
             else:

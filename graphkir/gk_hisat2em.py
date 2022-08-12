@@ -1,15 +1,23 @@
+"""
+The HISAT2 EM parts
+
+* Read variants from JSON
+* Allele calling by EM
+"""
 import sys
 import json
 from typing import TypedDict, TextIO
 from itertools import chain
 from collections import Counter, defaultdict
+from dataclasses import dataclass, asdict
 
 from Bio import SeqIO
 import numpy as np
 from gk_hisat2 import PairRead, ReadsAndVariantsData, loadReadsAndVariantsData
 
 
-class Hisat2AlleleResult(TypedDict):
+@dataclass
+class Hisat2AlleleResult:
     """ The result of hisat2 EM result """
     allele: str  # allele name
     count: int   # allele count
@@ -26,7 +34,7 @@ def readAlleleLength(file_fasta: str) -> dict[str, int]:
 def preprocessHisatReads(reads_data: ReadsAndVariantsData
                          ) -> dict[str, list[dict[str, list[list[str]]]]]:
     """
-    Preprocess hisat2 EM reads
+    Preprocess hisat2 reads before EM
 
     * Remove multiple mapped reads
     * Group by reference
@@ -194,11 +202,11 @@ def hisat2Typing(read_and_variant_json: str, output_prefix: str):
         allele_prob = hisatEMnp(reads_max_alleles)
         allele_count = Counter(chain.from_iterable(reads_max_alleles))
 
-        alleles_stat: list[Hisat2AlleleResult] = [{
-            'allele': allele,
-            'count': allele_count[allele],
-            'prob':  allele_prob[allele],
-        } for allele in allele_prob.keys() | allele_count.keys()]
+        alleles_stat = [Hisat2AlleleResult(
+            allele=allele,
+            count=allele_count[allele],
+            prob=allele_prob[allele],
+        ) for allele in allele_prob.keys() | allele_count.keys()]
         hisat_result[backbone] = alleles_stat
 
     printHisatTyping(hisat_result)
@@ -210,7 +218,7 @@ def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
                      first_n: int = 10,
                      file: TextIO = sys.stdout):
     """
-    Print the typing result
+    Print the typing result (EM)
 
     Args:
         hisat_result: Hisat2AlleleResult grouped by backbone
@@ -219,17 +227,19 @@ def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
     """
     for backbone, result in hisat_result.items():
         print(backbone, file=file)
-        allele_count = sorted(result, key=lambda i: i['count'], reverse=True)
+        allele_count = sorted(result, key=lambda i: i.count, reverse=True)
         for i, allele in enumerate(allele_count[:first_n]):
-            print(f"  {i+1:2d} {allele['allele']} "
-                  f"(count: {allele['count']})", file=file)
+            print(f"  {i+1:2d} {allele.allele} "
+                  f"(count: {allele.count})", file=file)
 
-        allele_prob = sorted(result, key=lambda i: i['prob'], reverse=True)
+        allele_prob = sorted(result, key=lambda i: i.prob, reverse=True)
         for i, allele in enumerate(allele_prob[:first_n]):
-            print(f"  Rank {i+1:2d} {allele['allele']} "
-                  f"(abundance: {allele['prob']:.2f})", file=file)
+            print(f"  Rank {i+1:2d} {allele.allele} "
+                  f"(abundance: {allele.prob:.2f})", file=file)
 
 
 if __name__ == "__main__":
-    hisat2Typing("data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph.out.json",
-                 "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph.out.em")
+    hisat2Typing("data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph"
+                 ".variant.json",
+                 "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph"
+                 ".variant.em")

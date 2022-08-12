@@ -1,0 +1,30 @@
+site_name: graph-kir
+repo_url: https://github.com/linnil1/linnil1
+theme:
+  name: material
+  features:
+    - toc.integrate
+
+extra_css:
+- css/mkdocstrings.css
+
+plugins:
+- search
+- mkdocstrings:
+    handlers:
+      python:
+        options:
+          docstring_style: google
+          heading_level: 2  # 1 will not work on ToC
+          inherited_members: False
+          show_source: False
+          show_signature_annotations: True
+          separate_signature: False
+          show_if_no_docstring: True
+    watch:
+      - .
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences

@@ -1,3 +1,10 @@
+"""
+index + bam -> JSON
+
+* backbone's read
+* read's variant (postive, negative)
+* variant's allele
+"""
 import re
 import json
 import bisect
@@ -14,7 +21,19 @@ from dataclasses import dataclass, field, asdict
 
 @dataclass
 class PairRead:
-    """ Save the record and its variants of each variant in pair read """
+    """
+    Save the record and its variants of each variant in pair read
+
+    Attributes:
+      l_sam: The read records
+      r_sam: The read records which is the other read in the pair
+      multiple: Number of mapping can this pair mapped on references
+      backbone: reference name
+      lpv: positive variants contains in the l_sam
+      rpv: positive variants contains in the r_sam
+      lnv: negative variants contains in the l_sam
+      rnv: negative variants contains in the r_sam
+    """
     # records strings
     l_sam: str = ""
     r_sam: str = ""
@@ -28,16 +47,11 @@ class PairRead:
     lnv: list[str] = field(default_factory=list)
     rpv: list[str] = field(default_factory=list)
     rnv: list[str] = field(default_factory=list)
-    # left's positive and negative alleles
-    # lp: list[list[str]] = field(default_factory=list)
-    # ln: list[list[str]] = field(default_factory=list)
-    # rp: list[list[str]] = field(default_factory=list)
-    # rn: list[list[str]] = field(default_factory=list)
 
 
 class ReadsAndVariantsData(TypedDict):
     """
-    Result data
+    Result data after parsing bam_file
 
     Attributes:
       variants: variants data in the graph (including novel variants of the sample)
@@ -288,13 +302,13 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
         * softclip tuple[head clipping length, tail clipping length]
     """
     # read info
-    cols = line.strip().split('\t')
-    start      = int(cols[3]) - 1  # no shift from locus
+    cols       = line.strip().split('\t')
     backbone   = cols[2]
-    read_seq   = cols[9]
-    read_qual  = cols[10]
+    start      = int(cols[3]) - 1  # no shift from locus
     cigar_strs = re.findall(r'\d+\w', cols[5])
     cigars     = map(lambda i: (i[-1], int(i[:-1])), cigar_strs)
+    read_seq   = cols[9]
+    read_qual  = cols[10]
     zs         = readZs(cols[11:])
     md         = readMd(cols[11:])
     # return print(list(cigars), list(zs), list(md))
@@ -309,7 +323,9 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
     def findZs(var_type):
         nonlocal zs_i, zs_pos
         var_id = "unknown"
-        if zs_i < len(zs) and read_i + md_len == zs_pos + zs[zs_i][0] and zs[zs_i][1] == var_type:
+        if (zs_i < len(zs)
+                and read_i + md_len == zs_pos + zs[zs_i][0]
+                and zs[zs_i][1] == var_type):
             zs_pos += zs[zs_i][0]
             if var_type == "S":
                 zs_pos += 1
@@ -619,7 +635,9 @@ def recordToVariants(record: str,
     return sorted(read_variants)
 
 
-def getVariantsBoundary(read_variants: list[Variant], variants: list[Variant]) -> tuple[int, int]:
+def getVariantsBoundary(read_variants: list[Variant],
+                        variants: list[Variant]
+                        ) -> tuple[int, int]:
     """
     Find the lower and upper bound of read
 
@@ -671,9 +689,11 @@ def getPNFromVariantList(read_variants: list[Variant],
     assert left <= right
 
     if discard_novel_index:
-        if any(v.typ == "insertion" and v.id.startswith("nv") for v in read_variants):  # type: ignore
+        if any(v.typ == "insertion" and v.id.startswith("nv")  # type: ignore
+               for v in read_variants):
             return [], []
-        if any(v.typ == "deletion"  and v.id.startswith("nv") for v in read_variants):  # type: ignore
+        if any(v.typ == "deletion"  and v.id.startswith("nv")  # type: ignore
+               for v in read_variants):
             return [], []
 
     # exclude for negative
@@ -736,7 +756,7 @@ def extractVariant(pair_reads: Iterable[tuple[str, str]],
         tot_pair += 1
         # main: extract bam -> variant
         # main: + annotate ID
-        lv = recordToVariants(left_record , variants_map, pileup)
+        lv = recordToVariants(left_record, variants_map, pileup)
         rv = recordToVariants(right_record, variants_map, pileup)
 
         # (left, right) x (positive, negative)
@@ -797,7 +817,7 @@ def saveSam(filename: str, header: str,  reads: Iterable[PairRead]):
 def saveReadsToBam(reads_data: ReadsAndVariantsData,
                    filename_prefix: str,
                    bam_file: str,
-                   filter_multi_mapped :bool = True):
+                   filter_multi_mapped: bool = True):
     """
     Save the reads into sam/bamfile (`{filename_prefix}.bam`)
 
@@ -814,18 +834,16 @@ def saveReadsToBam(reads_data: ReadsAndVariantsData,
     samtobam(filename_prefix)
 
 
-def bam2Depth(file_bam: str, file_depth: str):
-    """ Get read depth of all the position (via samtools depth) """
-    runDocker("samtools", f"samtools depth -a {file_bam} -o {file_depth}.tsv")
-
-
 def main(bam_file: str, index: str, output_prefix: str):
     """
-    Extract variants from bamfile and
+    Extract reads and variants from bamfile
 
-    1. save variants and reads information in json
-    2. save filtered bamfile (whether remove multiple mapped reads)
-    3. generate read depth from bamfile
+    1. Filter bad reads
+    2. Call the variant from the read
+    3. Annotate the variant by known variants (in index)
+    4. Save variants and reads information into json
+    5. Save reads into bam again
+    6. Save multiple-mapped-reads-removed bamfile
 
     Args:
         bam_file: The bamfile for extraction
@@ -844,10 +862,9 @@ def main(bam_file: str, index: str, output_prefix: str):
     writeReadsAndVariantsData(reads_data, f"{output_prefix}.json")
 
     # save to another format
-    saveReadsToBam(reads_data, output_prefix, bam_file)
-    bam2Depth(output_prefix + ".bam",          output_prefix + ".depth.tsv")
-    saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file, filter_multi_mapped=False)
-    bam2Depth(output_prefix + ".no_multi.bam", output_prefix + ".no_multi.depth.tsv")
+    saveReadsToBam(reads_data, output_prefix,               bam_file)
+    saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file,
+                   filter_multi_mapped=False)
 
 
 if __name__ == "__main__":

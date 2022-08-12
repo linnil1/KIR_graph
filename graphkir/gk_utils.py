@@ -39,7 +39,7 @@ def runShell(cmd, capture_output=False, cwd=None):
 
 
 def samtobam(name, keep=False):
-    """ This is so useful """
+    """ samfile -> sorted bamfile and index (This is so useful) """
     runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
     runDocker("samtools", f"samtools index    {name}.bam")
     if not keep:

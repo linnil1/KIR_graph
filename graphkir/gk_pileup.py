@@ -1,3 +1,6 @@
+"""
+Pileup utilies
+"""
 import re
 from collections import Counter
 from typing import Iterator
@@ -78,5 +81,6 @@ def getPileupBaseRatio(bam_file: str) -> PileupCount:
 
 
 if __name__ == "__main__":
-    stat = getPileupBaseRatio("data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_mut01_graph.bam")
+    stat = getPileupBaseRatio(
+            "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_mut01_graph.bam")
     print(set([j for i in stat.values() for j in i.keys()]))

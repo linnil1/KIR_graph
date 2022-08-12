@@ -1,5 +1,6 @@
 """
 Module for clustering depths into CN
+
 * CNgroup (proposed)
 * KDE
 """
@@ -13,6 +14,7 @@ from scipy.signal import argrelextrema
 
 
 class Dist:
+    """ Abstract class of CN prediction model """
     def __init__(self):
         self.base = 0
 
@@ -21,7 +23,7 @@ class Dist:
         raise NotImplementedError
 
     def assignCN(self, values: list[float]) -> list[int]:
-        """ Assign CN by parameters """
+        """ Assign CN with depth input by parameters """
         raise NotImplementedError
 
     def save(self, filename: str):
@@ -34,48 +36,52 @@ class Dist:
         return self.setParams(data)
 
     def getParams(self) -> dict:
-        """ Save parameters """
+        """ Get parameters """
         raise NotImplementedError
 
     @classmethod
     def setParams(cls, data: dict) -> Dist:
-        """ Load parameters """
+        """ Set parameters """
         raise NotImplementedError
 
 
 class CNgroup(Dist):
     """
     Our method: CN_group
+
+    Attributes:
+      x_max:    For normalization
+      base:     u1 (mean of CN=1 distribution)
+      base_dev: SD1 (devation of CN=1 distribution)
+      y0_dev:   SD0 (devation of CN=0 distribution)
+      bin_num:  Bins number in [0, x_max]
+      max_cn:   CN limits
     """
-    def __init__(self):  # , assume_base=None):
+    def __init__(self):
         # const
-        self.bin_num = 500    # discrete the values
-        self.max_cn = 6       # CN limits
+        self.bin_num:  int   = 500
+        self.max_cn:   int   = 6
 
         # parameters
-        self.base = None      # u1
-        self.x_max = 1        # for normalize
-        self.base_dev = 0.08  # SD1
-        self.y0_dev = 1.5     # SD0
-
-        # KIR assumption
-        # self.assume_base = assume_base
-        # self.assume_3DL3_diploid = True
+        self.x_max:    float = 1
+        self.base:     float = None
+        self.base_dev: float = 0.08
+        self.y0_dev:   float = 1.5
 
         # result (saved for plotting)
-        self.values = []
-        self.likelihood = []
+        self.values          = []
+        self.likelihood      = []
 
     def getParams(self) -> dict:
         """ Save parameters """
         return {
-            'method': "CNgroup",
-            'base': self.base,
+            'method'  : "CNgroup",
+            'x_max'   : self.x_max,
+            'base'    : self.base,
             'base_dev': self.base_dev,
-            'x_max': self.x_max,
-            'y0_dev': self.y0_dev,
-            'bin_num': self.bin_num,
-            'max_cn': self.max_cn,
+            'y0_dev'  : self.y0_dev,
+            'bin_num' : self.bin_num,
+            'max_cn'  : self.max_cn,
         }
 
     @classmethod
@@ -83,20 +89,20 @@ class CNgroup(Dist):
         """ Load parameters """
         assert data['method'] == "CNgroup"
         self = cls()
-        self.base = data['base']
+        self.base     = data['base']
         self.base_dev = data['base_dev']
-        self.x_max = data['x_max']
-        self.max_cn = data['max_cn']
-        self.y0_dev = data['y0_dev']
-        self.bin_num = data['bin_num']
+        self.x_max    = data['x_max']
+        self.y0_dev   = data['y0_dev']
+        self.bin_num  = data['bin_num']
+        self.max_cn   = data['max_cn']
         return self
 
     def fit(self, values: list[float]):
         """
-        Fit the data, it will set
+        Find the maximum CN distributions to fit the values.
 
-        * x_max, base_dev
-        * base
+        1. Normalize by `x_max` (Maximum of depths)
+        2. Find `base` (Mean of CN=1 distribution)
         """
         assert self.base is None
         # normalize
@@ -122,11 +128,6 @@ class CNgroup(Dist):
         max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
         self.base = max_point[0]
 
-        # special case
-        # if self.assume_base and base / self.assume_base > 1.7:  # TODO: maybe more CN?
-        #     base /= 2
-        #     self.base = base
-
     def assignCN(self, values: list[float]) -> list[int]:
         """ Assign CN group for each depths """
         assert self.base is not None
@@ -134,17 +135,6 @@ class CNgroup(Dist):
         cn_max = cn_group.argmax(axis=0)
         space = self.x_max / self.bin_num
         return [cn_max[int(depth / space)] for depth in values]
-
-    def predictCN(self, read_depth: dict[str, float]) -> dict[str, int]:
-        """ fit + assign """
-        assert self.base is None
-        values = list(read_depth.values())
-        self.fit(values)
-        cn = self.assignCN(values)
-        return dict(zip(
-            read_depth.keys(),
-            cn
-        ))
 
     def calcCNGroupProb(self, base: float):
         """
@@ -159,20 +149,6 @@ class CNgroup(Dist):
         y = np.stack([y0, *[norm.pdf(x, loc=base*n, scale=self.base_dev*n) for n in cn]])
         space = self.x_max / self.bin_num  # * space is to make y-sum = 1
         return y * space
-    # def predictKIRCN(self, read_depth: dict[str, float]) -> dict[str, int]:
-    #     """ fit + assign + 3DL3 calibrated """
-    #     predict_cn = self.predictCN(read_depth)
-    #     if self.assume_3DL3_diploid and predict_cn["KIR3DL3*BACKBONE"] != 2:
-    #         print("WARNING  KIR3DL3 is not diploid, trying to fix it")
-    #         assert predict_cn["KIR3DL3*BACKBONE"] == 1
-    #         # we only deal with this case
-    #         self.base /= 2
-    #         predict_cn = dict(zip(
-    #             read_depth.keys(),
-    #             self.assignCN(list(read_depth.values()))
-    #         ))
-    #         assert predict_cn["KIR3DL3*BACKBONE"] == 2
-    #     return predict_cn
 
     def plot(self):
         assert self.base is not None
@@ -216,28 +192,46 @@ class CNgroup(Dist):
 
 
 class KDEcut(Dist):
-    """ CN estimation via KDE """
+    """
+    CN estimation via KDE
+
+    Inspired by Sakaue, Saori, et al.
+    "Decoding the diversity of killer immunoglobulin-like receptors "
+    by deep sequencing and a high-resolution imputation method."
+    Cell Genomics 2.3 (2022): 100101.
+
+    Attributes:
+      bandwidth: KDE's bandwidth
+      points:    The number of bins in [0, 1]
+      neighbor:  The thresholding points to cut local minimal
+      x_max:     All values are normalize by this value into [0, 1]
+      kde:       KernelDensity object
+      local_min: list of positions of local minimal i.e. CN thesholds
+    """
 
     def __init__(self):
-        self.bandwidth = 0.05  # KDE parameters
-        self.points = 100      # discrete
-        self.neighbor = 5      # thresholding 5 / 100 = 0.05
+        self.bandwidth: float       = 0.05
+        self.points:    int         = 100
+        self.neighbor:  int         = 5
 
         # data
-        self.kde = None        # KDE object
-        self.x_max = None      # normalize
-        self.local_min = []    # thresholding
+        self.x_max:     float       = 0
+        self.kde                    = None
+        self.local_min: list[float] = []
 
         # for plot
-        self.data = []         # normalized data
+        self.data: list[float]      = []  # normalized data
 
     def getParams(self) -> dict:
         """ Save parameters """
         return {
-            'method': "KDEcut",
-            'x_max': self.x_max,
+            'method'   : "KDEcut",
+            'bandwidth': self.bandwidth,
+            'points'   : self.points,
+            'neighbor' : self.neighbor,
+            'x_max'    : self.x_max,
+            'kde'      : self.kde.get_params(),
             'local_min': self.local_min,
-            'kde': self.kde.get_params(),
         }
 
     @classmethod
@@ -245,13 +239,21 @@ class KDEcut(Dist):
         """ Load parameters """
         assert data['method'] == "KDEcut"
         self = cls()
-        self.x_max = data['x_max']
+        self.x_max     = data['x_max']
+        self.bandwidth = data['bandwidth']
+        self.neighbor  = data['neighbor']
+        self.points    = data['points']
+        self.kde       = KernelDensity().set_params(**data['kde'])
         self.local_min = data['local_min']
-        self.kde = KernelDensity().set_params(**data['kde'])
         return self
 
     def fit(self, values: list[float]):
-        """ Fit the data to KDE and save the threshold for cutting local minimal """
+        """
+        1. Normalize to 0-1 by (the maximum depth `x_max`)
+        2. Fit the data to KDE
+        3. Find threshold for cutting local minimal
+        4. Save the thresholds (`local_min`)
+        """
         assert self.kde is None
         # normalize to 0 - 1
         self.x_max = np.max(values)
@@ -261,28 +263,18 @@ class KDEcut(Dist):
         # cut
         x = np.linspace(0, 1.1, self.points)
         y = self.kde.score_samples(x[:, None])
-        self.local_min = x[argrelextrema(y, np.less, order=self.neighbor)[0]]
+        self.local_min = list(x[argrelextrema(y, np.less, order=self.neighbor)[0]])
         print("Threshold", self.local_min)
 
         # for plot
         self.data = values
 
     def assignCN(self, values: list[float]) -> list[int]:
-        """ Assign CN group for each depths """
+        """ Assign CN for each depths """
         assert self.kde is not None
         x = np.array(values) / self.x_max
         cn = np.searchsorted(self.local_min, x)
-        return cn
-
-    def predictCN(self, read_depth: dict[str, float]) -> dict[str, int]:
-        """ fit + assign """
-        values = list(read_depth.values())
-        self.fit(values)
-        cn = self.assignCN(values)
-        return dict(zip(
-            read_depth.keys(),
-            cn
-        ))
+        return list(cn)
 
     def plot(self):
         x = np.linspace(0, 1.1, self.points)

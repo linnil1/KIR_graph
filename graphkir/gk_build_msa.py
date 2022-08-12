@@ -1,3 +1,8 @@
+"""
+* read DB -> MSA
+* split/merge the MSA
+* realign the MSA when merge (muscle, clustalo)
+"""
 from glob import glob
 from itertools import chain
 from collections import defaultdict
@@ -32,14 +37,14 @@ def saveAllMsa(genes: GenesMsa, prefix: str):
         msa = msa.shrink()
         msa.append(f"{gene_name}*BACKBONE",
                    msa.get_consensus(include_gap=False))
-        msa.set_reference(  f"{gene_name}*BACKBONE")      # noqa: E201
-        msaio.to_bam(msa,   f"{prefix}.{gene_name}.bam")
+        msa.set_reference(f"{gene_name}*BACKBONE")
+        msaio.to_bam(msa,   f"{prefix}.{gene_name}.bam")  # noqa: E201
         msaio.to_gff(msa,   f"{prefix}.{gene_name}.gff")
         msaio.save_msa(msa, f"{prefix}.{gene_name}.fa",
                             f"{prefix}.{gene_name}.json")
 
 
-def readDB(version : str = "latest") -> GenesMsa:
+def readDB(version: str = "latest") -> GenesMsa:
     """
     Read IPD-KIR database
 
@@ -246,7 +251,7 @@ def clustalo(name: str) -> str:
 
 def main(mode: str,
          prefix: str,
-         version :str = "2100"):
+         version: str = "2100"):
     """
     Read KIR from database and save MSA into files with prefix
 
