@@ -7,16 +7,21 @@ Module for clustering depths into CN
 from __future__ import annotations
 import json
 import numpy as np
-from typing import Any
+
 from scipy.stats import norm
-from sklearn.neighbors import KernelDensity
 from scipy.signal import argrelextrema
+from sklearn.neighbors import KernelDensity
+from plotly.subplots import make_subplots
+import plotly.express as px
+import plotly.graph_objects as go
+
+from gk_utils import NumpyEncoder
 
 
 class Dist:
     """ Abstract class of CN prediction model """
     def __init__(self):
-        self.base = 0
+        pass
 
     def fit(self, values: list[float]):
         """ Determine the parameters by data """
@@ -28,12 +33,15 @@ class Dist:
 
     def save(self, filename: str):
         """ Save parameters """
-        json.dump(self.getParams(), open(filename, "w"))
+        with open(filename, "w") as f:
+            json.dump(self.getParams(), f, cls=NumpyEncoder)
 
-    def load(self, filename: str) -> Dist:
+    @classmethod
+    def load(cls, filename: str) -> Dist:
         """ Load parameters """
-        data = json.load(open(filename))
-        return self.setParams(data)
+        with open(filename) as f:
+            data = json.load(f)
+        return cls.setParams(data)
 
     def getParams(self) -> dict:
         """ Get parameters """
@@ -42,6 +50,10 @@ class Dist:
     @classmethod
     def setParams(cls, data: dict) -> Dist:
         """ Set parameters """
+        raise NotImplementedError
+
+    def plot(self, title: str = "") -> list[go.Figure]:
+        """ Plot the model """
         raise NotImplementedError
 
 
@@ -59,6 +71,7 @@ class CNgroup(Dist):
     """
     def __init__(self):
         # const
+        super().__init__()
         self.bin_num:  int   = 500
         self.max_cn:   int   = 6
 
@@ -69,7 +82,7 @@ class CNgroup(Dist):
         self.y0_dev:   float = 1.5
 
         # result (saved for plotting)
-        self.values          = []
+        self.data            = []
         self.likelihood      = []
 
     def getParams(self) -> dict:
@@ -82,6 +95,8 @@ class CNgroup(Dist):
             'y0_dev'  : self.y0_dev,
             'bin_num' : self.bin_num,
             'max_cn'  : self.max_cn,
+            'data'    : self.data,
+            'likelihood' : self.likelihood,
         }
 
     @classmethod
@@ -95,6 +110,8 @@ class CNgroup(Dist):
         self.y0_dev   = data['y0_dev']
         self.bin_num  = data['bin_num']
         self.max_cn   = data['max_cn']
+        self.data     = data['data']
+        self.likelihood = np.array(data['likelihood'])
         return self
 
     def fit(self, values: list[float]):
@@ -109,7 +126,7 @@ class CNgroup(Dist):
         max_depth = max(values) * 1.2
         self.base_dev *= max_depth
         self.x_max = max_depth
-        self.values = values
+        self.data = values
 
         # discrete (bin_num)
         # Calculate the probility that CN groups fit the data
@@ -150,7 +167,7 @@ class CNgroup(Dist):
         space = self.x_max / self.bin_num  # * space is to make y-sum = 1
         return y * space
 
-    def plot(self):
+    def plot(self, title: str = "") -> list[go.Figure]:
         assert self.base is not None
 
         # loss function of distribution
@@ -161,14 +178,16 @@ class CNgroup(Dist):
             xaxis_title="read-depth",
             yaxis_title="likelihood",
         )
+        fig_loss.update_layout(title=title)
 
         # histogram of read depth
         fig_dist = make_subplots(specs=[[{"secondary_y": True}]])
-        fig_dist.add_trace(go.Histogram(x=list(self.values),
+        fig_dist.add_trace(go.Histogram(x=list(self.data),
                                         name="Observed",
                                         nbinsx=self.bin_num),
                            secondary_y=True)
         fig_dist.update_layout(
+            title=title,
             xaxis_title="read-depth",
             yaxis_showticklabels=False,
             yaxis_title="probility",
@@ -210,6 +229,7 @@ class KDEcut(Dist):
     """
 
     def __init__(self):
+        super().__init__()
         self.bandwidth: float       = 0.05
         self.points:    int         = 100
         self.neighbor:  int         = 5
@@ -276,7 +296,7 @@ class KDEcut(Dist):
         cn = np.searchsorted(self.local_min, x)
         return list(cn)
 
-    def plot(self):
+    def plot(self, title: str = "") -> list[go.Figure]:
         x = np.linspace(0, 1.1, self.points)
         y = self.kde.score_samples(x[:, None])
         fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -288,3 +308,14 @@ class KDEcut(Dist):
             x=np.array(self.data) / self.x_max,
             name="Relative Depth", nbinsx=100, histnorm="probability"), secondary_y=True)
         return [fig]
+
+
+def loadCNModel(filename: str) -> Dist:
+    """ Load model from json. """
+    with open(filename) as f:
+        data = json.load(f)
+    if data['method'] == "KDEcut":
+        return KDEcut.load(filename)
+    if data['method'] == "CNgroup":
+        return CNgroup.load(filename)
+    raise NotImplementedError

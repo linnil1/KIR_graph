@@ -1,20 +1,19 @@
 """
 MSA -> hisat index
 """
-import os
-from glob import glob
 import itertools
 from typing import ClassVar, TextIO, Any
 from dataclasses import dataclass, field
 
 from Bio import SeqIO
-from pyhlamsa import msaio, Genemsa
+from pyhlamsa import Genemsa
 from gk_utils import runDocker
 from gk_build_msa import readFromMSAs
 
 
 @dataclass
 class Variant:
+    """ Save variant's information """
     # basic
     pos: int  # position
     typ: str  # type of variant: insertion, deletion, or single(SNP)
@@ -208,7 +207,7 @@ def writeMsa(index_prefix: str, msa: Genemsa):
         )
 
     # Exon-only allele name
-    with open(index_prefix + ".partial", 'a') as partial_allele_name_f:
+    with open(index_prefix + ".partial", 'a') as _:
         pass
 
     # Every msa has it's own reference
@@ -258,7 +257,7 @@ def writeHaplo(index_prefix: str,
     * `{index_prefix}.haplotype`
     """
     with open(index_prefix + ".haplotype", 'a') as haplo_f:
-        for allele, variants in variants_per_allele.items():
+        for variants in variants_per_allele.values():
             variants_index = [v for v in variants if not v.ignore]
             if variants_index:
                 left = min([v.pos for v in variants_index])
@@ -267,12 +266,13 @@ def writeHaplo(index_prefix: str,
                              for v in variants_index])
                 ref = variants[0].ref
             else:
-                # skip if no variants in the allele
                 continue
+                # skip if no variants in the allele
+                # TODO: check this implemetation
                 # old code: if no variants -> use 0 - msa_length
-                left = 0
-                right = msa.get_length() - 1
-                ref = msa.get_reference()[0]
+                # left = 0
+                # right = msa.get_length() - 1
+                # ref = msa.get_reference()[0]
             ids = ','.join(str(v.id) for v in variants_index)
             writeTSV(haplo_f, [f"ht{Variant.haplo_id}",
                                ref, left, right, ids])
@@ -284,11 +284,11 @@ def clearBeforeWrite(index_prefix: str):
     extension = [".snp", ".index.snp", ".snp.freq", ".link", "_backbone.fa",
                  "_sequences.fa", ".allele", ".partial", ".locus", ".haplotype"]
     for ext in extension:
-        with open(index_prefix + ".snp", 'w') as f:
+        with open(index_prefix + ext, 'w') as _:
             pass
 
 
-def main(msa_prefix: str, index_prefix: str):
+def msa2HisatReference(msa_prefix: str, index_prefix: str):
     """
     Transfer MSA to hisat2 format
 
@@ -321,19 +321,11 @@ def main(msa_prefix: str, index_prefix: str):
         writeHaplo  (index_prefix, variants_per_allele, msa=msa)
 
 
-def buildHisat(name: str, threads=4) -> str:
+def buildHisatIndex(name: str, output_name: str, threads=4):
     """ Run hisat2-build, input and output are prefix of filenames """
     runDocker("hisat", f"""\
               hisat2-build {name}_backbone.fa \
                            --snp {name}.index.snp \
                            --haplotype {name}.haplotype \
                            -p {threads} --verbose \
-                           {name}.graph """)
-    return f"{name}.graph"
-
-
-if __name__ == "__main__":
-    # TODO: commandline
-    index = "index/kir_2100_ab_2dl1s1_muscle"
-    main(index, index + ".mut01")
-    index = buildHisat(index + ".mut01")
+                           {output_name} """)

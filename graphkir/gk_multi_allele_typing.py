@@ -1,9 +1,12 @@
 """
 Our main typing method
 """
-import numpy as np
 from itertools import chain
 from dataclasses import dataclass
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+
 from gk_hisat2 import PairRead, Variant
 
 
@@ -75,10 +78,10 @@ class TypingResult:
         for rank in range(min(top_n, num)):
             print("Rank", rank, "probility", self.value[rank])
 
-            for id in range(n):
-                print(f"  id {self.allele_id[rank][id]:3}"
-                      f"  name {self.allele_name[rank][id]:20s}"
-                      f"  fraction {self.fraction[rank][id]:.5f}")
+            for i in range(n):
+                print(f"  id {self.allele_id[rank][i]:3}"
+                      f"  name {self.allele_name[rank][i]:20s}"
+                      f"  fraction {self.fraction[rank][i]:.5f}")
                 # f" unique_count {unique_count}")
 
 
@@ -155,7 +158,7 @@ class AlleleTyping:
                 *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.lnv],
                 *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.rnv],
             ]
-            if not len(prob):
+            if not prob:
                 continue
             probs.append(np.stack(prob).prod(axis=0))
         # probs = [i for i in probs if i is not None]
@@ -198,11 +201,11 @@ class AlleleTyping:
         s = set()
         index_unique = []
         for ids in data:
-            id = tuple(sorted(ids))
-            if id in s:
+            ids = tuple(sorted(ids))
+            if ids in s:
                 index_unique.append(False)
             else:
-                s.add(id)
+                s.add(ids)
                 index_unique.append(True)
         return np.array(index_unique)
 
@@ -285,44 +288,23 @@ class AlleleTyping:
         ))
         return self.result[-1]
 
-    def plot(self):
+    def plot(self, title: str = "") -> list[go.Figure]:
+        """ Plot the probility of read belonging to allele """
         probs = self.probs
         norm_probs = probs / probs.sum(axis=1, keepdims=True)
         # log_probs = np.log10(norm_probs)
         # plot prob
-        figs = []
-        figs.extend([
-            px.imshow(np.log(probs), text_auto=True, aspect="auto", title=gene),
-            px.imshow(norm_probs ** 0.1, text_auto=True, aspect="auto"),
+        figs = [
+            px.imshow(np.log(probs), text_auto=True, aspect="auto", title=title),
+            # px.imshow(norm_probs ** 0.1, text_auto=True, aspect="auto"),
             # px.imshow(np.log(norm_probs), text_auto=True, aspect="auto"),
-        ])
-        """
-        figs.extend([dashbio.Clustergram(
-            data=probs,
-            column_labels=allele_names,
-            hidden_labels='row',
-            width=2000,
-            height=1000,
-            cluster="row",
-        )])
-        """
+        ]
+        # figs.extend([dashbio.Clustergram(
+        #     data=probs,
+        #     column_labels=allele_names,
+        #     hidden_labels='row',
+        #     width=2000,
+        #     height=1000,
+        #     cluster="row",
+        # )])
         return figs
-
-
-if __name__ == "__main__":
-    from gk_hisat2 import loadReadsAndVariantsData
-    from gk_kir_typing import removeMultipleMapped, groupReads
-    reads_data = loadReadsAndVariantsData(
-        "data/"
-        "linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph.variant.json")
-    reads_data = removeMultipleMapped(reads_data)
-    gene_reads = groupReads(reads_data['reads'])
-    for gene, reads in gene_reads.items():
-        print(gene)
-        typ = AlleleTyping(reads, reads_data['variants'])
-        typ.addCandidate()
-        typ.result[-1].print()
-        typ.addCandidate()
-        typ.result[-1].print()
-        typ.addCandidate()
-        typ.result[-1].print()

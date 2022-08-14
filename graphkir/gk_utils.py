@@ -1,8 +1,14 @@
-import os
-from glob import glob
+"""
+Utilities
+* run shell
+* run docker and image's version
+* sam to bam
+* numpy to json
+"""
+import json
 import uuid
 import subprocess
-from concurrent.futures import ProcessPoolExecutor
+import numpy as np
 
 
 threads = 20
@@ -19,7 +25,7 @@ def runDocker(image, cmd, capture_output=False):
     """ run docker container """
     if image in images:
         image = images[image]
-    name = str(uuid.uuid4()).split("-")[0]
+    name = str(uuid.uuid4()).split("-", 1)[0]
     # docker_path = "docker"
     proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
                     f"-w /app -v $PWD:/app {image} {cmd}",
@@ -33,8 +39,8 @@ def runShell(cmd, capture_output=False, cwd=None):
     proc = subprocess.run(cmd, shell=True,
                           capture_output=capture_output,
                           cwd=cwd,
+                          check=True,
                           universal_newlines=True)
-    proc.check_returncode()
     return proc
 
 
@@ -44,3 +50,11 @@ def samtobam(name, keep=False):
     runDocker("samtools", f"samtools index    {name}.bam")
     if not keep:
         runShell(f"rm {name}.sam")
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """ The encoder for saving numpy array to json """
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)

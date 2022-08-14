@@ -1,8 +1,9 @@
 """
 Raw depths -> gene depths -> gene's CN
 """
-import pandas as pd
 from itertools import chain
+import pandas as pd
+
 from gk_cn_model import CNgroup, KDEcut, Dist
 from gk_utils import runDocker
 
@@ -19,12 +20,12 @@ def readSamtoolsDepth(depth_filename: str) -> pd.DataFrame:
     return df
 
 
-def selectSamtoolsDepthInExon(df: pd.DataFrame,
-                              exon_region: dict[str, list[tuple[int, int]]]
-                              ) -> pd.DataFrame:
-    """ Depths in intron are removed """
+def selectSamtoolsDepth(df: pd.DataFrame,
+                        ref_regions: dict[str, list[tuple[int, int]]]
+                        ) -> pd.DataFrame:
+    """ Depths outside regions are removed (Used for remove intron depth) """
     df_exon = []
-    for gene, regions in exon_region.items():
+    for gene, regions in ref_regions.items():
         for (start, end) in regions:
             df_exon.append(df[(df["gene"] == gene)
                            & (start <= df["pos"])
@@ -66,7 +67,7 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
 
     # cluster
     if cluster_method == "CNgroup":
-        dist = CNgroup()  # type: Dist
+        dist = CNgroup()
         dist.fit(values)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
@@ -84,7 +85,7 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
         #     dist.base /= 2
 
     elif cluster_method == "KDEcut":
-        dist = KDEcut()
+        dist = KDEcut()  # type: ignore
         dist.fit(values)
     else:
         raise NotImplementedError
@@ -100,8 +101,11 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
 
 def predictSamplesCN(samples_bam: list[str],
                      samples_cn: list[str],
+                     bam_selected_regions: dict[str, list[tuple[int, int]]] = {},
                      save_cn_model_path: str | None = None,
-                     cluster_method: str = "CNgroup"):
+                     select_mode: str = "p75",
+                     cluster_method: str = "CNgroup"
+                     ):
     """
     Read bamfile and predict CN per gene per sample
 
@@ -109,6 +113,10 @@ def predictSamplesCN(samples_bam: list[str],
       samples_bam: Bamfile path per sample
       samples_cn: The output CN file path per sample
       save_cn_model_path: Save the parameters of CN model into specific path
+      bam_selected_regions:
+        Use selected regions of read depths.
+        Format: `dict[key=referce, value=list of tuple[start-position, end_position]]`
+        Leave Empty to selected all regions
     """
     assert len(samples_bam) == len(samples_cn)
 
@@ -118,7 +126,10 @@ def predictSamplesCN(samples_bam: list[str],
     for name in names:
         bam2Depth(name + ".bam", name + ".depth.tsv")
         depths = readSamtoolsDepth(name + ".depth.tsv")
-        gene_depths = aggrDepths(depths)
+        if bam_selected_regions:
+            depths = selectSamtoolsDepth(depths, bam_selected_regions)
+            depths.to_csv(name + ".depth.exon.tsv", index=False, sep="\t")
+        gene_depths = aggrDepths(depths, select_mode=select_mode)
         sample_gene_depths.append(gene_depths)
 
     # depth per gene -> cn per gene
@@ -126,17 +137,20 @@ def predictSamplesCN(samples_bam: list[str],
 
     if save_cn_model_path:
         model.save(save_cn_model_path)
-    # TODO
-    # model.plot
 
     # cn per gene -> save
     for filename, cn in zip(samples_cn, cns):
         df = pd.DataFrame(list(cn.items()), columns=["gene", "cn"])
-        print(name, df)
         df.to_csv(filename, index=False, sep="\t")
 
 
-if __name__ == "__main__":
-    name = "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph.variant"
-    predictSamplesCN([name + ".no_multi.bam"],
-                     [name + ".no_multi.depth.cn_p75.tsv"])
+def loadCN(filename_cn: str) -> dict[str, int]:
+    """
+    Load CN data
+
+    Return:
+      key:  Reference name
+      value:  CN on the reference
+    """
+    data = pd.read_csv(filename_cn, sep="\t", index_col=[0])
+    return data.to_dict()['cn']

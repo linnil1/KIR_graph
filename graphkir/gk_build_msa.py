@@ -65,9 +65,9 @@ def readFromMSAs(prefix: str) -> GenesMsa:
         genes: A dictionary of gene's name and its MSA
     """
     genes = {}
-    for f in glob(prefix + "*.json"):
-        id = f.split('.')[-2]
-        genes[id] = msaio.load_msa(f[:-5] + ".fa", f)
+    for filename in glob(prefix + "*.json"):
+        gene = filename.split('.')[-2]
+        genes[gene] = msaio.load_msa(filename[:-5] + ".fa", filename)
     return genes
 
 
@@ -81,7 +81,7 @@ def splitMsaToBlocks(genes: GenesMsa) -> BlockMsa:
         blocks: A dictionary of block's name and its sequences
     """
     blocks = defaultdict(list)
-    for gene_name, msa in genes.items():
+    for msa in genes.values():
         for msa_part in msa.split():
             block_name = msa_part.blocks[0].name
             if block_name == "intron3/4":
@@ -107,7 +107,7 @@ def blockToFile(blocks: BlockMsa, tmp_prefix="tmp") -> BlockFile:
         filename = tmp_prefix + "." + block_name
         files[block_name] = filename
         recs = [rec for rec in recs if len(rec.seq)]  # remove 0 length sequences
-        SeqIO.write(recs, open(filename + ".fa", "w"), "fasta")
+        SeqIO.write(recs, filename + ".fa", "fasta")
     return files
 
 
@@ -249,9 +249,7 @@ def clustalo(name: str) -> str:
     return f"{name}.clustalo"
 
 
-def main(mode: str,
-         prefix: str,
-         version: str = "2100"):
+def buildKirMsa(mode: str, prefix: str, version: str = "2100"):
     """
     Read KIR from database and save MSA into files with prefix
 
@@ -292,10 +290,3 @@ def main(mode: str,
         raise NotImplementedError
 
     saveAllMsa(genes, prefix)
-
-
-if __name__ == "__main__":
-    # TODO: commandline
-    # main("split", "index/kir_2100_split")
-    # main("ab_2dl1s1", "index/kir_2100_ab_2dl1s1_muscle")
-    main("merge", "index/kir_2100_merge")

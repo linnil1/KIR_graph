@@ -6,14 +6,14 @@ The HISAT2 EM parts
 """
 import sys
 import json
-from typing import TypedDict, TextIO
+from typing import TextIO
 from itertools import chain
 from collections import Counter, defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 from Bio import SeqIO
 import numpy as np
-from gk_hisat2 import PairRead, ReadsAndVariantsData, loadReadsAndVariantsData
+from gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData
 
 
 @dataclass
@@ -210,8 +210,10 @@ def hisat2Typing(read_and_variant_json: str, output_prefix: str):
         hisat_result[backbone] = alleles_stat
 
     printHisatTyping(hisat_result)
-    printHisatTyping(hisat_result, file=open(output_prefix + ".txt", "w"))
-    json.dump(hisat_result, open(output_prefix + ".json", "w"))
+    with open(output_prefix + ".txt", "w") as f:
+        printHisatTyping(hisat_result, file=f)
+    with open(output_prefix + ".json", "w") as f:
+        json.dump(hisat_result, f)
 
 
 def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
@@ -236,10 +238,3 @@ def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
         for i, allele in enumerate(allele_prob[:first_n]):
             print(f"  Rank {i+1:2d} {allele.allele} "
                   f"(abundance: {allele.prob:.2f})", file=file)
-
-
-if __name__ == "__main__":
-    hisat2Typing("data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph"
-                 ".variant.json",
-                 "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph"
-                 ".variant.em")

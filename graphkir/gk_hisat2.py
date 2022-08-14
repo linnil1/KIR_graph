@@ -6,15 +6,15 @@ index + bam -> JSON
 * variant's allele
 """
 import re
+import copy
 import json
 import bisect
 from typing import Iterator, TypedDict, Iterable
-import copy
+from dataclasses import dataclass, field, asdict
 
 from gk_utils import runDocker, samtobam
 from gk_build_index import Variant
 from gk_pileup import PileupCount, getPileupBaseRatio
-from dataclasses import dataclass, field, asdict
 # TODO
 # = typing_common.identify_ambigious_diffs(ref_seq,
 
@@ -61,8 +61,10 @@ class ReadsAndVariantsData(TypedDict):
     reads: list[PairRead]
 
 
-def hisatMap(index: str, f1: str, f2: str, output_name: str, threads=4):
+def hisatMap(index: str, f1: str, f2: str, output_file: str, threads=4):
     """ run hisat2 """
+    assert output_file.endswith(".bam")
+    output_name = output_file.rsplit(".", 1)[0]
     runDocker("hisat", f"""\
               hisat2 --threads {threads} -x {index} -1 {f1} -2 {f2} \
               --no-spliced-alignment --max-altstried 64 --haplotype \
@@ -75,8 +77,7 @@ def getNH(sam_info: str) -> int:
     NH_re = re.findall(r"NH:i:(\d+)", sam_info)
     if NH_re:
         return int(NH_re[0])
-    else:
-        return 1
+    return 1
 
 
 def readBam(bam_file: str) -> list[str]:
@@ -103,10 +104,11 @@ def readLink(index: str) -> dict[str, list[str]]:
         Dictionary[variant_id, list of allele related to the variant]
     """
     id_alleles = {}
-    for line in open(index + ".link"):
-        # hv25	KIR2DL2*0010101 KIR2DL2*0010103
-        id, alleles = line.strip().split('\t')
-        id_alleles[id] = alleles.split()
+    with open(index + ".link") as f:
+        for line in f:
+            # hv25	KIR2DL2*0010101 KIR2DL2*0010103
+            allele_id, alleles = line.strip().split('\t')
+            id_alleles[allele_id] = alleles.split()
     return id_alleles
 
 
@@ -122,10 +124,11 @@ def readExons(index: str) -> dict[str, list[tuple[int, int]]]:
     # KIR2DL1*BACKBONE        KIR2DL1*BACKBONE        0       14761   14761
     # 269-303 1267-1303 2031-2313 3754-4054 5588-5882 +
     gene_exons = {}
-    for line in open(index + ".locus"):
-        gene, _, _, _, _, exons_str, _ = line.split('\t')
-        gene_exons[gene] = [(int(i.split('-')[0]) - 1, int(i.split('-')[1]) - 1)
-                            for i in exons_str.split(' ')]
+    with open(index + ".locus") as f:
+        for line in f:
+            gene, _, _, _, _, exons_str, _ = line.split('\t')
+            gene_exons[gene] = [(int(i.split('-')[0]) - 1, int(i.split('-')[1]) - 1)
+                                for i in exons_str.split(' ')]
     return gene_exons
 
 
@@ -137,16 +140,17 @@ def readVariants(index: str) -> list[Variant]:
         A list of variants (only basic information)
     """
     variants = []
-    for line in open(index + ".snp"):
-        # hv7	single	KIR2DL2*BACKBONE	5819	T
-        # hv8	deletion	KIR2DL2*BACKBONE	6626	2
-        id, var_type, ref, pos, val = line.strip().split('\t')
-        v = Variant(typ=var_type,
-                    ref=ref,
-                    pos=int(pos),
-                    id=id,
-                    val=val if var_type != "deletion" else int(val))
-        variants.append(v)
+    with open(index + ".snp") as f:
+        for line in f:
+            # hv7	single	KIR2DL2*BACKBONE	5819	T
+            # hv8	deletion	KIR2DL2*BACKBONE	6626	2
+            variant_id, var_type, ref, pos, val = line.strip().split('\t')
+            v = Variant(typ=var_type,
+                        ref=ref,
+                        pos=int(pos),
+                        id=variant_id,
+                        val=val if var_type != "deletion" else int(val))
+            variants.append(v)
     return variants
 
 
@@ -308,7 +312,7 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
     cigar_strs = re.findall(r'\d+\w', cols[5])
     cigars     = map(lambda i: (i[-1], int(i[:-1])), cigar_strs)
     read_seq   = cols[9]
-    read_qual  = cols[10]
+    # read_qual  = cols[10]
     zs         = readZs(cols[11:])
     md         = readMd(cols[11:])
     # return print(list(cigars), list(zs), list(md))
@@ -541,16 +545,16 @@ def findVariantId(variant: Variant, variants_map: dict[Variant, Variant]) -> Var
         return variants_map[variant]
 
     # cannot find: set it novel
-    elif variant.typ in ["single", "insertion", "deletion"]:
+    if variant.typ in ["single", "insertion", "deletion"]:
         # print("Cannot find", variant)
         variant.id = f"nv{Variant.novel_id}"
         Variant.novel_id += 1
         variants_map[variant] = variant
         return variant
-    else:
-        # print("Other", variant)
-        assert variant.typ == "match"
-        return variant
+
+    # print("Other", variant)
+    assert variant.typ == "match"
+    return variant
 
 
 def errorCorrection(variant: Variant, pileup: PileupCount) -> Variant:
@@ -784,20 +788,21 @@ def extractVariant(pair_reads: Iterable[tuple[str, str]],
 
 def writeReadsAndVariantsData(reads_data: ReadsAndVariantsData, filename: str):
     """ Write result to json """
-    json.dump({
-        'variants': [asdict(i) for i in reads_data['variants']],
-        'reads': [asdict(i) for i in reads_data['reads']],
-    }, open(filename, "w"))
+    with open(filename, "w") as f:
+        json.dump({
+            'variants': [asdict(i) for i in reads_data['variants']],
+            'reads': [asdict(i) for i in reads_data['reads']],
+        }, f)
 
 
 def loadReadsAndVariantsData(filename: str) -> ReadsAndVariantsData:
     """ Load result from json """
-    reads_data = json.load(open(filename))
-    reads_data = {
+    with open(filename) as f:
+        reads_data = json.load(f)
+    return {
         'variants': [Variant(**i) for i in reads_data['variants']],
         'reads': [PairRead(**i) for i in reads_data['reads']],
     }
-    return reads_data
 
 
 def saveSam(filename: str, header: str,  reads: Iterable[PairRead]):
@@ -834,7 +839,7 @@ def saveReadsToBam(reads_data: ReadsAndVariantsData,
     samtobam(filename_prefix)
 
 
-def main(bam_file: str, index: str, output_prefix: str):
+def extractVariantFromBam(index: str, bam_file: str, output_prefix: str):
     """
     Extract reads and variants from bamfile
 
@@ -865,13 +870,3 @@ def main(bam_file: str, index: str, output_prefix: str):
     saveReadsToBam(reads_data, output_prefix,               bam_file)
     saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file,
                    filter_multi_mapped=False)
-
-
-if __name__ == "__main__":
-    hisatMap("index/kir_2100_ab_2dl1s1_muscle.mut01.graph",
-             "data/linnil1_syn_30x.00.read.1.fq",
-             "data/linnil1_syn_30x.00.read.2.fq",
-             "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph")
-    main("data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph.bam",
-         "index/kir_2100_ab_2dl1s1_muscle.mut01",
-         "data/linnil1_syn_30x.00.index_kir_2100_ab_2dl1s1_muscle_mut01_graph.variant")
