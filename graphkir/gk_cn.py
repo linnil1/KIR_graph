@@ -4,8 +4,8 @@ Raw depths -> gene depths -> gene's CN
 from itertools import chain
 import pandas as pd
 
-from gk_cn_model import CNgroup, KDEcut, Dist
-from gk_utils import runDocker
+from .gk_cn_model import CNgroup, KDEcut, Dist
+from .gk_utils import runDocker
 
 
 def bam2Depth(file_bam: str, file_depth: str):
@@ -103,6 +103,7 @@ def predictSamplesCN(samples_bam: list[str],
                      samples_cn: list[str],
                      bam_selected_regions: dict[str, list[tuple[int, int]]] = {},
                      save_cn_model_path: str | None = None,
+                     assume_3DL3_diploid: bool = False,
                      select_mode: str = "p75",
                      cluster_method: str = "CNgroup"
                      ):
@@ -133,7 +134,9 @@ def predictSamplesCN(samples_bam: list[str],
         sample_gene_depths.append(gene_depths)
 
     # depth per gene -> cn per gene
-    cns, model = depthToCN(sample_gene_depths, cluster_method=cluster_method)
+    cns, model = depthToCN(sample_gene_depths,
+                           cluster_method=cluster_method,
+                           assume_3DL3_diploid=assume_3DL3_diploid)
 
     if save_cn_model_path:
         model.save(save_cn_model_path)

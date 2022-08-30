@@ -6,17 +6,17 @@ from typing import Any
 from collections import defaultdict
 from dataclasses import asdict
 
-from gk_utils import NumpyEncoder
-from gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, PairRead
-from gk_multi_allele_typing import AlleleTyping
-from gk_hisat2em import Hisat2AlleleResult, printHisatTyping
+from .gk_utils import NumpyEncoder
+from .gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, PairRead
+from .gk_multi_allele_typing import AlleleTyping
+from .gk_hisat2em import Hisat2AlleleResult, printHisatTyping
 
 
 def removeMultipleMapped(reads_data: ReadsAndVariantsData) -> ReadsAndVariantsData:
     """ actually remove NH != 1 reads """
     return {
         'variants': reads_data['variants'],
-        'reads': list(filter(lambda i: i.multiple != 1, reads_data['reads'])),
+        'reads': list(filter(lambda i: i.multiple == 1, reads_data['reads'])),
     }
 
 

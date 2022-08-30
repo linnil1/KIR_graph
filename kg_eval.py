@@ -1,265 +1,299 @@
 import re
-from collections import defaultdict, Counter
+from enum import Enum
+from typing import Iterator, Callable
+from dataclasses import dataclass
+from collections import defaultdict
 import pandas as pd
 
 
-def getGeneName(s):
-    return s.split("*")[0]
+CohortAlleles = dict[str, list[str]]  # it's ordered dict too
 
 
-class EvaluateKIR:
-    def __init__(self, summary_csv: str, verbose=True):
-        """ Get answer alleles from summary.csv """
-        data = pd.read_csv(summary_csv, sep="\t", dtype=str)
-        print(data)
-        # this is ordered dict
-        self.ans = {i.id: sorted(i.alleles.split("_")) for i in data.itertuples()}
-        self.verbose = verbose
+class MatchType(Enum):
+    """
+    Possible types of matching two alleles (left = answer, right = predict)
 
-    def getAns(self, id):
-        """ Return allelelist of str """
-        return self.ans[id]
+    * MATCH7: answer == predict
+    * MATCH5: KIR2DL1*0010101, KIR2DL1*0010103
+    * MATCH5: KIR2DL1*0010101, KIR2DL1*00101
+    * MATCH3: KIR2DL1*0010101, KIR2DL1*0010201
+    * MATCH3: KIR2DL1*00101,   KIR2DL1*00102
+    * GENE:   KIR2DL1*001,     KIR2DL1*002
+    * FN:     KIR2DL1*0010101, NOT FOUND
+    * FP:     NOT FOUND,       KIR2DL1*0010101
+    """
+    MATCH7    = 0b11111
+    MATCH5    = 0b11101
+    MATCH3    = 0b11001
+    MATCHGENE = 0b10001
+    FN        = 0b10000
+    FP        = 0b00001
+    NONE      = 0b00000
 
-    def getAnsCN(self, id):
-        alleles = self.getAns(id)
-        return Counter(map(getGeneName, alleles))
 
-    def compareSample(self, id, predict_list):
-        return self.evaluteList(self.getAns(id), predict_list, title=f"Sample {id}")
+@dataclass(order=True)
+class MatchResult:
+    """ The pair of alleles from answer and predict alleles """
+    answer_allele: str = ""  # order is important
+    predit_allele: str = ""
+    match_type: MatchType = MatchType.NONE
 
-    def compareCohert(self, predict_cohert, skip_empty=False):
-        """
-        Compare called alleles from all samples
 
-        Args:
-          predict_cohert(Any): It can be dict[str, list[str]] or list[list[str]]
+def getGeneName(allele: str) -> str:
+    """ KIR3DP1*BACKBONE -> KIR3DP1 """
+    return allele.split("*")[0]
 
-        Return:
-          summary(dict[str, int]): The number of each metrics
-        """
-        # if list -> compare the ans with same order
-        if type(predict_cohert) is list:
-            ids = list(self.ans.keys())
-            if skip_empty:
-                ids = ids[:min(len(ids), len(predict_cohert))]
-            results = [self.compareSample(id, predict_cohert[i]) for i, id in enumerate(ids)]
-        # if list -> compare the ans with same id
-        elif type(predict_cohert) is dict:
-            ids = self.ans.keys()
-            if skip_empty:
-                ids =  ids & predict_cohert.keys()
-            ids = sorted(ids)
-            results = [self.compareSample(id, predict_cohert.get(id, [])) for id in ids]
-        else:
-            raise NotImplementedError
-        EvaluateKIR.summarize(results)
-        EvaluateKIR.summarize2(results)
-        return results
 
-    def evaluteList(self, ans_list, predict_list, title=""):
-        """ Compare two alleles set """
-        predict_list = sorted(predict_list)
-        comparison_tuple = []
+def getAlleleField(allele: str, resolution: int = 7) -> str:
+    """ KIR3DP1*0010101 with resolution 5 -> 00101 """
+    return allele.split("*")[1][:resolution]
 
-        for gene in set(getGeneName(i) for i in ans_list + predict_list):
-            # if gene in ["KIR2DP1", "KIR3DP1"]:
-            #     continue
-            if "KIR2DL5*unresolved" in predict_list and gene in ["KIR2DL5A", "KIR2DL5B"]:
-                continue  # skip 2DL5A 2DL5B only run when gene == "KIR2DL5"
-            comparison_tuple.extend(
-                EvaluateKIR.testPerGene([i for i in ans_list if i.startswith(gene)],
-                                        [i for i in predict_list if i.startswith(gene)])
-            )
-        comparison_tuple.sort(key=lambda i: i[1] or i[2])
-        if self.verbose:
-            print(title)
-            for t, a, b in comparison_tuple:
-                if t == "Match7":
-                    print(f"{a:18} OK {b:18}")
-                elif t == "Match5":
-                    print(f"{a:18} <5 {b:18}")
-                elif t == "Match3":
-                    print(f"{a:18} <3 {b:18}")
-                elif t == "MatchGene":
-                    print(f"{a:18} <0 {b:18}")
-                elif t == "FN":
-                    print(f"{a:18} <-")
-                elif t == "FP":
-                    print(f"{'':18} -> {b:18}")
-        return comparison_tuple
 
-    @staticmethod
-    def testPerGene(a_list, b_list):
-        """
-        Compare two alleles set
+def groupByGene(alleles: list[str]) -> dict[str, list[str]]:
+    """ return dict[gene_name, list[allele_name]] """
+    gene_alleles = defaultdict(list)
+    for name in alleles:
+        gene_alleles[getGeneName(name)].append(name)
+    return gene_alleles
 
-        (All alleles in these two set must in the same gene)
 
-        Args:
-          a_list: list[str]
-          b_list: list[str]
+def readAnswerAllele(summary_tsv: str) -> CohortAlleles:
+    """ Read answer allele """
+    data = pd.read_csv(summary_tsv, sep="\t", dtype=str)
+    return {i.id: sorted(i.alleles.split("_")) for i in data.itertuples()}
 
-        Return:
-          list[ tuple[str, str, str] ]: list of comparison
-            each comparison contains three items
-            * type
-            * a_allele
-            * b_allele
-        """
-        # Find perfect match
-        for allele in list(b_list):
-            if allele in a_list:
-                a_list.remove(allele)
-                b_list.remove(allele)
-                yield ("Match7", allele, allele)
 
-        # Find match 5 digits
-        for allele_b in list(b_list):
-            for allele_a in a_list:
-                if allele_a[:allele_a.index("*") + 6] == allele_b[:allele_b.index("*") + 6]:
-                    a_list.remove(allele_a)
-                    b_list.remove(allele_b)
-                    yield ("Match5", allele_a, allele_b)
-                    break
+def extractID(name: str) -> str:
+    """
+    Extract the sample id from filename
 
-        # Find match 3 digits
-        for allele_b in list(b_list):
-            for allele_a in a_list:
-                if allele_a[:allele_a.index("*") + 4] == allele_b[:allele_b.index("*") + 4]:
-                    a_list.remove(allele_a)
-                    b_list.remove(allele_b)
-                    yield ("Match3", allele_a, allele_b)
-                    break
+    Example:
+      Input: "linnil1_syn_30x_seed87.00.index.1.02.fa"
+      Output: "00"
+    """
+    return re.findall(r"\.(\d{2})\.", name)[0]
 
-        # Find match < 3 digits
-        for allele_a, allele_b in zip(list(a_list), list(b_list)):
-            yield ("MatchGene", allele_a, allele_b)
-            a_list.remove(allele_a)
-            b_list.remove(allele_b)
 
-        # copy number error
-        for allele in a_list:
-            yield ("FN", allele, None)
-        for allele in b_list:
-            yield ("FP", None, allele)
+def readPredictResult(tsv_file: str,
+                      extract_func: Callable[[str], str] = extractID
+                      ) -> CohortAlleles:
+    """ Read predict alleles (same format as summary.csv) """
+    data = pd.read_csv(tsv_file, sep='\t')
+    return {extract_func(i.name): sorted(i.alleles.split("_"))
+                for i in data.itertuples()}
 
-    @staticmethod
-    def summarize(comparison_list):
-        """
-        Summarize the comparison
 
-        Args:
-          comparison_list(list[list[tuple]]): The comparisons of each sample
-        Return:
-          summary(dict[str, int]): The number of each metrics
-        """
-        summary = defaultdict(int)
-        # TP, FP, FN, match_gene, match_3, match_5, total, cn_error = 0, 0, 0, 0, 0, 0, 0, 0
-        for result in comparison_list:
-            summary['total'] += len([i[1] for i in result if i[1]])
-            summary['total_sample'] += 1
-            if all(i[0] == 'FN' for i in result):
-                summary['fail_allele'] += len(result)
-                summary['fail_sample'] += 1
+def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
+                  skip_empty: bool = True, verbose_sample: bool = True):
+    """
+    Compare answer and called alleles from all samples
+
+    Parameters:
+      cohort_answer: Reference alleles
+      cohort_predit: Predicted alleles
+      skip_empty: ignore when there is not such sample id in the predicted cohort
+      verbose_sample: Print sample comparison
+    """
+    samples_id = set(cohort_answer.keys())
+    if skip_empty:
+        samples_id = samples_id & set(cohort_predit.keys())
+
+    results = []
+    for sample_id in sorted(samples_id):
+        results.append(compareSample(
+            cohort_answer[sample_id],
+            cohort_predit.get(sample_id, []),
+        ))
+        if verbose_sample:
+            print(f"Sample {sample_id}")
+            printSummarySample(results[-1])
+
+    printSummary(results)
+    printSummaryByResolution(results)
+
+
+def compareSample(answer_list: list[str], predict_list: list[str]) -> list[MatchResult]:
+    """ Compare two alleles set """
+    gene_comparison_result: list[MatchResult] = []
+    answer_dict = groupByGene(answer_list)
+    predit_dict = groupByGene(predict_list)
+
+    # if KIR2DL5 occurs, treat KIR2DL5A KIR2DL5B in the same gene "KIR2DL5"
+    if "KIR2DL5*unresolved" in predict_list:
+        answer_dict["KIR2DL5"] = answer_dict.pop("KIR2DL5A", []) + \
+                                 answer_dict.pop("KIR2DL5B", [])
+
+    for gene in answer_dict.keys() | predit_dict.keys():
+        # if gene in ["KIR2DP1", "KIR3DP1"]:
+        #     continue
+        gene_comparison_result.extend(compareGene(
+            answer_dict[gene],
+            predit_dict[gene]
+        ))
+
+    return sorted(gene_comparison_result)
+
+
+def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
+    """
+    Compare two alleles set
+
+    (All alleles in these two set must in the same gene)
+
+    Args:
+      a_list: list[str]
+      b_list: list[str]
+
+    Return:
+      list[ tuple[str, str, str] ]: list of comparison
+        each comparison contains three items
+        * type
+        * a_allele
+        * b_allele
+    """
+    # Find perfect match
+    for allele in list(b_list):
+        if allele in a_list:
+            a_list.remove(allele)
+            b_list.remove(allele)
+            yield MatchResult(allele, allele, MatchType.MATCH7)
+
+    # Find match 5 digits
+    for allele_b in list(b_list):
+        for allele_a in a_list:
+            if getAlleleField(allele_a, 5) == getAlleleField(allele_b, 5):
+                a_list.remove(allele_a)
+                b_list.remove(allele_b)
+                yield MatchResult(allele_a, allele_b, MatchType.MATCH5)
+                break
+
+    # Find match 3 digits
+    for allele_b in list(b_list):
+        for allele_a in a_list:
+            if getAlleleField(allele_a, 3) == getAlleleField(allele_b, 3):
+                a_list.remove(allele_a)
+                b_list.remove(allele_b)
+                yield MatchResult(allele_a, allele_b, MatchType.MATCH3)
+                break
+
+    # Find match < 3 digits
+    for allele_a, allele_b in zip(list(a_list), list(b_list)):
+        a_list.remove(allele_a)
+        b_list.remove(allele_b)
+        yield MatchResult(allele_a, allele_b, MatchType.MATCHGENE)
+
+    # copy number error
+    for allele in a_list:
+        yield MatchResult(allele, "", MatchType.FN)
+    for allele in b_list:
+        yield MatchResult("", allele, MatchType.FP)
+
+
+def printSummarySample(results: list[MatchResult]):
+    """ Print match result """
+    for result in results:
+        if result.match_type == MatchType.MATCH7:
+            print(f"{result.answer_allele:18} OK {result.predit_allele:18}")
+        elif result.match_type == MatchType.MATCH5:
+            print(f"{result.answer_allele:18} <5 {result.predit_allele:18}")
+        elif result.match_type == MatchType.MATCH3:
+            print(f"{result.answer_allele:18} <3 {result.predit_allele:18}")
+        elif result.match_type == MatchType.MATCHGENE:
+            print(f"{result.answer_allele:18} <0 {result.predit_allele:18}")
+        elif result.match_type == MatchType.FN:
+            print(f"{result.answer_allele:18} <-")
+        elif result.match_type == MatchType.FP:
+            print(f"{''                  :18} -> {result.predit_allele:18}")
+
+
+def printSummary(cohort_result: list[list[MatchResult]]) -> dict[str, int]:
+    """
+    Summarize the match results in the cohort
+
+    Return:
+      summary: The value of each metrics
+    """
+    summary: dict[str, int] = defaultdict(int)
+    for results in cohort_result:
+        summary['total'] += len([i for i in results if i.match_type != MatchType.FP])
+        summary['total_sample'] += 1
+
+        if all(i.match_type == MatchType.FN for i in results):
+            summary['fail_allele'] += len(results)
+            summary['fail_sample'] += 1
+            continue
+        for i in results:
+            summary[i.match_type.name] += 1
+
+    print(f"Total alleles       = {summary['total']} (sample = {summary['total_sample']})")
+    print(f"  * Cannot_called   = {summary['fail_allele']} (sample = {summary['fail_sample']})")
+    print(f"  * TP              = {summary[MatchType.MATCH7.name]}")
+    print(f"  * Match_5_digits  = {summary[MatchType.MATCH5.name]}")
+    print(f"  * Match_3_digits  = {summary[MatchType.MATCH3.name]}")
+    print(f"  * Match_gene      = {summary[MatchType.MATCHGENE.name]}")
+    print(f"  * Copy_number_err = {summary[MatchType.FN.name] + summary[MatchType.FP.name]}")
+    print(f"    * FN = {summary[MatchType.FN.name]}")
+    print(f"    * FP = {summary[MatchType.FP.name]}")
+    return summary
+
+
+def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[str, int]:
+    """
+    Summarize the match results in the cohort but normalized by answer's resolution
+
+    Return:
+      summary: The value of each metrics
+    """
+    summary = {
+        "7digits_total": 0,
+        "7digits_correct": 0,
+        "5digits_total": 0,
+        "5digits_correct": 0,
+        "3digits_total": 0,
+        "3digits_correct": 0,
+        "gene_total": 0,
+        "gene_correct": 0,
+        "FP": 0,
+    }
+
+    for results in cohort_results:
+        for result in results:
+            if not result.answer_allele:
+                summary["FP"] += 1
                 continue
-            for i in result:
-                summary[i[0]] += 1
 
-        print(f"Total alleles       = {summary['total']} (sample = {summary['total_sample']})")
-        print(f"  * Cannot_called   = {summary['fail_allele']} (sample = {summary['fail_sample']})")
-        print(f"  * TP              = {summary['Match7']}")
-        print(f"  * Match_5_digits  = {summary['Match5']}")
-        print(f"  * Match_3_digits  = {summary['Match3']}")
-        print(f"  * Match_gene      = {summary['MatchGene']}")
-        print(f"  * Copy_number_err = {summary['FN'] + summary['FP']}")
-        print(f"    * FN = {summary['FN']}")
-        print(f"    * FP = {summary['FP']}")
-        return summary
+            if len(getAlleleField(result.answer_allele)) == 7:
+                summary["7digits_total"] += 1
+                if result.match_type in [MatchType.MATCH7]:
+                    summary["7digits_correct"] += 1
 
-    @staticmethod
-    def summarize2(comparison_list):
-        """
-        Summarize the comparison
+            if len(getAlleleField(result.answer_allele)) >= 5:
+                summary["5digits_total"] += 1
+                if result.match_type in [MatchType.MATCH7, MatchType.MATCH5]:
+                    summary["5digits_correct"] += 1
 
-        Args:
-          comparison_list(list[list[tuple]]): The comparisons of each sample
-        Return:
-          summary(dict[str, int]): The number of each metrics
-        """
-        acc_total7 = [0, 0]
-        acc_total5 = [0, 0]
-        acc_total3 = [0, 0]
-        acc_total0 = [0, 0]
-        FP = 0
-        # TP, FP, FN, match_gene, match_3, match_5, total, cn_error = 0, 0, 0, 0, 0, 0, 0, 0
-        for result in comparison_list:
-            for i in result:
-                if i[1] == None:
-                    FP += 1
-                    continue
-                if len(i[1].split('*')[1]) == 7:
-                    acc_total7[1] += 1
-                    if i[0] == "Match7":
-                        acc_total7[0] += 1
-                if len(i[1].split('*')[1]) >= 5:
-                    acc_total5[1] += 1
-                    if i[0] in ["Match7", "Match5"]:
-                        acc_total5[0] += 1
-                if len(i[1].split('*')[1]) >= 3:
-                    acc_total3[1] += 1
-                    if i[0] in ["Match7", "Match5", "Match3"]:
-                        acc_total3[0] += 1
-                if len(i[1].split('*')[1]) >= 0:
-                    acc_total0[1] += 1
-                    if i[0] in ["Match7", "Match5", "Match3", "MatchGene"]:
-                        acc_total0[0] += 1
+            if len(getAlleleField(result.answer_allele)) >= 3:
+                summary["3digits_total"] += 1
+                if result.match_type in [MatchType.MATCH7, MatchType.MATCH5, MatchType.MATCH3]:
+                    summary["3digits_correct"] += 1
 
-        print(f"7-digits: {acc_total7[0]:5d} / {acc_total7[1]:5d} = {acc_total7[0] / acc_total7[1]:.3f}")
-        print(f"5-digits: {acc_total5[0]:5d} / {acc_total5[1]:5d} = {acc_total5[0] / acc_total5[1]:.3f}")
-        print(f"3-digits: {acc_total3[0]:5d} / {acc_total3[1]:5d} = {acc_total3[0] / acc_total3[1]:.3f}")
-        print(f"Gene:     {acc_total0[0]:5d} / {acc_total0[1]:5d} = {acc_total0[0] / acc_total0[1]:.3f}")
-        print(f"CN:       {FP=:5d} FN={acc_total0[1] - acc_total0[0]:5d}")
+            if len(getAlleleField(result.answer_allele)) >= 0:
+                summary["gene_total"] += 1
+                if result.match_type in [MatchType.MATCH7, MatchType.MATCH5, MatchType.MATCH3, MatchType.MATCHGENE]:
+                    summary["gene_correct"] += 1
 
-        print(f"{acc_total7[0]:5d}\t{acc_total7[0] / acc_total7[1]:.3f}\t"
-              f"{acc_total5[0]:5d}\t{acc_total5[0] / acc_total5[1]:.3f}\t"
-              f"{acc_total3[0]:5d}\t{acc_total3[0] / acc_total3[1]:.3f}\t"
-              f"{acc_total0[0]:5d}\t{acc_total0[0] / acc_total0[1]:.3f}\t"
-              f"{FP:5d}")
+    def precisionStr(a: int, b: int) -> str:
+        return f"{a:5d} / {b:5d} = {a / b:.3f}"
 
-
-def extractID(name):
-    # linnil1_syn_30x_seed87.00.index_
-    return re.findall(r"\.(\w+)\.index_", name)[0]
-
-
-def readHisatResult(csv_file):
-    """ Read predict alleles (sam format as summary.csv """
-    data = pd.read_csv(csv_file, sep='\t')
-    return {extractID(i.name): sorted(i.alleles.split("_")) for i in data.itertuples()}
-
-
-def readGATKIRResult(csv_file):
-    """ Read predict alleles (sam format as summary.csv """
-    data = pd.read_csv(csv_file, sep='\t')
-    return {f"{i.id:02d}": sorted(i.alleles.split("_")) for i in data.itertuples()}
+    print(f"7-digits: {precisionStr(summary['7digits_correct'], summary['7digits_total'])}")
+    print(f"5-digits: {precisionStr(summary['5digits_correct'], summary['5digits_total'])}")
+    print(f"3-digits: {precisionStr(summary['3digits_correct'], summary['3digits_total'])}")
+    print(f"Gene:     {precisionStr(summary['gene_correct'],    summary['gene_total'])}")
+    print(f"CN:       FP={summary['FP']} FN={summary['gene_total'] - summary['gene_correct']}")
+    return summary
 
 
 if __name__ == "__main__":
-    # test
-    # result = EvaluateKIR.test(["KIR3DL3*097", "KIR3DL3*0020605", "KIR2DS2*0010112", "KIR2DS2*0010102", "KIR2DL2*0010102", "KIR2DL2*0010101", "KIR2DL5A*00107", "KIR2DL5A*030", "KIR2DL5B*0390102", "KIR2DS3*009", "KIR2DP1*0020105", "KIR2DL1*0030230", "KIR3DP1*026", "KIR3DP1*00312", "KIR2DL4*0010302", "KIR2DL4*045", "KIR3DS1*0130108", "KIR3DS1*0130102", "KIR2DS5*0020105", "KIR2DS5*0020107", "KIR2DS1*013", "KIR2DS1*0020103", "KIR3DL2*0070102", "KIR3DL2*023"], ["KIR3DL3*097", "KIR2DS2*00102", "KIR2DS2*003", "KIR2DL2*0010103"])
-    # EvaluateKIR.summarize([result])
-
-    # evaluate PING
-    # kir = EvaluateKIR("linnil1_syn_wide/linnil1_syn_wide.summary.csv")
-
-    # 100 samples
-    # ping_called_alleles = readPingResult(f"/home/linnil1/kir/PING/PING_test/linnil1_syn_wide_result/finalAlleleCalls.csv")
-    # kir.compareCohert(ping_called_alleles)
-
-    # 10 samples
-    # ping_called_alleles = {k: v for k, v in ping_called_alleles.items() if k.startswith("0")}
-    # kir.compareCohert(ping_called_alleles, skip_empty=True)
-
     answer = "linnil1_syn_30x_seed87"
 
     data = [{
@@ -329,16 +363,13 @@ if __name__ == "__main__":
     #     'file': f"data/{answer}_merge.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
     }])
 
-
     from ping import readPingResult
-    kir = EvaluateKIR(f"{answer}/{answer}.summary.csv", verbose=False)
+    cohort = readAnswerAllele(f"{answer}/{answer}.summary.csv")
 
     for dat in data:
         print(dat['type'])
         if "ping" in dat['type']:
-            called_alleles = readPingResult(dat['file'])
-        elif "GATKIR" in dat['type']:
-            called_alleles = readGATKIRResult(dat['file'])
+            called = readPingResult(dat['file'])
         else:
-            called_alleles = readHisatResult(dat['file'])
-        kir.compareCohert(called_alleles)
+            called = readPredictResult(dat['file'])
+        compareCohort(cohort, called, skip_empty=False, verbose_sample=False)

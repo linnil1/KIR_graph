@@ -9,13 +9,13 @@ from scipy.signal import argrelextrema
 from collections import Counter
 
 from namepipe import nt, NameTask
-from kg_eval import EvaluateKIR
 from kg_utils import (
     runShell,
     runDocker,
     threads,
     samtobam,
 )
+from kg_eval import readAnswerAllele, compareCohort
 
 
 def getGeneName(s):
@@ -419,8 +419,8 @@ def mergeAlleles(input_name, answer, select_all=False):
     df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
     print(df)
 
-    ans = EvaluateKIR(f"{answer}/{answer}.summary.csv")
-    ans.compareCohert(called_alleles_dict, skip_empty=True)
+    ans = readAnswerAllele(f"{answer}/{answer}.summary.csv")
+    compareCohort(ans, called_alleles_dict)
     return output_name
 
 
@@ -430,7 +430,7 @@ def answerPloidy(folder_name, answer):
     if Path(output_name + ".csv").exists():
         return output_name
 
-    ans = EvaluateKIR(f"{answer}/{answer}.summary.csv")
+    ans = readAnswerAllele(f"{answer}/{answer}.summary.csv")
     ids = []
     dfs = []
     def renameGene(i):
@@ -441,7 +441,7 @@ def answerPloidy(folder_name, answer):
             'KIR2DL5B': "KIR2DL5AB",
         }.get(i, i)
 
-    for id, alleles in ans.ans.items():
+    for id, alleles in ans.items():
         ids.append(id)
         dfs.append(Counter(map(renameGene, map(getGeneName, alleles))))
 

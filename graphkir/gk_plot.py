@@ -8,9 +8,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from gk_cn import readSamtoolsDepth
-from gk_cn_model import loadCNModel
-from gk_utils import runDocker, runShell
+from .gk_cn import readSamtoolsDepth
+from .gk_cn_model import loadCNModel
+from .gk_utils import runDocker, runShell
 
 
 def plotCN(filename_json: str) -> list[go.Figure]:

@@ -483,9 +483,9 @@ def plotGeneMappedAcc():
     for id in range(10):
         name = f"{sample_index}.{id:02d}"
         dat = [
-            {'method': "hisat_raw",    'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.id_only.json"},
-            {'method': "hisat_2dl1s1", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.id_only.json"},
-            {'method': "hisat_ab",     'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.id_only.json"},
+            {'method': "hisat",           'file': f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.id_only.json"},
+            {'method': "hisat_ab_2dl1s1", 'file': f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.id_only.json"},
+            {'method': "hisat_ab",        'file': f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.id_only.json"},
         ]
         for i in dat:
             i['id'] = id
@@ -546,9 +546,9 @@ def plotGeneMappedAcc():
     df2 = pd.concat(df_nomulti_acc)
     df2['multi'] = False
     df = pd.concat([df1, df2])
-    df['method-multi'] = df['method'] + "-" + df['multi'].astype(str)
+    df['method-multi'] = df['method'] + "-" + df['multi'].apply(lambda i: "multi" if i else "nomulti")
     order = {
-        'method-multi': sorted(set(df['method-multi']), key=lambda i: (i.split('-')[0], i.split('-')[1] == "False")),
+        'method-multi': sorted(set(df['method-multi']), key=lambda i: (i.split('-')[0], i.split('-')[1] == "nomulti")),
         'to': sorted(set(df['to'])),
     }
     color = list(chain.from_iterable(zip(px.colors.qualitative.Pastel2, px.colors.qualitative.Dark2)))

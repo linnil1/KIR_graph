@@ -1,29 +1,27 @@
 import os
+from glob import glob
 from pathlib import Path
 import pandas as pd
 from namepipe import nt, NameTask
 
-import kg_create_data
-import kg_build_index
-
-from kg_build_msa import (
-    kirToMultiMsa,
-    kirToSingleMsa,
-    kirMerge2dl1s1,
-)
-
-from kg_utils import (
+from graphkir.gk_build_index import buildHisatIndex, msa2HisatReference
+from graphkir.gk_build_msa import buildKirMsa
+from graphkir.gk_hisat2 import hisatMap, extractVariantFromBam
+from graphkir.gk_cn import predictSamplesCN, loadCN
+from graphkir.gk_kir_typing import TypingWithPosNegAllele, TypingWithReport, Typing
+from graphkir.gk_main import mergeAllele
+from graphkir.gk_utils import (
     runShell,
-    runDocker,
-    runAll,
-    getSamples,
-    threads,
     samtobam,
 )
 
-import kg_typping
-import kg_typping_linnil1
-from kg_eval import EvaluateKIR
+from kg_utils import (
+    threads,
+    runDocker,
+)
+
+import kg_create_data
+from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 from kg_extract_exon_seq import extractExonPairReads
 
 
@@ -67,21 +65,6 @@ def linkSamples(input_name, data_folder):
         return output_name
     runShell(f"ln -s ../{input_name}.1.fq {new_name}.read.1.fq")  # add .read is for previous naming
     runShell(f"ln -s ../{input_name}.2.fq {new_name}.read.2.fq")
-    return output_name
-
-
-@nt
-def hisatMap(input_name, index):
-    # 1 to 1
-    output_name = input_name + "." + index.replace("/", "_")
-    if Path(f"{output_name}.bam").exists():
-        return output_name
-    f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
-    runDocker("hisat", f"""\
-              hisat2 --threads {threads} -x {index}.graph -1 {f1} -2 {f2} \
-              --no-spliced-alignment --max-altstried 64 --haplotype \
-              -S {output_name}.sam """)
-    samtobam(output_name)
     return output_name
 
 
@@ -169,79 +152,137 @@ def bwa(input_name, index, use_arg="default"):
 
 
 @nt
-def hisatTyping(input_name, index):
-    suffix = kg_typping.main(index, input_name + ".bam")
-    return input_name + suffix
+def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
+    output_name = f"{input_name}/kir_2100_{msa_type}"
+    if len(glob(output_name + ".KIR*")):
+        return output_name
+    buildKirMsa(msa_type, output_name)
+    return output_name
 
 
 @nt
-def hisatKIRTyping(input_name, index, exon=False, cohert=False):
-    kir = kg_typping_linnil1.HisatKIR(index)
-    if cohert:
-        kir.cn_cohert = True
+def buildHisatIndexWrap(input_name):
+    output_name = input_name + ".graph"
+    if Path(output_name + ".8.ht2").exists():
+        return output_name
 
+    buildHisatIndex(input_name, output_name)
+    return output_name
+
+
+@nt
+def msa2HisatReferenceWrap(input_name):
+    output_name = input_name + ".mut01"
+    if Path(output_name + ".haplotype").exists():
+        return output_name
+    msa2HisatReference(input_name, output_name)
+    return output_name
+
+
+@nt
+def hisatMapWrap(input_name, index):
+    # 1 to 1
+    output_name = input_name + "." + index.replace("/", "_")
+    if Path(f"{output_name}.bam").exists():
+        return output_name
+    f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
+    hisatMap(index, f1, f2, output_name + ".bam")
+    return output_name
+
+
+@nt
+def extractVariant(input_name, ref_index):
+    output_name = input_name + ".variant"
+    if Path(output_name + ".json").exists():
+        return output_name
+    extractVariantFromBam(ref_index, input_name + ".bam", output_name)
+    return output_name
+
+
+@nt
+def cnPredict(input_name, ref_index, exon=False):
+    suffix_variant = ".no_multi"
+    cn_cluster = "CNgroup"
+    cn_select = "p75"
+    assume_3DL3_diploid = True
+
+    suffix_depth = f"{suffix_variant}.depth{'.exon' if exon else ''}"
+    suffix_cn = f"{suffix_depth}.{cn_select}.{cn_cluster}"
+    if assume_3DL3_diploid:
+        suffix_cn += "_assume3DL3"
+    output_name = input_name + suffix_cn
+    exon_regions = {}
     if exon:
-        kir.cn_type = "sam_exon_depth"
+        exon_regions = readExons(ref_index)
+
+    if "*" not in input_name:
+        if Path(output_name + ".json").exists():
+            return output_name
+        predictSamplesCN([input_name + suffix_variant + ".bam"],
+                         [input_name + suffix_cn      + ".tsv"],
+                         bam_selected_regions=exon_regions,
+                         cluster_method=cn_cluster,
+                         select_mode=cn_select,
+                         assume_3DL3_diploid=assume_3DL3_diploid,
+                         save_cn_model_path=output_name + ".json")
     else:
-        kir.cn_type = "sam_depth"
-
-    kir.cn_type = "sam_exon_depth"
-    # kir.typing_by = "hisat"
-    # kir.cn_dev = 0.04
-    kir.cn_kde = False
-    kir.cn_multi = False
-    kir.cn_groupby_op = "p75"
-    # kir.cn_groupby_op = "mean"
-    # kir.cn_groupby_op = "median"
-    # kir.typing_by = "hisat"
-    # kir.typing_by = "likelihood_multi"
-    kir.typing_by = "likelihood"
-    suffix = kir.main(input_name)
-    print(input_name, suffix)
-    return input_name + suffix
+        output_name1 = input_name.replace_wildcard("_merge_cn")
+        if Path(output_name1 + ".json").exists():
+            return output_name
+        predictSamplesCN([input_name + suffix_variant + ".bam" for name in input_name.get_input_names()],
+                         [input_name + suffix_cn      + ".tsv" for name in input_name.get_input_names()],
+                         bam_selected_regions=exon_regions,
+                         cluster_method=cn_cluster,
+                         select_mode=cn_select,
+                         save_cn_model_path=output_name1 + ".json")
+    return output_name
 
 
 @nt
-def hisatKIRCohertCN(input_name, index):
-    names = input_name.get_input_names()
-    kir = kg_typping_linnil1.HisatKIR(index)
-    # must be same as hisatKIRTyping
-    # kir.cn_dev = 0.04
-    kir.cn_kde = True
-    kir.cn_groupby_op = "median"
-    kir.cn_type = "sam_depth"     
-    kir.typing_by = "likelihood"
+def kirTyping(input_name, cn_input_name):
+    allele_method = "pv"
 
-    print(names)
-    gene_cns = kir.calcAndSaveCohertCN(names, input_name.replace_wildcard("_mergeforCN"))
-    print(gene_cns)
+    # setup
+    assert len(input_name.template_args) == 1
+    id = input_name.template_args[0]
+    cn_name = cn_input_name.output_name.template.format(id)
+    output_name_template = cn_input_name.output_name + "." + allele_method
+    output_name = output_name_template.format(id)
 
-    return input_name.replace_wildcard("_mergeforCN")
+    if Path(output_name + ".tsv").exists():
+        return output_name_template
+
+    if allele_method:
+        t = TypingWithPosNegAllele(input_name + ".json")  # type: Typing
+    else:
+        t = TypingWithReport(input_name + ".em.json")
+    cn = loadCN(cn_name + ".tsv")
+
+    print(input_name)
+    print(cn)
+    called_alleles = t.typing(cn)
+    print(called_alleles)
+
+    t.save(output_name + ".json")
+    pd.DataFrame([{
+        'name': output_name,
+        'alleles': "_".join(called_alleles),
+    }]).to_csv(output_name + ".tsv", sep="\t", index=False)
+    return output_name_template
 
 
 @nt
-def hisatKIRRessult(input_name, answer):
-    ans = EvaluateKIR(f"{answer}/{answer}.summary.csv")
-
-    called_alleles_dict = {}
-    predict_list = []
-
-    for name in input_name.get_input_names():
-        predict = kg_typping_linnil1.readAlleleResult(name + ".tsv")[0]
-        id = name.template_args[0]
-        predict['id'] = id
-        predict_list.append({
-            'id': id,
-            'name': predict['name'],
-            'alleles': '_'.join(predict['alleles']),
-        })
-        called_alleles_dict[id] = predict['alleles']
-
-    df = pd.DataFrame(predict_list)
+def kirResult(input_name, answer):
     output_name = input_name.replace_wildcard("_merge")
-    df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-    print(df)
-    ans.compareCohert(called_alleles_dict, skip_empty=True)
+
+    mergeAllele(
+        [name + ".tsv" for name in input_name.get_input_names()],
+        output_name + ".tsv"
+    )
+
+    answer = readAnswerAllele(f"{answer}/{answer}.summary.csv")
+    predit = readPredictResult(output_name + ".tsv")
+    compareCohort(answer, predit, skip_empty=True)
     return output_name
 
 
@@ -262,8 +303,10 @@ def extractExon(input_name, folder):
 
 
 if __name__ == "__main__":
-    data_folder = "data"
+    data_folder = "data5"
+    index_folder = "index5"
     Path(data_folder).mkdir(exist_ok=True)
+    Path(index_folder).mkdir(exist_ok=True)
     extract_exon = False
 
     answer_folder = "linnil1_syn_wide"
@@ -271,9 +314,6 @@ if __name__ == "__main__":
     answer_folder = "linnil1_syn_30x"
     answer_folder = "linnil1_syn_30x_seed87"
     Path(answer_folder).mkdir(exist_ok=True)
-
-    index_folder = "index"
-    os.makedirs(index_folder, exist_ok=True)
 
     samples = answer_folder >> createSamples
 
@@ -286,20 +326,18 @@ if __name__ == "__main__":
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    # msa_index = index_folder >> NameTask(func=kirToMultiMsa)  # "index/kir_2100_raw.mut01"
-    msa_index = index_folder >> NameTask(func=kirMerge2dl1s1) # index = "index/kir_2100_2dl1s1.mut01"
-    # msa_index = index_folder >> NameTask(func=kirToMultiMsa).set_args(split_2DL5=True) # index = "index/kir_2100_ab.mut01"
-    # msa_index = index_folder >> NameTask(func=kirToSingleMsa) # index = "index/kir_2100_merge.mut01"
+    msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1")
+    ref_index = msa_index >> msa2HisatReferenceWrap
+    index = ref_index >> buildHisatIndexWrap
 
-    index = msa_index >> NameTask(func=kg_build_index.main)
     print(index)
     # samples = "data2/linnil1_syn_30x_seed87.{}"
-    mapping = samples >> hisatMap.set_args(index=str(index)) >> hisatTyping.set_args(index=str(index))
-    typing = mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon)
-    # typing_cohert = mapping >> hisatKIRCohertCN.set_args(index=str(index)).set_depended(0)
-    # typing =        mapping >> hisatKIRTyping.set_args(index=str(index), exon=extract_exon, cohert=True)
-    typing = typing >> hisatKIRRessult.set_args(answer=answer_folder).set_depended(0)
-    # print(mapping)
+    mapping = samples >> hisatMapWrap.set_args(index=str(index)) 
+    variant = mapping >> extractVariant.set_args(ref_index=str(ref_index))
+
+    cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
+
+    typing = variant >> kirTyping.set_args(cn) >> kirResult.set_args(answer=answer_folder).set_depended(0)
 
 
     # bowtie mapping rate

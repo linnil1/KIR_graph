@@ -4,9 +4,13 @@ import uuid
 import subprocess
 from concurrent.futures import ProcessPoolExecutor
 
+from graphkir.gk_utils import (
+    runShell,
+    samtobam,
+    runDocker as runDockerGK
+)
 
-threads = 30
-docker_path = "podman"
+threads = 20
 images = {
     'samtools': "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
     'clustalo': "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
@@ -24,61 +28,7 @@ images = {
 }
 
 
-def runDocker(image, cmd, capture_output=False, opts="", workdir="/app"):
+def runDocker(image: str, cmd: str, *arg, **kwargs):
     """ run docker container """
-    if image in images:
-        image = images[image]
-    name = str(uuid.uuid4()).split("-")[0]
-    # docker_path = "docker"
-    proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
-                    f"-w {workdir} -v $PWD:/app {opts} {image} {cmd}",
-                    capture_output=capture_output)
-    return proc
-
-
-def runShell(cmd, capture_output=False, cwd=None):
-    """ wrap os.system """
-    print(cmd)
-    proc = subprocess.run(cmd, shell=True,
-                          capture_output=capture_output,
-                          cwd=cwd,
-                          universal_newlines=True)
-    proc.check_returncode()
-    return proc
-
-
-def getSamples(name, endswith="", strict=True, return_name=False):
-    """
-    Args:
-      name(str): `folder/xxx.a.b`
-      endswith(str): `.c`
-      strict(bool):  If strict, the format `folder/xxx.a.b.{xx}.c` where `xx` has no `.`
-    """
-    files = glob(name + ".*")
-    # check name
-    for i in files:
-        assert i.startswith(name + ".")
-    if endswith:
-        files = [i for i in files if i.endswith(endswith)]
-    if strict:
-        files = [i for i in files if i[len(name) + 1: -len(endswith)].count(".") == 0]
-    if not return_name:
-        return sorted(files)
-
-    names = [i[len(name) + 1: -len(endswith)] for i in files]
-    return sorted(zip(files, names))
-
-
-def runAll(func, samples, concurrent=True):
-    if not concurrent:
-        return map(func, samples)
-    with ProcessPoolExecutor(max_workers=threads) as executor:
-        return executor.map(func, samples)
-
-
-def samtobam(name, keep=False):
-    """ This is so useful """
-    runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
-    runDocker("samtools", f"samtools index    {name}.bam")
-    if not keep:
-        runShell(f"rm {name}.sam")
+    image = images.get(image, image)
+    return runDockerGK(image, cmd, *arg, **kwargs)

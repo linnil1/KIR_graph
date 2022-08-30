@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from Bio import SeqIO
 import numpy as np
-from gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData
+from .gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData
 
 
 @dataclass

@@ -6,12 +6,12 @@ import argparse
 from glob import glob
 import pandas as pd
 
-from gk_build_msa import buildKirMsa
-from gk_build_index import msa2HisatReference, buildHisatIndex
-from gk_hisat2 import hisatMap, extractVariantFromBam, readExons
-from gk_cn import predictSamplesCN, loadCN
-from gk_kir_typing import TypingWithPosNegAllele, TypingWithReport, Typing
-from gk_plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
+from .gk_build_msa import buildKirMsa
+from .gk_build_index import msa2HisatReference, buildHisatIndex
+from .gk_hisat2 import hisatMap, extractVariantFromBam, readExons
+from .gk_cn import predictSamplesCN, loadCN
+from .gk_kir_typing import TypingWithPosNegAllele, TypingWithReport, Typing
+from .gk_plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
 
 
 def mergeAllele(allele_result_files: list[str], final_result_file: str):
@@ -161,6 +161,7 @@ def main(args: argparse.Namespace):
                              [name + suffix_cn + ".tsv"],
                              bam_selected_regions=exon_regions,
                              cluster_method=args.cn_cluster,
+                             assume_3DL3_diploid=True,
                              save_cn_model_path=name + suffix + ".json",
                              select_mode=args.cn_select)
             figs.extend(plotCN(name + suffix_cn + ".json"))

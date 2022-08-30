@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 
 from Bio import SeqIO
 from pyhlamsa import Genemsa
-from gk_utils import runDocker
-from gk_build_msa import readFromMSAs
+from .gk_utils import runDocker
+from .gk_build_msa import readFromMSAs
 
 
 @dataclass

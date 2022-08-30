@@ -8,9 +8,9 @@ import pandas as pd
 
 from namepipe import nt, NameTask
 
-from kg_eval import EvaluateKIR
 from kg_utils import runDocker, runShell, threads
 from kg_main import linkSamples
+from kg_eval import readAnswerAllele, compareCohort
 
 
 def extractID(name):
@@ -27,9 +27,9 @@ def readPingLocusCount(locus_csv):
 
 
 def readAns(ans_csv):
-    kir = EvaluateKIR(ans_csv)
+    kir = readAnswerAllele(ans_csv)
     df = []
-    for id, alleles in kir.ans.items():
+    for id, alleles in kir.items():
         d = defaultdict(int)
         d['id'] = id
         d['method'] = "ANS"
@@ -215,9 +215,10 @@ def ping(input_name, index, answer_name):
 
 @nt
 def pingResult(input_name, answer):
-    kir = EvaluateKIR(f"{answer}/{answer}.summary.csv")
-    ping_called_alleles = readPingResult(f"{input_name}.csv")
-    kir.compareCohert(ping_called_alleles)
+    compareCohort(
+        readAnswerAllele(f"{answer}/{answer}.summary.csv"),
+        readPingResult(f"{input_name}.csv"),
+    )
     return input_name
 
 

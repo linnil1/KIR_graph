@@ -10,7 +10,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import msaio, Genemsa, KIRmsa
-from gk_utils import runDocker
+from .gk_utils import runDocker
 
 
 # TODO:
@@ -82,6 +82,7 @@ def splitMsaToBlocks(genes: GenesMsa) -> BlockMsa:
     """
     blocks = defaultdict(list)
     for msa in genes.values():
+        # TODO: intron3/4 -> intron4
         for msa_part in msa.split():
             block_name = msa_part.blocks[0].name
             if block_name == "intron3/4":
@@ -169,7 +170,7 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
     """
     # concat together
     msa = None
-    current_alleles = set()
+    current_alleles: set[str] = set()
     for block_name in kir_block_name:
         # seqrecord -> Genemsa
         blk = Genemsa.from_MultipleSeqAlignment(
@@ -177,7 +178,7 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
         # first
         if msa is None:
             msa = blk
-            current_alleles = msa.alleles.keys()
+            current_alleles = set(msa.alleles.keys())
             continue
 
         # fill miss alleles

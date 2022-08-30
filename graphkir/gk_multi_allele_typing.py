@@ -7,7 +7,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-from gk_hisat2 import PairRead, Variant
+from .gk_hisat2 import PairRead, Variant
 
 
 @dataclass
@@ -110,7 +110,6 @@ class AlleleTyping:
         self.top_n = 300
 
         self.variants: dict[str, Variant] = {str(v.id): v for v in variants}
-
         allele_names = self.collectAlleleNames(reads)
         self.id_to_allele: dict[int, str] = dict(enumerate(sorted(allele_names)))
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
