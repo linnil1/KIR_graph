@@ -870,3 +870,11 @@ def extractVariantFromBam(index: str, bam_file: str, output_prefix: str):
     saveReadsToBam(reads_data, output_prefix,               bam_file)
     saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file,
                    filter_multi_mapped=False)
+
+
+def removeMultipleMapped(reads_data: ReadsAndVariantsData) -> ReadsAndVariantsData:
+    """ actually remove NH != 1 reads """
+    return {
+        'variants': reads_data['variants'],
+        'reads': list(filter(lambda i: i.multiple == 1, reads_data['reads'])),
+    }

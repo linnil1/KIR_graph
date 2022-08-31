@@ -7,17 +7,9 @@ from collections import defaultdict
 from dataclasses import asdict
 
 from .gk_utils import NumpyEncoder
-from .gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, PairRead
+from .gk_hisat2 import loadReadsAndVariantsData, PairRead, removeMultipleMapped
 from .gk_multi_allele_typing import AlleleTyping
-from .gk_hisat2em import Hisat2AlleleResult, printHisatTyping
-
-
-def removeMultipleMapped(reads_data: ReadsAndVariantsData) -> ReadsAndVariantsData:
-    """ actually remove NH != 1 reads """
-    return {
-        'variants': reads_data['variants'],
-        'reads': list(filter(lambda i: i.multiple == 1, reads_data['reads'])),
-    }
+from .gk_hisat2em import preprocessHisatReads, hisat2TypingPerGene, printHisatTyping
 
 
 def groupReads(reads: list[PairRead]) -> dict[str, list[PairRead]]:
@@ -69,28 +61,26 @@ class TypingWithPosNegAllele(Typing):
             reads_data = removeMultipleMapped(reads_data)
         self._gene_reads = groupReads(reads_data['reads'])
         self._variants = reads_data['variants']
-        self._result = {}
 
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """ Select reads belonged to the gene and typing it """
+        print(gene, cn)
         typ = AlleleTyping(self._gene_reads[gene], self._variants)
         res = typ.typing(cn)
-        self._result[gene] = [asdict(i) for i in typ.result]
+        self._result[gene] = typ.result
         return res.selectBest()
 
 
 class TypingWithReport(Typing):
     """ Typing alleles from report by abundance value """
 
-    def __init__(self, filename_report: str):
+    def __init__(self, filename_variant_json: str):
         """ Read report files (json) """
         super().__init__()
-        with open(filename_report) as f:
-            self._report_data = json.load(f)
-        for gene, alleles in self._report_data.items():
-            self._report_data[gene] = [Hisat2AlleleResult(**i) for i in alleles]
-        printHisatTyping(self._report_data)
-        self._result = {}
+        # break down gk_hisat2_em
+        reads_data = loadReadsAndVariantsData(filename_variant_json)
+        reads_data = removeMultipleMapped(reads_data)
+        self._gene_reads = preprocessHisatReads(reads_data)
 
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """
@@ -106,23 +96,40 @@ class TypingWithReport(Typing):
               * CN=2: a1 a1
               * CN=3: a1 a1 a1
         """
-        report = self._report_data[gene]
+        # main typing
+        report = hisat2TypingPerGene(self._gene_reads[gene])
+        report = sorted(report, key=lambda i: -i.prob)
 
-        result = []
+        # main calling logic wrote here
         est_prob = 1 / cn
-        alleles = sorted(report, key=lambda i: -i.prob)
         called_alleles = []
-        for allele in alleles:
+        for allele in report:
             pred_count = max(1, round(allele.prob / est_prob))
             for _ in range(min(cn, pred_count)):
                 called_alleles.append(allele.allele)
-
-            result.append(asdict(allele))
-            result[-1]['cn'] = pred_count
+            allele.cn = pred_count
 
             cn -= pred_count
             if cn <= 0:
                 break
 
-        self._result[gene] = result
+        self._result[gene] = report
         return called_alleles
+
+    def save(self, filename: str):
+        """ save additional report txt """
+        super().save(filename)
+        name = filename
+        if filename.endswith(".json"):
+            name = filename[:-5]
+        with open(name + ".txt", "w") as f:
+            printHisatTyping(self._result, file=f)
+
+
+def selectKirTypingModel(method: str, filename_variant_json: str) -> Typing:
+    """ Select and Init typing model """
+    if method == "pv":
+        return TypingWithPosNegAllele(filename_variant_json)
+    elif method == "em":
+        return TypingWithReport(filename_variant_json)
+    raise NotImplementedError

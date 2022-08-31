@@ -1,5 +1,7 @@
 """
 GRAPH-KIR: Main function
+
+TODO: update after kg_main OK
 """
 import os
 import argparse
@@ -10,7 +12,7 @@ from .gk_build_msa import buildKirMsa
 from .gk_build_index import msa2HisatReference, buildHisatIndex
 from .gk_hisat2 import hisatMap, extractVariantFromBam, readExons
 from .gk_cn import predictSamplesCN, loadCN
-from .gk_kir_typing import TypingWithPosNegAllele, TypingWithReport, Typing
+from .gk_kir_typing import selectKirTypingModel
 from .gk_plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
 
 
@@ -21,7 +23,7 @@ def mergeAllele(allele_result_files: list[str], final_result_file: str):
     print(df)
 
 
-def buildIndex(msa_type: str) -> tuple[str, str]:
+def buildIndex(msa_type: str, index_folder: str = "index") -> tuple[str, str]:
     """
     Build graph data
 
@@ -33,7 +35,7 @@ def buildIndex(msa_type: str) -> tuple[str, str]:
       HISAT2 files prefix
       HISAT2 index prefix
     """
-    msa_index = f"index/kir_2100_{msa_type}"
+    msa_index = f"{index_folder}/kir_2100_{msa_type}"
     if not len(glob(msa_index + ".KIR*")):
         buildKirMsa(msa_type, msa_index)
 
@@ -58,6 +60,9 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument("--r2", nargs="+",
                         default=["data/linnil1_syn_30x.00.read.2.fq"],
                         help="Read 2 fastq")
+    parser.add_argument("--index-folder",
+                        default="index",
+                        help="The path to index")
     parser.add_argument("--msa-type",
                         default="ab_2dl1s1",
                         help="Type of MSA: merge, split, ab, ab_2dl1s1")
@@ -131,7 +136,7 @@ def main(args: argparse.Namespace):
 
     # Main function
     cohort = not args.cn_individually
-    ref_index, index = buildIndex(args.msa_type)
+    ref_index, index = buildIndex(args.msa_type, args.index_folder)
 
     exon_regions = {}
     if args.exon:
@@ -191,18 +196,13 @@ def main(args: argparse.Namespace):
                       + ".cn_" + cn_file.replace("/", "_").replace(".", "_") \
                       + "." + args.allele_method
 
-        if args.allele_method:
-            t = TypingWithPosNegAllele(name + ".json")  # type: Typing
-        else:
-            t = TypingWithReport(name + ".em.json")
+        t = selectKirTypingModel(args.allele_method, name + ".json")
         cn = loadCN(cn_file)
-
-        print(name)
-        print(cn)
         called_alleles = t.typing(cn)
-        print(called_alleles)
-
         t.save(result_name + ".json")
+
+        print(name, cn)
+        print(called_alleles)
         df = pd.DataFrame([{
             'name': result_name,
             'alleles': "_".join(called_alleles),

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from Bio import SeqIO
 import numpy as np
-from .gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData
+from .gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
 
 
 @dataclass
@@ -22,6 +22,7 @@ class Hisat2AlleleResult:
     allele: str  # allele name
     count: int   # allele count
     prob: float  # allele abundance
+    cn: int = 0  # Copy number (used in gk_kir_typing)
 
 
 def readAlleleLength(file_fasta: str) -> dict[str, int]:
@@ -46,7 +47,8 @@ def preprocessHisatReads(reads_data: ReadsAndVariantsData
     """
     map_variant_to_alleles = {v.id: v.allele for v in reads_data['variants']}
     backbones_reads_alleles = defaultdict(list)
-    pairreads = filter(lambda i: i.multiple == 1, reads_data['reads'])
+    pairreads = reads_data['reads']
+    assert all(map(lambda i: i.multiple == 1, pairreads))
 
     for read in pairreads:
         backbones_reads_alleles[read.backbone].append({
@@ -178,6 +180,29 @@ def hisatEMnp(
     return dict(zip(allele_name, prob))
 
 
+def hisat2TypingPerGene(reads_alleles: list[dict[str, list[list[str]]]]
+                        ) -> list[Hisat2AlleleResult]:
+    """  The orignal typing method in hisat2 (pre gene) """
+    reads_max_alleles = []
+    for read in reads_alleles:
+        reads_max_alleles.append(
+            getMostFreqAllele(
+                getCandidateAllelePerRead(read['lp'], read['ln']) +
+                getCandidateAllelePerRead(read['rp'], read['rn'])
+            )
+        )
+
+    allele_prob = hisatEMnp(reads_max_alleles)
+    allele_count = Counter(chain.from_iterable(reads_max_alleles))
+
+    alleles_stat = [Hisat2AlleleResult(
+        allele=allele,
+        count=allele_count[allele],
+        prob=allele_prob[allele],
+    ) for allele in allele_prob.keys() | allele_count.keys()]
+    return alleles_stat
+
+
 def hisat2Typing(read_and_variant_json: str, output_prefix: str):
     """
     The orignal typing method in hisat2
@@ -187,27 +212,11 @@ def hisat2Typing(read_and_variant_json: str, output_prefix: str):
       output_prefix: The result is save in json and text (report)
     """
     reads_data = loadReadsAndVariantsData(read_and_variant_json)
+    reads_data = removeMultipleMapped(reads_data)
     hisat_result = {}
 
     for backbone, reads_alleles in preprocessHisatReads(reads_data).items():
-        reads_max_alleles = []
-        for read in reads_alleles:
-            reads_max_alleles.append(
-                getMostFreqAllele(
-                    getCandidateAllelePerRead(read['lp'], read['ln']) +
-                    getCandidateAllelePerRead(read['rp'], read['rn'])
-                )
-            )
-
-        allele_prob = hisatEMnp(reads_max_alleles)
-        allele_count = Counter(chain.from_iterable(reads_max_alleles))
-
-        alleles_stat = [Hisat2AlleleResult(
-            allele=allele,
-            count=allele_count[allele],
-            prob=allele_prob[allele],
-        ) for allele in allele_prob.keys() | allele_count.keys()]
-        hisat_result[backbone] = alleles_stat
+        hisat_result[backbone] = hisat2TypingPerGene(reads_alleles)
 
     printHisatTyping(hisat_result)
     with open(output_prefix + ".txt", "w") as f:
@@ -231,10 +240,10 @@ def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
         print(backbone, file=file)
         allele_count = sorted(result, key=lambda i: i.count, reverse=True)
         for i, allele in enumerate(allele_count[:first_n]):
-            print(f"  {i+1:2d} {allele.allele} "
+            print(f"  {i+1:2d} {allele.allele:18s} "
                   f"(count: {allele.count})", file=file)
 
         allele_prob = sorted(result, key=lambda i: i.prob, reverse=True)
         for i, allele in enumerate(allele_prob[:first_n]):
-            print(f"  Rank {i+1:2d} {allele.allele} "
-                  f"(abundance: {allele.prob:.2f})", file=file)
+            print(f"  Rank {i+1:2d} {allele.allele:18s} "
+                  f"(abundance: {allele.prob:.2f}, cn: {allele.cn})", file=file)

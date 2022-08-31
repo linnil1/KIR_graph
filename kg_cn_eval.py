@@ -12,11 +12,13 @@ GeneCN = dict[str, int]
 
 
 def readCNFile(tsv_file: str) -> GeneCN:
+    """ Read CN file """
     df = pd.read_csv(tsv_file, sep="\t")
     return dict(zip(map(getGeneName, df['gene']),  df['cn']))
 
 
 def calCN(alleles: list[str]) -> GeneCN:
+    """ list of alleles -> CN of each gene """
     return Counter(map(getGeneName, alleles))
 
 
@@ -38,6 +40,7 @@ def mergeGene(gene_cn: GeneCN, gene_to: str, gene_froms: list[str]) -> GeneCN:
 
 
 class CNDiff(TypedDict, total=False):
+    """ The dict before insert into Dataframe """
     gene: str
     total: int
     diff: int
@@ -73,6 +76,7 @@ def compareCN(ans_cn: GeneCN, pred_cn: GeneCN) -> list[CNDiff]:
 
 
 def updateDiff(method: str, sample_id: str, diff: list[CNDiff]) -> list[CNDiff]:
+    """ Update method and sample_id after comparison """
     for i in diff:
         i.update({"method": method, "sample_id": sample_id})
     return diff

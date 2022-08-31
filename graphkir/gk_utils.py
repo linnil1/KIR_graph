@@ -8,6 +8,7 @@ Utilities
 import json
 import uuid
 import subprocess
+import dataclasses
 import numpy as np
 
 
@@ -54,6 +55,8 @@ def samtobam(name: str, keep=False):
 class NumpyEncoder(json.JSONEncoder):
     """ The encoder for saving numpy array to json """
     def default(self, obj):
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)

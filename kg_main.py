@@ -8,8 +8,10 @@ from graphkir.gk_build_index import buildHisatIndex, msa2HisatReference
 from graphkir.gk_build_msa import buildKirMsa
 from graphkir.gk_hisat2 import hisatMap, extractVariantFromBam
 from graphkir.gk_cn import predictSamplesCN, loadCN
-from graphkir.gk_kir_typing import TypingWithPosNegAllele, TypingWithReport, Typing
+from graphkir.gk_kir_typing import selectKirTypingModel
 from graphkir.gk_main import mergeAllele
+from graphkir.gk_plot import showPlot, plotCN
+from graphkir.gk_msa_leftalign import genemsaLeftAlign
 from graphkir.gk_utils import (
     runShell,
     samtobam,
@@ -19,7 +21,6 @@ from kg_utils import (
     threads,
     runDocker,
 )
-
 import kg_create_data
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 from kg_extract_exon_seq import extractExonPairReads
@@ -159,6 +160,14 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     buildKirMsa(msa_type, output_name)
     return output_name
 
+@nt
+def leftAlignWrap(input_name):
+    output_name = input_name + ".leftalign"
+    if len(glob(output_name + ".KIR*")):
+        return output_name
+    genemsaLeftAlign(input_name, output_name)
+    return output_name
+
 
 @nt
 def buildHisatIndexWrap(input_name):
@@ -208,14 +217,16 @@ def cnPredict(input_name, ref_index, exon=False):
 
     suffix_depth = f"{suffix_variant}.depth{'.exon' if exon else ''}"
     suffix_cn = f"{suffix_depth}.{cn_select}.{cn_cluster}"
-    if assume_3DL3_diploid:
+    if ".{}." not in input_name and assume_3DL3_diploid:
         suffix_cn += "_assume3DL3"
+    if ".{}." in input_name:
+        suffix_cn += ".cohort"
     output_name = input_name + suffix_cn
     exon_regions = {}
     if exon:
         exon_regions = readExons(ref_index)
 
-    if "*" not in input_name:
+    if ".{}." not in input_name:
         if Path(output_name + ".json").exists():
             return output_name
         predictSamplesCN([input_name + suffix_variant + ".bam"],
@@ -225,23 +236,22 @@ def cnPredict(input_name, ref_index, exon=False):
                          select_mode=cn_select,
                          assume_3DL3_diploid=assume_3DL3_diploid,
                          save_cn_model_path=output_name + ".json")
-    else:
-        output_name1 = input_name.replace_wildcard("_merge_cn")
+    else:  # cohort
+        output_name1 = input_name.replace_wildcard("_merge_cn") + suffix_cn
         if Path(output_name1 + ".json").exists():
             return output_name
-        predictSamplesCN([input_name + suffix_variant + ".bam" for name in input_name.get_input_names()],
-                         [input_name + suffix_cn      + ".tsv" for name in input_name.get_input_names()],
+        predictSamplesCN([name + suffix_variant + ".bam" for name in input_name.get_input_names()],
+                         [name + suffix_cn      + ".tsv" for name in input_name.get_input_names()],
                          bam_selected_regions=exon_regions,
                          cluster_method=cn_cluster,
                          select_mode=cn_select,
+                         assume_3DL3_diploid=False,
                          save_cn_model_path=output_name1 + ".json")
     return output_name
 
 
 @nt
-def kirTyping(input_name, cn_input_name):
-    allele_method = "pv"
-
+def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # setup
     assert len(input_name.template_args) == 1
     id = input_name.template_args[0]
@@ -252,18 +262,14 @@ def kirTyping(input_name, cn_input_name):
     if Path(output_name + ".tsv").exists():
         return output_name_template
 
-    if allele_method:
-        t = TypingWithPosNegAllele(input_name + ".json")  # type: Typing
-    else:
-        t = TypingWithReport(input_name + ".em.json")
+    t = selectKirTypingModel(allele_method, input_name + ".json")
     cn = loadCN(cn_name + ".tsv")
+    called_alleles = t.typing(cn)
+    t.save(output_name + ".json")
 
     print(input_name)
     print(cn)
-    called_alleles = t.typing(cn)
     print(called_alleles)
-
-    t.save(output_name + ".json")
     pd.DataFrame([{
         'name': output_name,
         'alleles': "_".join(called_alleles),
@@ -302,6 +308,19 @@ def extractExon(input_name, folder):
     return output_template + ".read"
 
 
+@nt
+def plotCNWrap(input_name):
+    figs = []
+
+    output_name = input_name.replace_wildcard("_merge_cn")
+    if Path(output_name + ".json").exists():
+        figs.extend(plotCN(output_name + ".json"))
+    else:
+        for name in input_name.get_input_names():
+            figs.extend(plotCN(name + ".json"))
+    showPlot(figs)
+
+
 if __name__ == "__main__":
     data_folder = "data5"
     index_folder = "index5"
@@ -326,7 +345,7 @@ if __name__ == "__main__":
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1")
+    msa_index = index_folder >> buildKirMsaWrap.set_args("ab") >> leftAlignWrap
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap
 
@@ -336,9 +355,11 @@ if __name__ == "__main__":
     variant = mapping >> extractVariant.set_args(ref_index=str(ref_index))
 
     cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
+    # cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon).set_depended(0)
 
-    typing = variant >> kirTyping.set_args(cn) >> kirResult.set_args(answer=answer_folder).set_depended(0)
+    typing = variant >> kirTyping.set_args(cn, "pv") >> kirResult.set_args(answer=answer_folder).set_depended(0)
 
+    # cn >> plotCNWrap.set_depended(0)
 
     # bowtie mapping rate
     # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
@@ -349,12 +370,4 @@ if __name__ == "__main__":
     # bwa
     # bwa_index = index >> bwaIndex  # "index/kir_2100_?_cons"
     # mapping = samples >> bwa.set_args(index=str(bwa_index))
-
-    """
-    index = "index/kir_2100_muscle"
-    # kirToSingleMsa(method='muscle')
-    # bamFilter("-f 0x2", ".nosingle")
-    # suffix += ".nosec"
-    # bamFilter("-f 0x2 -F 256", ".sec")
-    """
     runShell("stty echo opost")
