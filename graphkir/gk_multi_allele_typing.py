@@ -1,8 +1,11 @@
 """
 Our main typing method
 """
+import copy
+from typing import Optional
 from itertools import chain
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
@@ -22,13 +25,22 @@ class TypingResult:
       allele_name: The allele names in top-n allele set
       allele_prob: The probility of the top-n allele set for each read
       fraction:    The perpotion of reads belonging to the allele in allele set
+      allele_name_group:
+          The group of alleles that belongs to each allele in allele_name(s)
+          e.g.
+          ```
+          allele_name = [00201, 00101]
+          allele_name_group = [[0020101, 0020102], [00106, 0010103]]
+          ```
     """
     n: int
-    value:       np.ndarray       # size: top_n
-    allele_id:   np.ndarray       # size: top_n x n
+    value: np.ndarray             # size: top_n
+    allele_id: np.ndarray         # size: top_n x n
     allele_name: list[list[str]]  # size: top_n x n
     allele_prob: np.ndarray       # size: read x top_n
-    fraction:    np.ndarray       # size: top_n x n
+    fraction: np.ndarray          # size: top_n x n
+    allele_name_group: list[list[list[str]]] = field(default_factory=list)
+                                  # size: top_n x n x group_size
 
     def selectBest(self) -> list[str]:
         """
@@ -64,11 +76,11 @@ class TypingResult:
             ```
             2
             0 -52.37587690948907
-              id   1 name KIR3DS1*0130108      fraction 0.35294117647058826
-              id   2 name KIR3DS1*078          fraction 0.6470588235294118
+              id   1 name KIR3DS1*0130108      fraction 0.35294
+              id   2 name KIR3DS1*078          fraction 0.64705
             1 -52.37587690948907
-              id   0 name KIR3DS1*0130107      fraction 0.4215686274509804
-              id   2 name KIR3DS1*078          fraction 0.5784313725490197
+              id   0 name KIR3DS1*0130107      fraction 0.42156
+              id   2 name KIR3DS1*078          fraction 0.57843
             ```
         """
         print(self.n)
@@ -79,10 +91,18 @@ class TypingResult:
             print("Rank", rank, "probility", self.value[rank])
 
             for i in range(n):
-                print(f"  id {self.allele_id[rank][i]:3}"
-                      f"  name {self.allele_name[rank][i]:20s}"
-                      f"  fraction {self.fraction[rank][i]:.5f}")
-                # f" unique_count {unique_count}")
+                print(f"  id {self.allele_id[rank][i]:3}", end=" ")
+                print(f"  name {self.allele_name[rank][i]:20s}", end=" ")
+                print(f"  fraction {self.fraction[rank][i]:.5f}", end=" ")
+                # print(f" unique_count {unique_count}")
+                if self.allele_name_group:
+                    print(f"  group {self.allele_name_group[rank][i]}", end=" ")
+                print()
+
+    def fillNameGroup(self, allele_group_mapping: dict[str, list[str]]):
+        """ extend the allele groups by allele_name and save in allele_name_group """
+        self.allele_name_group = [[allele_group_mapping[j] for j in i]
+                                  for i in self.allele_name]
 
 
 class AlleleTyping:
@@ -106,15 +126,14 @@ class AlleleTyping:
             The variant_id in each reads will map to the variant for
             getting related alleles.
         """
-
         self.top_n = 300
 
         self.variants: dict[str, Variant] = {str(v.id): v for v in variants}
-        allele_names = self.collectAlleleNames(reads)
+        allele_names = self.collectAlleleNames(variants)
         self.id_to_allele: dict[int, str] = dict(enumerate(sorted(allele_names)))
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
 
-        self.probs = self.reads2AlleleProb(reads)
+        self.probs = self.reads2AlleleProb(self.removeEmptyReads(reads))
         self.log_probs = np.log10(self.probs)
 
         self.result: list[TypingResult] = []
@@ -123,14 +142,18 @@ class AlleleTyping:
         # for i in range(len(self.allele_name_map_rev))])
         # self.allele_length = allele_length / 10000.  # just a non-important normalize
 
-    def collectAlleleNames(self, reads: list[PairRead]) -> set[str]:
-        """ Get all allele names from all the reads """
-        allele_names = set()
-        for read in reads:
-            variants = chain(read.lpv, read.rpv, read.lnv, read.rnv)
-            alleles = map(lambda i: self.variants[i].allele, variants)
-            allele_names.update(set(chain.from_iterable(alleles)))
-        return allele_names
+    @staticmethod
+    def removeEmptyReads(reads: list[PairRead]) -> list[PairRead]:
+        """
+        If the reads don't contains any information,
+        i.e. no positive/negative variants in the read,
+        discard it
+        """
+        return [read for read in reads if read.lpv + read.lnv + read.rpv + read.rnv]
+
+    @staticmethod
+    def collectAlleleNames(variants: list[Variant]) -> set[str]:
+        return set(chain.from_iterable(map(lambda i: i.allele, variants)))
 
     def read2Onehot(self, variant: str) -> np.ndarray:
         """ Convert allele names in the variant into onehot encoding """
@@ -208,26 +231,41 @@ class AlleleTyping:
                 index_unique.append(True)
         return np.array(index_unique)
 
-    def addCandidate(self) -> TypingResult:
+    def addCandidate(self, candidate_allele: Optional[list[str]] = None) -> TypingResult:
         """
         The step of finding the maximum likelihood allele-set that can fit all reads
 
         Once call this function, the number alleles in the allele set increate 1.
+        And the result will be saved in `.result`.
+
+        Parameters:
+            candidate_allele: The candidate alleles for this iteration
+                              set it None for selecting all alleles
+        Returns:
+            The result of this iteration
         """
+        if candidate_allele is None:
+            allele_index = np.arange(self.log_probs.shape[1])                  # size: allele (select all)
+        else:
+            allele_index = np.array(list(map(self.allele_to_id.get, candidate_allele)))
+                                                                               # size: allele (select partial)
         if not len(self.result):
             # first time: i.e. CN = 1
-            allele_1_prob      = self.log_probs.sum(axis=0)                     # size: allele
-            allele_1_top_index = np.argsort(allele_1_prob)[-self.top_n:][::-1]  # size: top_n
-            allele_1_top_id    = np.array([[i] for i in allele_1_top_index])    # size: top_n x 1
-            allele_1_top_prob  = self.log_probs[:, allele_1_top_index]          # size: reads x top_n
+            allele_1_prob      = self.log_probs[:, allele_index].sum(axis=0)   # size: allele (selected array)
+            allele_1_id        = allele_index[:, None]                         # size: top_n x 1
+            # sort by decending order
+            allele_1_top_index = np.argsort(allele_1_prob)[::-1][:self.top_n]  # size: top_n (selected array index)
+            allele_1_top_id    = allele_1_id[allele_1_top_index]               # size: top_n
+            allele_1_top_prob  = self.log_probs[:, allele_1_top_id.flatten()]  # size: reads x top_n
+            allele_1_top_value = allele_1_prob[allele_1_top_index]             # size: top_n
 
             self.result.append(TypingResult(
                 n              = 1,
-                value          = allele_1_prob[allele_1_top_index],             # size: top_n
-                allele_id      = allele_1_top_id,
-                allele_name    = self.mapAlleleIDs(allele_1_top_id),            # size: top_n x 1
+                value          = allele_1_top_value,
+                allele_id      = allele_1_top_id,                              # size: top_n x 1
+                allele_name    = self.mapAlleleIDs(allele_1_top_id),           # size: top_n x 1
                 allele_prob    = allele_1_top_prob,
-                fraction       = np.ones(allele_1_top_id.shape),                # size:  top_n x 1
+                fraction       = np.ones(allele_1_top_id.shape),               # size:  top_n x 1
             ))
             return self.result[-1]
 
@@ -237,19 +275,22 @@ class AlleleTyping:
 
         # Maximum
         # (top-n x (allele-1 ... allele-n-1)) x (allele_1 ... allele_m)
-        allele_n_prob = np.maximum(self.log_probs, allele_n_1_prob.T[:, :, None])  # size: top_n x read x allele
-        allele_n_prob = allele_n_prob.sum(axis=1).flatten()                        # size: (top_n * allele)
+        allele_n_prob = np.maximum(self.log_probs[:, allele_index],
+                                   allele_n_1_prob.T[:, :, None])             # size: top_n x read x allele
+        allele_n_prob = allele_n_prob.sum(axis=1).flatten()                   # size: (top_n * allele)
 
         # Mean
-        # allele_n = (log_probs + prob_1_top.T[:, :, None] * (prob_iter - 1)).sum(axis=1).flatten() / prob_iter
+        # cn = len(self.result)
+        # allele_n_prob = self.log_probs[:, allele_index] \
+        #                 + allele_n_1_prob.T[:, :, None] * cn                  # size: top_n x read x allele
+        # allele_n_prob = allele_n_prob.sum(axis=1).flatten() / (cn + 1)        # size: top_n
 
         # create id (size: top_n * allele x n) of the allele_n_prob
-        n_allele = self.log_probs.shape[1]
         allele_n_id = np.hstack([
             # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
-            np.repeat(allele_n_1_id, n_allele, axis=0),
+            np.repeat(allele_n_1_id, len(allele_index), axis=0),
             # [1,3,5] -> [1,3,5,1,3,5]
-            np.tile(np.arange(n_allele), len(allele_n_1_id))[:, None],
+            np.tile(allele_index, len(allele_n_1_id))[:, None],
         ])
 
         # unique the allele set
@@ -258,32 +299,32 @@ class AlleleTyping:
         allele_n_prob      = allele_n_prob[unique_id_index]
 
         # top-n result
-        allele_n_top_index = np.argsort(allele_n_prob)[-self.top_n:][::-1]   # size: top_n
-        allele_n_top_id    = allele_n_id[allele_n_top_index]                 # size: top_n x n
-        allele_n_top_prob  = self.log_probs[:, allele_n_top_id].max(axis=2)  # read x top_n x n -> size: read x top-n
-        allele_n_top_value = allele_n_prob[allele_n_top_index]               # size: top_n
+        allele_n_top_index = np.argsort(allele_n_prob)[::-1][:self.top_n]      # size: top_n
+        allele_n_top_id    = allele_n_id[allele_n_top_index]                   # size: top_n x CN
+        allele_n_top_prob  = self.log_probs[:, allele_n_top_id].max(axis=2)    # read x top_n x CN -> size: read x top-n
+        allele_n_top_value = allele_n_prob[allele_n_top_index]                 # size: top_n
 
         # calculate fraction
-        belong                = np.equal(self.log_probs[:, allele_n_top_id],
-                                         allele_n_top_prob[:, :, None])            # size: reads x top-n x n (bool)
+        belong             = np.equal(self.log_probs[:, allele_n_top_id],
+                                      allele_n_top_prob[:, :, None])           # size: reads x top-n x CN (bool)
         # 1/q if q alleles has equal max probility
-        belong_norm           = (belong / belong.sum(axis=2)[:, :, None])          # size: reads x top_n x n (float)
+        belong_norm        = (belong / belong.sum(axis=2)[:, :, None])         # size: reads x top_n x CN (float)
         # sum across read and normalize by n
-        allele_n_top_fraction = belong_norm.sum(axis=0) / self.log_probs.shape[0]  # size: top_n x n
+        allele_n_top_frac  = belong_norm.sum(axis=0) / self.log_probs.shape[0] # size: top_n x CN
 
         # sorted by likelihood and the difference value toward evenly-distributed
-        fraction_diff = allele_n_top_fraction - allele_n_top_fraction.mean(axis=1, keepdims=True)  # size: top_n x n
-        fraction_diff = np.abs(fraction_diff).sum(axis=1)                                          # size: top_n
-        rank_index = self.argSortRow(np.array([-allele_n_top_value, fraction_diff]).T)             # size: top_n
+        fraction_diff      = allele_n_top_frac - allele_n_top_frac.mean(axis=1, keepdims=True)  # size: top_n x CN
+        fraction_diff      = np.abs(fraction_diff).sum(axis=1)                                  # size: top_n
+        rank_index         = self.argSortRow(np.array([-allele_n_top_value, fraction_diff]).T)  # size: top_n
 
         # save result
         self.result.append(TypingResult(
-            n=len(self.result) + 1,
-            value=allele_n_top_value[rank_index],
-            allele_id=allele_n_top_id[rank_index],
-            allele_name=self.mapAlleleIDs(allele_n_top_id[rank_index]),
-            allele_prob=allele_n_top_prob[:, rank_index],
-            fraction=allele_n_top_fraction[rank_index],
+            n              = len(self.result) + 1,
+            value          = allele_n_top_value[rank_index],
+            allele_id      = allele_n_top_id[rank_index],
+            allele_name    = self.mapAlleleIDs(allele_n_top_id[rank_index]),
+            allele_prob    = allele_n_top_prob[:, rank_index],
+            fraction       = allele_n_top_frac[rank_index],
         ))
         return self.result[-1]
 
@@ -307,3 +348,104 @@ class AlleleTyping:
         #     cluster="row",
         # )])
         return figs
+
+
+class AlleleTypingExonFirst(AlleleTyping):
+    only_exon_variant = False
+
+    @staticmethod
+    def aggrVariantsByAllele(variants: list[Variant]) -> dict[tuple, list[str]]:
+        """ variant's alleles to dict[allele's variants, allele] """
+        allele_variants = defaultdict(list)
+        for variant in variants:
+            for allele in variant.allele:
+                allele_variants[allele].append(variant.id)
+        variantset_to_allele = defaultdict(list)
+        for allele, allele_vars in allele_variants.items():
+            variantset_to_allele[tuple(sorted(set(allele_vars)))].append(allele)  # type: ignore
+        return variantset_to_allele
+
+    @staticmethod
+    def removeIntronVariant(reads: list[PairRead], exon_variants: list[Variant]) -> list[PairRead]:
+        """ Only exon variants will be preserved """
+        id_map = {v.id: v for v in exon_variants}
+        new_reads = copy.deepcopy(reads)
+        for read in new_reads:
+            read.lpv = [v for v in read.lpv if v in id_map]
+            read.lnv = [v for v in read.lnv if v in id_map]
+            read.rpv = [v for v in read.rpv if v in id_map]
+            read.rnv = [v for v in read.rnv if v in id_map]
+        return new_reads
+
+    @staticmethod
+    def createInverseMapping(allele_group: dict[str, list[str]]) -> dict[str, str]:
+        """ {a: [b,c,d]} -> {b:a, c:a, d:a} """
+        allele_map_to_group = {}
+        for group, alleles in allele_group.items():
+            for allele in alleles:
+                allele_map_to_group[allele] = group
+        return allele_map_to_group
+
+    @staticmethod
+    def removeDuplicateAllele(variants: list[Variant], allele_map: dict[str, str]) -> list[Variant]:
+        """
+        Some alleles are in the same group ({b:a, c:a}),
+        so remove it in the variant.allele
+        """
+        variants = copy.deepcopy(variants)
+        for variant in variants:
+            variant.allele = list(set(filter(None, [allele_map.get(v, "") for v in variant.allele])))
+        return variants
+
+    def __init__(self, reads: list[PairRead], variants: list[Variant],
+                 exon_only: bool = False):
+        """ Extracting exon alleles """
+        # extract exon variants
+        exon_variants = [v for v in variants if v.in_exon]
+        intron_variants = [v for v in variants if not v.in_exon]
+
+        # cleanup reads (only exon variant preserved)
+        exon_reads = self.removeIntronVariant(reads, exon_variants)
+        exon_reads = self.removeEmptyReads(exon_reads)
+
+        # aggr same alleles that has the same variantset
+        variantset_to_allele = self.aggrVariantsByAllele(exon_variants)
+        other_allele = self.collectAlleleNames(variants) \
+                       - self.collectAlleleNames(exon_variants)
+        if other_allele:  # special case
+            variantset_to_allele[tuple()] = sorted(other_allele)
+        self.allele_group = {alleles[0]: alleles for alleles in variantset_to_allele.values()}
+        exon_variants = self.removeDuplicateAllele(variants, self.createInverseMapping(self.allele_group))
+        # from pprint import pprint
+        # pprint(self.allele_group)
+
+        # same as before
+        super().__init__(exon_reads, exon_variants)
+        if not exon_only:
+            self.full_model = AlleleTyping(reads, variants)
+        else:
+            self.full_model = None
+
+    def typing(self, cn: int) -> TypingResult:
+        """
+        Typing cn alleles.
+
+        Returns:
+          The top-n allele-set are best fit the reads (with maximum probility).
+            Each set has CN alleles.
+        """
+        print("Exon:")
+        result = super().typing(cn)
+        result.fillNameGroup(self.allele_group)
+
+        # run full typing as before but using selected alleles
+        if self.full_model is None:
+            # TODO: how to deal with exon-only sequences and
+            # how to output (change selectBest() ? )
+            return result
+        assert cn == result.n
+        for i in range(cn):
+            res = self.full_model.addCandidate(result.allele_name_group[0][i])
+            res.print()
+        self.result.extend(self.full_model.result)
+        return res

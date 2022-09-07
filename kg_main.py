@@ -160,6 +160,7 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     buildKirMsa(msa_type, output_name)
     return output_name
 
+
 @nt
 def leftAlignWrap(input_name):
     output_name = input_name + ".leftalign"
@@ -268,7 +269,6 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     t.save(output_name + ".json")
 
     print(input_name)
-    print(cn)
     print(called_alleles)
     pd.DataFrame([{
         'name': output_name,
@@ -351,7 +351,7 @@ if __name__ == "__main__":
 
     print(index)
     # samples = "data2/linnil1_syn_30x_seed87.{}"
-    mapping = samples >> hisatMapWrap.set_args(index=str(index)) 
+    mapping = samples >> hisatMapWrap.set_args(index=str(index))
     variant = mapping >> extractVariant.set_args(ref_index=str(ref_index))
 
     cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)

@@ -65,8 +65,13 @@ def readFromMSAs(prefix: str) -> GenesMsa:
         genes: A dictionary of gene's name and its MSA
     """
     genes = {}
-    for filename in glob(prefix + "*.json"):
-        gene = filename.split('.')[-2]
+    for filename in glob(prefix + ".*.json"):
+        split_name = filename[len(prefix) + 1:].split('.')
+        # prefix.anotherprefix.*.json will not included
+        if len(split_name) != 2:
+            continue
+        print("read", filename)
+        gene = split_name[0]
         genes[gene] = msaio.load_msa(filename[:-5] + ".fa", filename)
     return genes
 

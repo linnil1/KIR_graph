@@ -7,8 +7,8 @@ from collections import defaultdict
 from dataclasses import asdict
 
 from .gk_utils import NumpyEncoder
-from .gk_hisat2 import loadReadsAndVariantsData, PairRead, removeMultipleMapped
-from .gk_multi_allele_typing import AlleleTyping
+from .gk_hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead, Variant
+from .gk_multi_allele_typing import AlleleTyping, AlleleTypingExonFirst
 from .gk_hisat2em import preprocessHisatReads, hisat2TypingPerGene, printHisatTyping
 
 
@@ -18,6 +18,14 @@ def groupReads(reads: list[PairRead]) -> dict[str, list[PairRead]]:
     for read in reads:
         gene_reads[read.backbone].append(read)
     return gene_reads
+
+
+def groupVariants(variants: list[Variant]) -> dict[str, list[Variant]]:
+    """ Group the reads by reference name (i.e. group by gene) """
+    gene_variants = defaultdict(list)
+    for variant in variants:
+        gene_variants[variant.ref].append(variant)
+    return gene_variants
 
 
 class Typing:
@@ -53,19 +61,26 @@ class Typing:
 class TypingWithPosNegAllele(Typing):
     """ Our proposed allele typing method """
 
-    def __init__(self, filename_variant_json: str, multiple=False):
+    def __init__(self, filename_variant_json: str, multiple: bool = False,
+                 exon_first: bool = False, exon_only: bool = False):
         """ Read all reads and variants from the json file (From gk_hisat2.py) """
         super().__init__()
         reads_data = loadReadsAndVariantsData(filename_variant_json)
         if not multiple:
             reads_data = removeMultipleMapped(reads_data)
         self._gene_reads = groupReads(reads_data['reads'])
-        self._variants = reads_data['variants']
+        self._gene_variants = groupVariants(reads_data['variants'])
+        self._exon_first = exon_first
+        self._exon_only = exon_only
 
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """ Select reads belonged to the gene and typing it """
-        print(gene, cn)
-        typ = AlleleTyping(self._gene_reads[gene], self._variants)
+        print(f"{gene=} {cn=}")
+        if not self._exon_first and not self._exon_only:
+            typ = AlleleTyping(self._gene_reads[gene], self._gene_variants[gene])
+        else:
+            typ = AlleleTypingExonFirst(self._gene_reads[gene], self._gene_variants[gene],
+                                        exon_only=self._exon_only)
         res = typ.typing(cn)
         self._result[gene] = typ.result
         return res.selectBest()
@@ -130,6 +145,8 @@ def selectKirTypingModel(method: str, filename_variant_json: str) -> Typing:
     """ Select and Init typing model """
     if method == "pv":
         return TypingWithPosNegAllele(filename_variant_json)
+    elif method == "pv_exonfirst":
+        return TypingWithPosNegAllele(filename_variant_json, exon_first=True)
     elif method == "em":
         return TypingWithReport(filename_variant_json)
     raise NotImplementedError
