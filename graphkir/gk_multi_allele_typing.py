@@ -25,6 +25,7 @@ class TypingResult:
       allele_name: The allele names in top-n allele set
       allele_prob: The probility of the top-n allele set for each read
       fraction:    The perpotion of reads belonging to the allele in allele set
+      value_sum_indv: The value of each allele at CN=1
       allele_name_group:
           The group of alleles that belongs to each allele in allele_name(s)
           e.g.
@@ -35,6 +36,7 @@ class TypingResult:
     """
     n: int
     value: np.ndarray             # size: top_n
+    value_sum_indv: np.ndarray    # size: top_n x n
     allele_id: np.ndarray         # size: top_n x n
     allele_name: list[list[str]]  # size: top_n x n
     allele_prob: np.ndarray       # size: read x top_n
@@ -88,15 +90,18 @@ class TypingResult:
         n = self.allele_id.shape[1]
 
         for rank in range(min(top_n, num)):
-            print("Rank", rank, "probility", self.value[rank])
+            print("Rank",      rank,
+                  "probility", self.value[rank],
+                  "sum",       self.value_sum_indv[rank].sum())
 
             for i in range(n):
-                print(f"  id {self.allele_id[rank][i]:3}", end=" ")
-                print(f"  name {self.allele_name[rank][i]:20s}", end=" ")
-                print(f"  fraction {self.fraction[rank][i]:.5f}", end=" ")
+                print("  id",       f"{self.allele_id[rank][i]:3}",       end=" ")
+                print("  name",     f"{self.allele_name[rank][i]:20s}",   end=" ")
+                print("  fraction", f"{self.fraction[rank][i]:.5f}",      end=" ")
+                print("  sum",      f"{self.value_sum_indv[rank][i]:3f}", end=" ")
                 # print(f" unique_count {unique_count}")
                 if self.allele_name_group:
-                    print(f"  group {self.allele_name_group[rank][i]}", end=" ")
+                    print("  group", f"{self.allele_name_group[rank][i]}", end=" ")
                 print()
 
     def fillNameGroup(self, allele_group_mapping: dict[str, list[str]]):
@@ -262,6 +267,7 @@ class AlleleTyping:
             self.result.append(TypingResult(
                 n              = 1,
                 value          = allele_1_top_value,
+                value_sum_indv = allele_1_top_value[:, None],                  # size: top_n x 1
                 allele_id      = allele_1_top_id,                              # size: top_n x 1
                 allele_name    = self.mapAlleleIDs(allele_1_top_id),           # size: top_n x 1
                 allele_prob    = allele_1_top_prob,
@@ -303,6 +309,7 @@ class AlleleTyping:
         allele_n_top_id    = allele_n_id[allele_n_top_index]                   # size: top_n x CN
         allele_n_top_prob  = self.log_probs[:, allele_n_top_id].max(axis=2)    # read x top_n x CN -> size: read x top-n
         allele_n_top_value = allele_n_prob[allele_n_top_index]                 # size: top_n
+        allele_n_top_sum   = self.log_probs[:, allele_n_top_id].sum(axis=0)    # size: top_n
 
         # calculate fraction
         belong             = np.equal(self.log_probs[:, allele_n_top_id],
@@ -315,12 +322,14 @@ class AlleleTyping:
         # sorted by likelihood and the difference value toward evenly-distributed
         fraction_diff      = allele_n_top_frac - allele_n_top_frac.mean(axis=1, keepdims=True)  # size: top_n x CN
         fraction_diff      = np.abs(fraction_diff).sum(axis=1)                                  # size: top_n
-        rank_index         = self.argSortRow(np.array([-allele_n_top_value, fraction_diff]).T)  # size: top_n
-
+        rank_index         = self.argSortRow(np.array([-allele_n_top_value,
+                                                       -allele_n_top_sum.sum(axis=1),
+                                                       fraction_diff]).T)                       # size: top_n
         # save result
         self.result.append(TypingResult(
             n              = len(self.result) + 1,
             value          = allele_n_top_value[rank_index],
+            value_sum_indv = allele_n_top_sum[rank_index],
             allele_id      = allele_n_top_id[rank_index],
             allele_name    = self.mapAlleleIDs(allele_n_top_id[rank_index]),
             allele_prob    = allele_n_top_prob[:, rank_index],
@@ -437,6 +446,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         print("Exon:")
         result = super().typing(cn)
         result.fillNameGroup(self.allele_group)
+        result.print()
 
         # run full typing as before but using selected alleles
         if self.full_model is None:

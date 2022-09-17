@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
 
+from kg_utils import getGeneName, getAlleleField
+
 
 CohortAlleles = dict[str, list[str]]  # it's ordered dict too
 
@@ -31,27 +33,16 @@ class MatchType(Enum):
     NONE      = 0b00000
 
 
-@dataclass(order=True)
+@dataclass
 class MatchResult:
     """ The pair of alleles from answer and predict alleles """
     answer_allele: str = ""  # order is important
     predit_allele: str = ""
     match_type: MatchType = MatchType.NONE
 
-
-def getGeneName(allele: str) -> str:
-    """ KIR3DP1*BACKBONE -> KIR3DP1 """
-    return allele.split("*")[0]
-
-
-def limitAlleleField(allele: str, resolution: int = 7) -> str:
-    """ KIR3DP1*0010101 with resolution 5 -> KIR3DP1*00101 """
-    return getGeneName(allele) + "*" + getAlleleField(allele, resolution)
-
-
-def getAlleleField(allele: str, resolution: int = 7) -> str:
-    """ KIR3DP1*0010101 with resolution 5 -> 00101 """
-    return allele.split("*")[1][:resolution]
+    def __lt__(self, other):
+        return (self.answer_allele or self.predit_allele) \
+               < (other.answer_allele or other.predit_allele)
 
 
 def groupByGene(alleles: list[str]) -> dict[str, list[str]]:

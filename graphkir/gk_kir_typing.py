@@ -76,6 +76,9 @@ class TypingWithPosNegAllele(Typing):
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """ Select reads belonged to the gene and typing it """
         print(f"{gene=} {cn=}")
+        # debug
+        # if gene != "KIR2DL5*BACKBONE":
+        #     return []
         if not self._exon_first and not self._exon_only:
             typ = AlleleTyping(self._gene_reads[gene], self._gene_variants[gene])
         else:

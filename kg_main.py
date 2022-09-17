@@ -258,10 +258,14 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     id = input_name.template_args[0]
     cn_name = cn_input_name.output_name.template.format(id)
     output_name_template = cn_input_name.output_name + "." + allele_method
+    output_name_template += ".compare_sum"
     output_name = output_name_template.format(id)
 
     if Path(output_name + ".tsv").exists():
         return output_name_template
+    # debug
+    # if "02" != input_name.template_args[0]:
+    #     return output_name_template
 
     t = selectKirTypingModel(allele_method, input_name + ".json")
     cn = loadCN(cn_name + ".tsv")
@@ -345,7 +349,7 @@ if __name__ == "__main__":
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    msa_index = index_folder >> buildKirMsaWrap.set_args("ab") >> leftAlignWrap
+    msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1") >> leftAlignWrap
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap
 
@@ -357,7 +361,7 @@ if __name__ == "__main__":
     cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
     # cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon).set_depended(0)
 
-    typing = variant >> kirTyping.set_args(cn, "pv") >> kirResult.set_args(answer=answer_folder).set_depended(0)
+    typing = variant >> kirTyping.set_args(cn, "pv_exonfirst") >> kirResult.set_args(answer=answer_folder).set_depended(0)
 
     # cn >> plotCNWrap.set_depended(0)
 
