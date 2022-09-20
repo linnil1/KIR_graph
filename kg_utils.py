@@ -7,7 +7,10 @@ from concurrent.futures import ProcessPoolExecutor
 from graphkir.gk_utils import (
     runShell,
     samtobam,
-    runDocker as runDockerGK
+    runDocker as runDockerGK,
+    getGeneName,
+    limitAlleleField,
+    getAlleleField,
 )
 
 threads = 20
@@ -32,18 +35,3 @@ def runDocker(image: str, cmd: str, *arg, **kwargs):
     """ run docker container """
     image = images.get(image, image)
     return runDockerGK(image, cmd, *arg, **kwargs)
-
-
-def getGeneName(allele: str) -> str:
-    """ KIR3DP1*BACKBONE -> KIR3DP1 """
-    return allele.split("*")[0]
-
-
-def limitAlleleField(allele: str, resolution: int = 7) -> str:
-    """ KIR3DP1*0010101 with resolution 5 -> KIR3DP1*00101 """
-    return getGeneName(allele) + "*" + getAlleleField(allele, resolution)
-
-
-def getAlleleField(allele: str, resolution: int = 7) -> str:
-    """ KIR3DP1*0010101 with resolution 5 -> 00101 """
-    return allele.split("*")[1][:resolution]

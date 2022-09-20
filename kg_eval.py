@@ -1,11 +1,11 @@
 import re
 from enum import Enum
-from typing import Iterator, Callable
+from typing import Iterator, Callable, Iterable, Any
 from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
 
-from kg_utils import getGeneName, getAlleleField
+from graphkir.gk_utils import getGeneName, getAlleleField
 
 
 CohortAlleles = dict[str, list[str]]  # it's ordered dict too
@@ -40,7 +40,7 @@ class MatchResult:
     predit_allele: str = ""
     match_type: MatchType = MatchType.NONE
 
-    def __lt__(self, other):
+    def __lt__(self, other: 'MatchResult') -> bool:
         return (self.answer_allele or self.predit_allele) \
                < (other.answer_allele or other.predit_allele)
 
@@ -80,7 +80,7 @@ def readPredictResult(tsv_file: str,
 
 
 def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
-                  skip_empty: bool = True, verbose_sample: bool = True):
+                  skip_empty: bool = True, verbose_sample: bool = True) -> None:
     """
     Compare answer and called alleles from all samples
 
@@ -106,6 +106,7 @@ def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
 
     printSummary(results)
     printSummaryByResolution(results)
+    printSummaryGeneLevel(results)
 
 
 def compareSample(answer_list: list[str], predict_list: list[str]) -> list[MatchResult]:
@@ -185,7 +186,7 @@ def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
         yield MatchResult("", allele, MatchType.FP)
 
 
-def printSummarySample(results: list[MatchResult]):
+def printSummarySample(results: list[MatchResult]) -> None:
     """ Print match result """
     for result in results:
         if result.match_type == MatchType.MATCH7:
@@ -233,13 +234,8 @@ def printSummary(cohort_result: list[list[MatchResult]]) -> dict[str, int]:
     return summary
 
 
-def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[str, int]:
-    """
-    Summarize the match results in the cohort but normalized by answer's resolution
-
-    Return:
-      summary: The value of each metrics
-    """
+def calcSummaryByResolution(cohort_results: Iterable[MatchResult]) -> dict[str, int]:
+    """ Calculate the correctness by resolution """
     summary = {
         "7digits_total": 0,
         "7digits_correct": 0,
@@ -251,32 +247,42 @@ def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[st
         "gene_correct": 0,
         "FP": 0,
     }
+    for result in cohort_results:
+        if not result.answer_allele:
+            summary["FP"] += 1
+            continue
 
-    for results in cohort_results:
-        for result in results:
-            if not result.answer_allele:
-                summary["FP"] += 1
-                continue
+        if len(getAlleleField(result.answer_allele)) == 7:
+            summary["7digits_total"] += 1
+            if result.match_type in [MatchType.MATCH7]:
+                summary["7digits_correct"] += 1
 
-            if len(getAlleleField(result.answer_allele)) == 7:
-                summary["7digits_total"] += 1
-                if result.match_type in [MatchType.MATCH7]:
-                    summary["7digits_correct"] += 1
+        if len(getAlleleField(result.answer_allele)) >= 5:
+            summary["5digits_total"] += 1
+            if result.match_type in [MatchType.MATCH7, MatchType.MATCH5]:
+                summary["5digits_correct"] += 1
 
-            if len(getAlleleField(result.answer_allele)) >= 5:
-                summary["5digits_total"] += 1
-                if result.match_type in [MatchType.MATCH7, MatchType.MATCH5]:
-                    summary["5digits_correct"] += 1
+        if len(getAlleleField(result.answer_allele)) >= 3:
+            summary["3digits_total"] += 1
+            if result.match_type in [MatchType.MATCH7, MatchType.MATCH5, MatchType.MATCH3]:
+                summary["3digits_correct"] += 1
 
-            if len(getAlleleField(result.answer_allele)) >= 3:
-                summary["3digits_total"] += 1
-                if result.match_type in [MatchType.MATCH7, MatchType.MATCH5, MatchType.MATCH3]:
-                    summary["3digits_correct"] += 1
+        if len(getAlleleField(result.answer_allele)) >= 0:
+            summary["gene_total"] += 1
+            if result.match_type in [MatchType.MATCH7, MatchType.MATCH5, MatchType.MATCH3, MatchType.MATCHGENE]:
+                summary["gene_correct"] += 1
+    return summary
 
-            if len(getAlleleField(result.answer_allele)) >= 0:
-                summary["gene_total"] += 1
-                if result.match_type in [MatchType.MATCH7, MatchType.MATCH5, MatchType.MATCH3, MatchType.MATCHGENE]:
-                    summary["gene_correct"] += 1
+
+
+def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[str, int]:
+    """
+    Summarize the match results in the cohort but normalized by answer's resolution
+
+    Return:
+      summary: The value of each metrics
+    """
+    summary = calcSummaryByResolution(result for results in cohort_results for result in results)
 
     def precisionStr(a: int, b: int) -> str:
         return f"{a:5d} / {b:5d} = {a / b:.3f}"
@@ -287,6 +293,54 @@ def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[st
     print(f"Gene:     {precisionStr(summary['gene_correct'],    summary['gene_total'])}")
     print(f"CN:       FP={summary['FP']} FN={summary['gene_total'] - summary['gene_correct']}")
     return summary
+
+
+def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> dict[str, dict[str, int]]:
+    """
+    printSummaryByResolution but in gene-level mode
+
+    Return:
+      summary: The value of each metrics per gene
+    """
+    # collect result by gene
+    result_by_gene = defaultdict(list)
+    for results in cohort_results:
+        for result in results:
+            gene = getGeneName(result.answer_allele or result.predit_allele)
+            result_by_gene[gene].append(result)
+
+    # per gene accuracy
+    summary_by_gene: dict[str, Any] = {}
+    for gene in result_by_gene:
+        summary_by_gene[gene] = calcSummaryByResolution(result_by_gene[gene])
+        summary_by_gene[gene]['gene'] = gene
+
+    # other matrics
+    df = pd.DataFrame(summary_by_gene.values())  # type: ignore
+    df["7digits_acc"] = df["7digits_correct"] / df["7digits_total"]
+    df["5digits_acc"] = df["5digits_correct"] / df["5digits_total"]
+    df["3digits_acc"] = df["3digits_correct"] / df["3digits_total"]
+    df["gene_acc"]    = df["gene_correct"]    / df["gene_total"]
+    df["FN"]          = df["gene_total"]      - df["gene_correct"]
+    df["FN_ratio"]    = df["FN"]              / df["gene_total"]
+    df["FP_ratio"]    = df["FP"]              / df["gene_total"]
+
+    with pd.option_context('display.max_rows', None,
+                           'display.max_columns', None):  # type: ignore
+        print(df)
+
+    df_plot = pd.melt(df, id_vars="gene",  # type: ignore
+                      value_vars=['7digits_acc', "5digits_acc",
+                                  "3digits_acc", "gene_acc",
+                                  "FN_ratio", "FP_ratio"],
+                      value_name="accuracy",
+                      var_name="level")
+    df_plot = df_plot.sort_values(by=["gene", "level"])
+    # print(df_plot)
+    # from graphkir.gk_plot import showPlot
+    # import plotly.express as px
+    # showPlot([px.line(df_plot, x="gene", y="accuracy", color="level")])
+    return summary_by_gene
 
 
 if __name__ == "__main__":

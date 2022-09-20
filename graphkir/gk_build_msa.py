@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import msaio, Genemsa, KIRmsa
 from .gk_utils import runDocker
+from .gk_fill_intron import fillMissingIntrons
 
 
 # TODO:
@@ -44,7 +45,7 @@ def saveAllMsa(genes: GenesMsa, prefix: str):
                             f"{prefix}.{gene_name}.json")
 
 
-def readDB(version: str = "latest") -> GenesMsa:
+def readDB(full_length_only: bool = True, version: str = "latest") -> GenesMsa:
     """
     Read IPD-KIR database
 
@@ -53,7 +54,10 @@ def readDB(version: str = "latest") -> GenesMsa:
     Returns:
         genes: A dictionary of gene's name and its MSA
     """
-    kir = KIRmsa(filetype=["gen"], version=version)
+    if full_length_only:
+        kir = KIRmsa(filetype=["gen"], version=version)
+    else:
+        kir = KIRmsa(filetype=["gen", "nuc"], version=version)
     return kir.genes
 
 
@@ -73,6 +77,14 @@ def readFromMSAs(prefix: str) -> GenesMsa:
         print("read", filename)
         gene = split_name[0]
         genes[gene] = msaio.load_msa(filename[:-5] + ".fa", filename)
+    return genes
+
+
+def removeBackbone(genes: GenesMsa) -> GenesMsa:
+    """ Remove {gene}*BACKBONE alleles """
+    for gene, msa in genes.items():
+        if f"{gene}*BACKBONE" in msa.alleles:
+            msa.remove(f"{gene}*BACKBONE")
     return genes
 
 
@@ -255,7 +267,8 @@ def clustalo(name: str) -> str:
     return f"{name}.clustalo"
 
 
-def buildKirMsa(mode: str, prefix: str, version: str = "2100"):
+def buildKirMsa(mode: str, prefix: str, version: str = "2100",
+                input_msa_prefix: str = "", full_length_only: bool = True):
     """
     Read KIR from database and save MSA into files with prefix
 
@@ -270,9 +283,16 @@ def buildKirMsa(mode: str, prefix: str, version: str = "2100"):
 
         prefix: The prefix of filename for saving
         version: The version of IPD-KIR database
+        input_msa_prefix: The prefix of MSA, we will read MSA from the path
+                          instead of downloing `version` DB
     """
-    genes = readDB(version=version)
-    # genes = readFromMSAs("index/kir_2100_split")
+    if input_msa_prefix:
+        genes = readFromMSAs(input_msa_prefix)
+        genes = removeBackbone(genes)
+    else:
+        genes = readDB(full_length_only=full_length_only, version=version)
+        if not full_length_only:
+            genes = fillMissingIntrons(genes)
 
     if mode == "split":
         genes['KIR2DL5A'] = genes['KIR2DL5'].select_allele("KIR2DL5A.*")

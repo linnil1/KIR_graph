@@ -323,7 +323,7 @@ class AlleleTyping:
         fraction_diff      = allele_n_top_frac - allele_n_top_frac.mean(axis=1, keepdims=True)  # size: top_n x CN
         fraction_diff      = np.abs(fraction_diff).sum(axis=1)                                  # size: top_n
         rank_index         = self.argSortRow(np.array([-allele_n_top_value,
-                                                       -allele_n_top_sum.sum(axis=1),
+                                                       -allele_n_top_sum.sum(axis=1),  # compare-sum
                                                        fraction_diff]).T)                       # size: top_n
         # save result
         self.result.append(TypingResult(
@@ -431,7 +431,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         # same as before
         super().__init__(exon_reads, exon_variants)
         if not exon_only:
-            self.full_model = AlleleTyping(reads, variants)
+            self.full_model: AlleleTyping | None = AlleleTyping(reads, variants)
         else:
             self.full_model = None
 

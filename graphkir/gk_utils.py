@@ -60,3 +60,18 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
+
+
+def getGeneName(allele: str) -> str:
+    """ KIR3DP1*BACKBONE -> KIR3DP1 """
+    return allele.split("*")[0]
+
+
+def limitAlleleField(allele: str, resolution: int = 7) -> str:
+    """ KIR3DP1*0010101 with resolution 5 -> KIR3DP1*00101 """
+    return getGeneName(allele) + "*" + getAlleleField(allele, resolution)
+
+
+def getAlleleField(allele: str, resolution: int = 7) -> str:
+    """ KIR3DP1*0010101 with resolution 5 -> 00101 """
+    return allele.split("*")[1][:resolution]

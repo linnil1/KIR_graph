@@ -162,6 +162,20 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
 
 
 @nt
+def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
+    exon_name = f"{input_name}/kir_2100_withexon"
+    output_name = exon_name + "_" + msa_type
+
+    if not len(glob(exon_name + ".KIR*")):
+        buildKirMsa("ab", exon_name, full_length_only=False)
+
+    if len(glob(output_name + ".KIR*")):
+        return output_name
+    buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name)
+    return output_name
+
+
+@nt
 def leftAlignWrap(input_name):
     output_name = input_name + ".leftalign"
     if len(glob(output_name + ".KIR*")):
@@ -349,12 +363,12 @@ if __name__ == "__main__":
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
-    msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1") >> leftAlignWrap
+    # msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1") >> leftAlignWrap
+    msa_index = index_folder >> buildMsaWithCds.set_args("ab_2dl1s1") >> leftAlignWrap
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap
 
     print(index)
-    # samples = "data2/linnil1_syn_30x_seed87.{}"
     mapping = samples >> hisatMapWrap.set_args(index=str(index))
     variant = mapping >> extractVariant.set_args(ref_index=str(ref_index))
 
