@@ -13,11 +13,11 @@ from kg_main import linkSamples
 from kg_eval import readAnswerAllele, compareCohort
 
 
-def extractID(name):
+def extractID(name: str) -> str:
     return re.findall(r"\.(\w+)\.read", name)[0]
 
 
-def readPingLocusCount(locus_csv):
+def readPingLocusCount(locus_csv: str) -> pd.DataFrame:
     ping_data = pd.read_csv(locus_csv)
     ping_data = ping_data.rename(columns={'Unnamed: 0': "sample"})
     ping_data['method'] = "PING"
@@ -222,7 +222,7 @@ def pingResult(input_name, answer):
     return input_name
 
 
-def readPingResult(csv_file):
+def readPingResult(csv_file: str) -> dict[str, list[str]]:
     """ Read ping result """
     # read
     data = pd.read_csv(csv_file, sep=',')

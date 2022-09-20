@@ -22,7 +22,7 @@ images = {
 }
 
 
-def runDocker(image: str, cmd: str, capture_output=False):
+def runDocker(image: str, cmd: str, capture_output=False) -> subprocess.CompletedProcess:
     """ run docker container """
     image = images.get(image, image)
     name = str(uuid.uuid4()).split("-", 1)[0]
@@ -33,7 +33,7 @@ def runDocker(image: str, cmd: str, capture_output=False):
     return proc
 
 
-def runShell(cmd: str, capture_output=False, cwd=None):
+def runShell(cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedProcess:
     """ wrap os.system """
     print(cmd)
     proc = subprocess.run(cmd, shell=True,
@@ -44,7 +44,7 @@ def runShell(cmd: str, capture_output=False, cwd=None):
     return proc
 
 
-def samtobam(name: str, keep=False):
+def samtobam(name: str, keep=False) -> None:
     """ samfile -> sorted bamfile and index (This is so useful) """
     runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
     runDocker("samtools", f"samtools index    {name}.bam")

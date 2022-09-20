@@ -482,14 +482,14 @@ def testThreshold():
         fig.add_vline(x=x[m], line_width=2, line_dash="dash", line_color="green", annotation_text=f"CN={cn}", annotation_font_color="green")
 
     # Our method
-    from kg_typping_linnil1 import KDEcut
+    from graphkir.gk_cn_model import KDEcut
     kde = KDEcut()
     kde.fit(ori_data)
     x = np.linspace(0, 1.1, kde.points)
     y = kde.kde.score_samples(x[:, None])
-    fig.add_trace(go.Scatter(x=x * kde.max / norm_value, y=y / np.abs(y.min()),  name=f"our_method", line_color="blue"))
+    fig.add_trace(go.Scatter(x=x * kde.x_max / norm_value, y=y / np.abs(y.min()),  name=f"our_method", line_color="blue"))
     for cn, m in enumerate(kde.local_min):
-        fig.add_vline(x=m * kde.max / norm_value, line_width=2, line_dash="dash", line_color="blue", annotation_text=f"CN={cn}", annotation_yshift=-20, annotation_font_color="blue")
+        fig.add_vline(x=m * kde.x_max / norm_value, line_width=2, line_dash="dash", line_color="blue", annotation_text=f"CN={cn}", annotation_yshift=-20, annotation_font_color="blue")
 
     # Bad paramerts: bandwidth
     data = np.array(ori_data)[:, None] / norm_value

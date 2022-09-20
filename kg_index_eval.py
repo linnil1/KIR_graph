@@ -1,21 +1,29 @@
 import os
 import json
-from glob import glob
 from pprint import pprint
+from typing import Iterable
+from itertools import chain
+from functools import reduce
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from Bio import AlignIO
+import plotly.graph_objects as go
+from Bio import AlignIO, SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from dash import Dash, dcc, html, Input, Output
+from pyhlamsa import msaio, Genemsa
 
-from pyhlamsa import msaio
-from kg_utils import threads, runDocker, runShell, samtobam
-from kg_build_msa import muscle
+from graphkir.gk_build_msa import readFromMSAs, muscle
+from graphkir.gk_utils import runShell, samtobam, getGeneName
+from kg_utils import threads, runDocker
 
 
-def calculate400bpReadMatchness(a1, a2):
+def calculate400bpReadMatchness(a1: str, a2: str) -> pd.DataFrame:
+    """ deprecated: Mark if the 400-bp segment in a1 can be mapped on a2 """
     # read
     index = "index/kir_2100_merge.save"
     output_name = f"{index}.400bp_match.{a1}_{a2}.csv"
@@ -28,7 +36,7 @@ def calculate400bpReadMatchness(a1, a2):
     msa_a1 = [(i[0], i[1].replace("-", "")) for i in msa.select_allele(f"{a1}.*").alleles.items()]
     msa_a2 = [(i[0], i[1].replace("-", "")) for i in msa.select_allele(f"{a2}.*").alleles.items()]
 
-    def isIn(items, seq):
+    def isIn(items: Iterable[tuple[str, str]], seq: str) -> bool | str:
         for i in items:
             if seq in i[1]:
                 return i[0]
@@ -57,7 +65,8 @@ def calculate400bpReadMatchness(a1, a2):
     return df
 
 
-def plot400bpMatchness(a1, a2):
+def plot400bpMatchnessByPair(a1: str, a2: str) -> list[go.Figure]:
+    """ deprecated: plot calculate400bpReadMatchness """
     index = "index/kir_2100_merge.save"
     df = pd.read_csv(f"{index}.400bp_match.{a1}_{a2}.csv")
     # df = df.fillna(-1)
@@ -69,18 +78,28 @@ def plot400bpMatchness(a1, a2):
 
     # a1
     data = np.array(df_a1.fillna(-1).iloc[:, 1:], dtype=int)
-    figs.append(px.imshow(data, title=f"{a1} mapped on {a2}", aspect="auto", color_continuous_scale=[color[-1], color[0], color[2]]))
-    figs[-1].update_layout(xaxis={'ticktext': df.columns[1::5], 'tickmode': "array", 'tickvals': list(range(len(df.columns[1:])))[::5]})
+    figs.append(px.imshow(data,
+                          title=f"{a1} mapped on {a2}",
+                          aspect="auto",
+                          color_continuous_scale=[color[-1], color[0], color[2]]))
+    figs[-1].update_layout(xaxis={'ticktext': df.columns[1::5],
+                                  'tickmode': "array",
+                                  'tickvals': list(range(len(df.columns[1:])))[::5]})
 
     # a2
     data = np.array(df_a2.fillna(-1).iloc[:, 1:], dtype=int)
-    figs.append(px.imshow(data, title=f"{a2} mapped on {a1}", aspect="auto", color_continuous_scale=[color[-1], color[0], color[2]]))
-    figs[-1].update_layout(xaxis={'ticktext': df.columns[1::5], 'tickmode': "array", 'tickvals': list(range(len(df.columns[1:])))[::5]})
-
+    figs.append(px.imshow(data,
+                          title=f"{a2} mapped on {a1}",
+                          aspect="auto",
+                          color_continuous_scale=[color[-1], color[0], color[2]]))
+    figs[-1].update_layout(xaxis={'ticktext': df.columns[1::5],
+                                  'tickmode': "array",
+                                  'tickvals': list(range(len(df.columns[1:])))[::5]})
     return figs
 
 
-def plot400bpMatchness():
+def plot400bpMatchness() -> list[go.Figure]:
+    """ deprecated: Call calculate400bpReadMatchness with selected gene pairs """
     pairs = [
         ("KIR2DL1", "KIR2DS1"),
         ("KIR2DL1", "KIR2DL2"),
@@ -92,154 +111,136 @@ def plot400bpMatchness():
 
     figs = []
     for a1, a2 in pairs:
-        figs.extend(plot400bpMatchness(a1, a2))
+        figs.extend(plot400bpMatchnessByPair(a1, a2))
     return figs
 
 
-def diffBetweenAllele(msa, title):
-    # TODO what is this?
-    pass
-
-
-def plotVariantPosBetweenPairs():
+def plotVariantPositions() -> list[go.Figure]:
+    """ Call plotVariantPosBetweenPairs for selected pairs """
+    pairs = [
+        ("KIR2DL1", "KIR2DS1"),
+        ("KIR2DL2", "KIR2DL3"),
+        ("KIR2DS3", "KIR2DS5"),
+        ("KIR2DL5A", "KIR2DL5B"),
+    ]
     figs = []
-    figs.extend(plotVariantPosBetweenPair("KIR2DS1", "KIR2DL1"))
-    figs.extend(plotVariantPosBetweenPair("KIR2DL2", "KIR2DL3"))
-    figs.extend(plotVariantPosBetweenPair("KIR2DS3", "KIR2DS5"))
-    figs.extend(plotVariantPosBetweenPair("KIR2DL5A", "KIR2DL5"))
+    for a1, a2 in pairs:
+        figs.extend(plotVariantBetweenPair(a1, a2))
     return figs
 
 
-def plotVariantPosBetweenPair(a1, a2):
-    figs = []
+def plotVariantBetweenPair(a1: str, a2: str) -> list[go.Figure]:
+    """ plot variations between two gene along base """
+    # read MSA
     index = "index/kir_2100_merge.save"
     msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
-
-    """
-    # gene vs base difference
-    # for g in set(map(lambda i: i.split("*")[0], msa.alleles.keys())):
-    for g in [gene, base_gene]:
-        submsa = msa.select_allele(f"({g})|({base_gene})").shrink()
-        title = f"SNP distribution of {base_gene} and {g}"
-        bs = submsa.get_variantion_base()
-        print(g)
-        print("Total length", submsa.get_length())
-        print("Total base diff", len(bs))
-        df = pd.DataFrame(bs, columns = ['pos'])
-        figs.append( px.histogram(df, x='pos', title=title, width=600, height=800) )
-        # figs.append( px.histogram(df, x='pos', title=title, width=600, height=800, histnorm='probability').update_layout(yaxis_tickformat = '.2%') )
-    """
-
-    # Inter gene difference
-    # diff variant of two = all variant - variant1 - variant2
     submsa = msa.select_allele(f"({a1})|({a2})").shrink()
-    submsa_base0 = submsa.get_variantion_base()
-    submsa_base1 = submsa.select_allele(f"({a1})").get_variantion_base()
-    submsa_base2 = submsa.select_allele(f"({a2})").get_variantion_base()
-    bases = set(submsa_base0) - set(submsa_base1) - set(submsa_base2)
-
-    title = f"Internal Variantion inside {a1} and {a2}"
-    df = pd.DataFrame([
-        *[{'pos': i, 'from': a1} for i in submsa_base1],
-        *[{'pos': i, 'from': a2} for i in submsa_base2],
-    ])
-    figs.append(px.histogram(df, x='pos', color="from", nbins=100, title=title, width=600, height=800))
+    # calculate variantions
+    base0 = submsa.get_variantion_base()
+    base1 = submsa.select_allele(f"({a1})").get_variantion_base()
+    base2 = submsa.select_allele(f"({a2})").get_variantion_base()
+    base_between = set(base0) - set(base1) - set(base2)
 
     # plot
-    title = f"Different between {a1} and {a2} (exclude internal variant)"
-    print(title, len(bases))
-    # .update_layout(yaxis_range=[0,70])
-    df = pd.DataFrame(bases, columns=['pos'])
-    figs.append(px.histogram(df, x='pos', title=title, nbins=100, width=600, height=800))
-    # px.histogram(df, x='pos', title=title, width=600, height=800, histnorm='probability').update_layout(yaxis_tickformat = '.2%') ])
-
+    figs = []
+    title = f"Variantion of {a1} and {a2}"
+    df = pd.DataFrame([
+        *[{'pos': i, 'from': a1 + "'s variants"} for i in base1],
+        *[{'pos': i, 'from': a2 + "'s variants"} for i in base2],
+        *[{'pos': i, 'from': f"between {a1} and {a2}"} for i in base_between],
+    ])
+    figs.append(px.histogram(df, x='pos', color="from", nbins=100, title=title))
     return figs
 
 
-def getVariantPosition(msa, reg):
-    return set(msa.select_allele(reg).get_variantion_base())
+def getVariantPosition(msa: Genemsa, allele_regex: str) -> set[int]:
+    """ Find the variantions in the allele_regex selected alleles """
+    return set(msa.select_allele(allele_regex).get_variantion_base())
 
 
-def plotVariationAllGene():
+def selectShortSequence(msa: Genemsa, minimal_threshold: float = 0.7) -> list[str]:
+    allele_length = {name: len(seq.replace("-", "")) for name, seq in msa.alleles.items()}
+    threshold = np.max(list(allele_length.values())) * minimal_threshold
+    removed_alleles = []
+    for allele, length in allele_length.items():
+        if length < threshold:
+            removed_alleles.append(allele)
+    return removed_alleles
+
+
+def calcVariantionsPosition() -> dict[tuple[str, str], set[int]]:
+    """ calculate variantion position between geneA and geneB """
     # load data
     index = "index/kir_2100_merge.save"
     msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
-    output_name = f"{index}.gene_variation"
+    output_name = f"{index}.gene_variation1"
+
+    # read from saved data
+    if os.path.exists(output_name + ".json"):
+        diff_pos_json = json.load(open(output_name + ".json"))
+        return {tuple(k.split(";")): set(v) for k, v in diff_pos_json.items()}  # type: ignore
 
     # Remove some strange sequences
     del msa.alleles['KIR*BACKBONE']
 
     # get All available gene
-    genes = sorted(set(map(lambda i: i.split("*")[0], msa.alleles.keys())))
-    # genes.remove("KIR3DL3")
-    # genes.remove("KIR3DP1")
-    # genes.remove("KIR2DL5A")
-    # genes.remove("KIR2DL5B")
-    gene_id = {gene: id for id, gene in enumerate(genes)}
+    genes = sorted(set(map(getGeneName, msa.alleles.keys())))
 
-    if not os.path.exists(output_name + ".json"):
-        # remove short sequences
-        for gene in genes:
-            msa_gene = msa.select_allele(f"{gene}\*")
-            allele_length = {name: len(seq.replace("-", "")) for name, seq in msa_gene.alleles.items()}
-            threshold = np.max(list(allele_length.values())) * 0.7
-            c = 0
-            print(f"{gene} {threshold=}")
-            for allele, length in allele_length.items():
-                if length < threshold:
-                    del msa.alleles[allele]
-                    c += 1
-                    print(f"delete {allele}, {length=}")
-            print(f"{gene} delete {c} alleles from {len(msa_gene.alleles)}")
+    # remove short sequences
+    for gene in genes:
+        msa_gene = msa.select_allele(f"{gene}\*")
+        short_alleles = selectShortSequence(msa_gene)
+        msa.remove(short_alleles)
+        print("Remove", short_alleles)
+        print(f"{gene} delete {len(short_alleles)} alleles in total {len(msa_gene.alleles)} allele")
 
-        # get variantion in gene
-        bases = {}
-        for gene in genes:
-            bases[gene] = set(msa.select_allele(f"{gene}").get_variantion_base())
+    # get variantion across gene
+    exes = {}
+    diff_pos = {}
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        # run concurrent
+        for gene1 in genes:
+            for gene2 in genes:
+                if gene1 <= gene2:
+                    exes[(gene1, gene2)] = executor.submit(getVariantPosition,
+                                                           msa, f"({gene1})|({gene2})")
 
-        # get variantion across gene
-        exes = {}
-        diff_pos = {}
-        with ProcessPoolExecutor(max_workers=threads) as executor:
-            # run concurrent
-            for gene1 in genes:
-                for gene2 in genes:
-                    if gene1 != gene2:
-                        exes[(gene1, gene2)] = executor.submit(getVariantPosition, msa, f"({gene1})|({gene2})")
+        # gene1 vs gene2
+        for key, exe in exes.items():
+            diff_pos[key] = exe.result()
 
-            # gene1 vs gene2
-            for gene1 in genes:
-                for gene2 in genes:
-                    if gene1 != gene2:
-                        diff_pos[gene1 + ";" + gene2] = list(exes[(gene1, gene2)].result())
-                    else:
-                        diff_pos[gene1 + ";" + gene1] = list(bases[gene1])
-        json.dump(diff_pos, open(output_name + ".json", "w"))
-        diff_pos = {tuple(k.split(";")): set(v) for k, v in diff_pos.items()}
-    else:
-        # load data
-        diff_pos = json.load(open(output_name + ".json"))
-        diff_pos = {tuple(k.split(";")): set(v) for k, v in diff_pos.items()}
+    # save
+    json.dump({i + ";" + j: list(pos) for (i, j), pos in diff_pos.items()},
+              open(output_name + ".json", "w"))
+    return diff_pos
 
-    # calculation 
+
+def plotDissimilarity() -> list[go.Figure]:
+    """ plot dis-similarity matrix of all gene """
+    diff_pos = calcVariantionsPosition()
+    genes = set(chain.from_iterable(diff_pos.keys()))
+    gene_id = {gene: id for id, gene in enumerate(sorted(genes))}
+
+    # calculation
     diff_genes = []
     for gene1 in genes:
         for gene2 in genes:
-            if gene1 != gene2:
-                diff_genes.append({
-                    'from': gene1,
-                    'to': gene2,
-                    'value': len(diff_pos[(gene1, gene2)] - diff_pos[(gene1, gene1)]),
-                })
-            else:
+            if gene1 == gene2:
                 diff_genes.append({
                     'from': gene1,
                     'to': gene2,
                     'value': len(diff_pos[(gene1, gene2)]),
                 })
+            else:
+                diff_genes.append({
+                    'from': gene1,
+                    'to': gene2,
+                    'value': len(diff_pos[(min(gene1, gene2), max(gene1, gene2))]
+                             - diff_pos[(gene1, gene1)]),
+                })
     diff_genes_df = pd.DataFrame(diff_genes)
     print(diff_genes_df)
-    print(diff_genes_df[diff_genes_df['value'] < 1000])
+    print(diff_genes_df[diff_genes_df['value'] < 800])
 
     # pandas to 2d array
     data = np.zeros((len(genes), len(genes)))
@@ -258,8 +259,15 @@ def plotVariationAllGene():
     return [fig]
 
 
-def addGroupName(name):
-    """ Input {name}.bam Return {name}.rg.bam """
+def addGroupName(name: str) -> str:
+    """
+    Add addition read-group for each read by the gene generated from.
+
+    This bam can be plotted on IGV and can be sorted by group name.
+
+    Input: {name}.bam
+    Return: {name}.rg.bam
+    """
     outputname = name + ".rg"
     proc = runDocker("samtools", f"samtools view -h {name}.bam", capture_output=True)
 
@@ -271,10 +279,10 @@ def addGroupName(name):
             continue
         if i.startswith("@"):
             header.append(i)
-        else:
-            rg = i.split('*')[0]
-            data.append(i + f"\tRG:Z:{rg}")
-            read_groups.add(rg)
+            continue
+        rg = i.split('*')[0]
+        data.append(i + f"\tRG:Z:{rg}")
+        read_groups.add(rg)
 
     for rg in read_groups:
         header.append(f"@RG\tID:{rg}")
@@ -288,16 +296,16 @@ def addGroupName(name):
     return ".rg"
 
 
-def seqSplit(seq, sep):
+def seqSplit(seq: list[str], sep: str) -> list[str]:
     """
     Split the seq with sep string
 
-    Args:
-      seq(list[str]): The sequences for spliting
-      sep(str): The string
-
-    Return:
-      seq(list[str]): The sequences be splited
+    Example:
+        ```
+        seq = ["abaa", "aababb"]
+        sep = "ba"
+        output: ["a", "baa", "aa", "babb"]
+        ```
     """
     seqs = []
     for s in seq:
@@ -307,55 +315,37 @@ def seqSplit(seq, sep):
     return seqs
 
 
-def writeSeqs(seqs, filename):
-    """ Write the short sequences """
-    with open(filename, "w") as f:
-        for seq in seqs:
-            f.write(">" + seq['id'] + "\n")
-            f.write(seq['seq'] + "\n")
-
-
-def addPositionToSeqs(seq_list):
+def selectKeyAlleleByResolution(allele_names: list[str],
+                                resolution: str = "gene") -> list[str]:
     """
-    Annotate the string position
+    Select alleles and all selected allels is different under the resolution
 
-    Args:
-      seq_list(list[str]): list of string
+    Example:
+        allele_names:
+          - KIR2DL1*0010101
+          - KIR2DL1*00102
+          - KIR2DL1*00103
+          - KIR2DL1*00201
+          - KIR2DL1*0020201
+          - KIR2DL1*003
+        resolution: 3
 
-    Return 
-      seqs(list[dict[str, Any]]): list of dict,
-        where
-        * 'pos' indicate the start position
-        * 'seq' indicate the original string
-    """
-    pos = 0
-    seqs = []
-    for seq in seq_list:
-        seqs.append({
-            'pos': pos,
-            'seq': seq,
-        })
-        pos += len(seq)
-    return seqs
-
-
-def selectAllele(names, sep="*"):
-    """
-    Args:
-      names(list[str]): list of allele name
-      sep(str): select type
-      * '*': gene-name
-      * '3': gene-name + 3 fields
-      * '5': gene-name + 5 fields
-      * '7': gene-name + 7 fields
+        Return:
+          - KIR2DL1*0010101
+          - KIR2DL1*00201
+          - KIR2DL1*003
     """
     s = set()
     reserved_name = []
-    for i in sorted(names):
-        if sep == "*":
+    for i in sorted(allele_names):
+        if resolution == "gene":
             key = i.split("*")[0]
-        elif type(sep) is int:
-            key = i.split("*")[0] + "*" + i.split("*")[1][:sep]
+        elif resolution == "7":
+            key = i.split("*")[0] + "*" + i.split("*")[1][:7]
+        elif resolution == "5":
+            key = i.split("*")[0] + "*" + i.split("*")[1][:5]
+        elif resolution == "5":
+            key = i.split("*")[0] + "*" + i.split("*")[1][:3]
         else:
             key = i
         if key not in s:
@@ -365,10 +355,8 @@ def selectAllele(names, sep="*"):
     return sorted(reserved_name)
 
 
-def extractRepeatSequence(index, gene, print_style="7_all"):
-    """
-    Extract the repeat region (about 500bp - 3000bp)
-    """
+def extractRepeatSequence(index: str, gene: str) -> tuple[Genemsa, Genemsa]:
+    """ Extract the KIR repeat region (about 500bp - 3000bp) """
     msa = msaio.load_msa(f"{index}.{gene}.fa",
                          f"{index}.{gene}.json")
     # get repeat seqs
@@ -387,69 +375,75 @@ def extractRepeatSequence(index, gene, print_style="7_all"):
     seq_list = seqSplit(seq_list, "GTAAT")
     seq_list = seqSplit(seq_list, "GTGAT")
     seq_list = seqSplit(seq_list, "GTTAT")
-    seq_list = addPositionToSeqs(seq_list)
-    # for i in seq_list:
-    #     print(i['seq'])
-    # reserve similar length
-    pprint(seq_list)
-    # 17-22 is set manually
-    seq_list = [i for i in seq_list if 17 <= len(i['seq']) <= 22]
+
+    # add position information along with sequence
+    seq_pos_list = []
+    pos = 0
+    for seq in seq_list:
+        seq_pos_list.append({
+            'pos': pos,
+            'seq': seq,
+        })
+        pos += len(seq)
+
+    # reserve similar length (the pattern is from 17 to 22 bp)
+    seq_pos_list = [i for i in seq_pos_list if 17 <= len(i['seq']) <= 22]  # type: ignore
+    pprint(seq_pos_list)
 
     # run muscle
     file_repeat = f"{index}.{gene}.repeat"
-    for i in seq_list:
-        i['id'] = f"{gene}*BB-{i['pos']:05d}"
-    writeSeqs(seq_list, file_repeat + ".fa")
-    file_repeat += muscle(file_repeat)
+    SeqIO.write([SeqRecord(Seq(i['seq']), id=f"{gene}*BB-{i['pos']:05d}")
+                 for i in seq_pos_list],
+                file_repeat + ".fa",
+                "fasta")
+    file_repeat = muscle(file_repeat)
 
     # print aligned repeat
-    msa_align = AlignIO.read(file_repeat + ".fa", "fasta")
-    msa_align = Genemsa.from_MultipleSeqAlignment(msa_align)
-    msa_align.append(f"{gene}*BB-con", msa_align.get_consensus(include_gap=True))
-    msa_align.set_reference(f"{gene}*BB-con")
-    print(msa_align.sort_name().format_alignment_diff())
+    msa_repeat_element = Genemsa.from_MultipleSeqAlignment(
+        AlignIO.read(file_repeat + ".fa", "fasta"))
+    msa_repeat_element.append(f"{gene}*BB-con",
+                              msa_repeat_element.get_consensus(include_gap=True))
+    msa_repeat_element.set_reference(f"{gene}*BB-con")
+    print(msa_repeat_element.sort_name().format_alignment_diff())
+    return msa, msa_repeat_element
 
-    # print cluster
-    for name in sorted(msa_align.get_sequence_names()):
-        # extract interested part
-        if "-con" in name: continue
-        length = len(msa_align.get(name).replace("-", ""))
-        pos = int(name.split('-')[-1])
+
+def displayRepeatRegions(msa: Genemsa,
+                         msa_repeat_element: Genemsa,
+                         resolution: str = "7") -> None:
+    """ Display the MSA from extractRepeatSequence """
+    # get repeat elements' start position and length
+    repeat_regions = sorted([
+        # pos                      length
+        (int(name.split('-')[-1]), len(allele.replace("-", "")))
+        for name, allele in msa_repeat_element.alleles.items()
+        if "-con" not in name
+    ])
+    gene = msa_repeat_element.get_reference()[0].split("*")[0]
+
+    # print possible sequences at each repeat regions
+    for pos, length in repeat_regions:
         msa_part = msa[pos:pos+length]
-
-        # print cluster
+        # aggregate same sequences
         seqs_count = Counter(msa_part.alleles.values())
-        msa_part.alleles = {f"cluster{i:02d}-size-{c}": seq for i, (seq, c) in enumerate(seqs_count.items())}
-        msa_part.append(f"{gene}*BACKBONE", msa_align.get(name).replace("-", ""))
-        msa_part.set_reference(f"{gene}*BACKBONE")
+        msa_part.alleles = {f"cluster{i:02d}-size-{c}": seq
+                            for i, (seq, c) in enumerate(seqs_count.items())}
         print(msa_part.format_alignment_diff())
 
-    # print region of repeat of all alleles
-    if print_style == "7":
-        alleles_to_show = selectAllele(msa.get_sequence_names(), sep=7)
-    elif print_style == "5":
-        alleles_to_show = selectAllele(msa.get_sequence_names(), sep=5)
-    else:
-        return
-    msa = msa.select_allele(list(alleles_to_show))
-    for name in sorted(msa_align.get_sequence_names()):
-        # extract interested part
-        if "-con" in name:
-            continue
-        length = len(msa_align.get(name).replace("-", ""))
-        pos = int(name.split('-')[-1])
+    # remove allele that are same under specific resolution
+    alleles_to_show = selectKeyAlleleByResolution(msa.get_sequence_names(), resolution)
+    msa = msa.select_allele(alleles_to_show)
+
+    # print all sequences at each repeat regions
+    for pos, length in repeat_regions:
         msa_part = msa[pos:pos+length]
-        # print it
-        msa_part = msa_part.select_allele(alleles_to_show) 
+        msa_part = msa_part.select_allele(alleles_to_show)
         print(msa_part.format_alignment_diff())
 
 
-def dbLength(index):
-    kir = {}
-    for name in glob(index + ".*.json"):
-        kir[name.split('.')[-2]] = msaio.load_msa(name.replace(".json", ".fa"), name)
-
-
+def plotAllelesLength(index: str) -> list[go.Figure]:
+    """ plot all the length of allese in the dataset """
+    kir = readFromMSAs(index)
     lengths = []
     for gene, msa in sorted(kir.items()):
         for allele, seq in msa.alleles.items():
@@ -458,39 +452,180 @@ def dbLength(index):
                 'allele': allele,
                 'length': len(seq.replace('-', "")),
             })
-    lengths = pd.DataFrame(lengths)
+    lengths_df = pd.DataFrame(lengths)
 
-    df = []
-    for gene, msa in sorted(kir.items()):
-        df.append({
-            'gene': gene,
-            'num_alleles': len(msa.alleles),
-            'msa_length': msa.get_length(),
-            'average_length': np.mean(lengths[lengths['gene'] == gene]["length"]),
-        })
-    df = pd.DataFrame(df)
-    # df.to_csv("tmp.csv", index=False)
-    print(df)
-    summary = lengths.groupby("gene")["length"].describe()
+    summary = lengths_df.groupby("gene")["length"].describe()
     summary['mean'] = summary['mean'].apply(lambda i: "{:,.0f}".format(i))
     summary['std'] = summary['std'].apply(lambda i: "{:,.0f}".format(i))
     print(summary['mean'] + " ± " + summary['std'])
     # for row in summary.itertuples():
     #     print(row.Index, f"{row.mean}", row.std)
-    return [px.box(lengths, x="gene", y="length", points="all")]
+    return [px.box(lengths_df, x="gene", y="length", points="all")]
+
+
+def calcVariationWithoutGap(msa: Genemsa) -> list[int]:
+    """ Actually same as get_variantion_base but does not consider gap """
+    freqs = msa.calculate_frequency()
+    base = []
+    for i, freq in enumerate(freqs):
+        if sum(freq[:4]) not in freq[:4]:
+            base.append(i)
+    return base
+
+
+def calcExonFlankingPosition(msa: Genemsa) -> list[list[int]]:
+    """ Get all exon + flanking start and length (If overlap, merge it) """
+    flanking_length = 200
+    exon_position = []
+    start_position = 0
+    for block in msa.blocks:
+        if block.type == "exon":
+            exon_position.append((start_position, start_position + block.length))
+        start_position += block.length
+
+    # add flanking
+    exon_with_flanking_position: list[list[int]] = []
+    for a, b in exon_position:
+        if (len(exon_with_flanking_position) and
+                a - flanking_length <= exon_with_flanking_position[-1][1]):
+            exon_with_flanking_position[-1][1] = min(b + flanking_length,
+                                                     msa.get_length())
+        else:
+            exon_with_flanking_position.append([
+                max(a - flanking_length, 0),
+                min(b + flanking_length, msa.get_length())
+            ])
+    return exon_with_flanking_position
+
+
+def addPercentage(df: pd.DataFrame) -> pd.DataFrame:
+    """ Calculate the percentage of the value per gene """
+    new_df = df.groupby(["gene", "region"]).first()
+    percentage = new_df / df.groupby("gene").sum()
+    new_df['percentage'] = percentage
+    return new_df.reset_index()
+
+
+def plotNumOfVariants() -> list[go.Figure]:
+    """ Plot number of variant_num in exon and length of exon """
+    # index = "index/kir_2100_merge.save"
+    # msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    # genes = sorted(set(map(getGeneName, msa.alleles.keys())) - set(["KIR"]))
+    # kir = {}
+    # for gene in genes:
+    #     kir[gene] = msa.select_allele(f"({gene})").shrink()
+    index = "index/kir_2100_2dl1s1.save"
+    index = "index/kir_2100_ab.save"
+    index = "index/kir_2100_raw.save"
+    kir = readFromMSAs(index)
+
+    gene_variation_with_flanking_num = []
+    gene_variation_num = []
+    gene_length = []
+    gene_length_with_flanking = []
+    for gene, submsa in sorted(kir.items()):
+        print(f"Process {gene}")
+        # remove short alleles
+        # short_alleles = selectShortSequence(submsa, 0.7)
+        # submsa.remove(short_alleles)
+        # print("Remove", short_alleles)
+        # print(f"{gene} delete {len(short_alleles)} alleles in total {len(submsa.alleles)} allele")
+
+        # calculate statistic
+        gene_length.append({
+            'gene': gene,
+            'region': "exon",
+            'length': submsa.select_exon().get_length(),
+        })
+        gene_length.append({
+            'gene': gene,
+            'region': "intron",
+            'length': submsa.get_length() - gene_length[-1]['length'],  # type: ignore
+        })
+
+        exon_with_flanking_position = calcExonFlankingPosition(submsa)
+        gene_length_with_flanking.append({
+            'gene': gene,
+            'region': "exon + 200bp flanking",
+            'length': sum(map(lambda i: i[1] - i[0], exon_with_flanking_position)),
+        })
+        gene_length_with_flanking.append({
+            'gene': gene,
+            'region': "other",
+            'length': submsa.get_length() - gene_length_with_flanking[-1]['length'],  # type: ignore
+        })
+
+        gene_variation_num.append({
+            'gene': gene,
+            'region': "exon",
+            'variant_num': len(calcVariationWithoutGap(submsa.select_exon())),
+        })
+        gene_variation_num.append({
+            'gene': gene,
+            'region': "intron",
+            'variant_num': len(calcVariationWithoutGap(submsa))
+                           - gene_variation_num[-1]['variant_num'],  # type: ignore
+        })
+
+        msa_exon_with_flanking = reduce(lambda i, j: i + j, [submsa[a:b] for a, b in exon_with_flanking_position])
+        gene_variation_with_flanking_num.append({
+            'gene': gene,
+            'region': "exon + 200bp flanking",
+            'variant_num': len(calcVariationWithoutGap(msa_exon_with_flanking)),
+        })
+        gene_variation_with_flanking_num.append({
+            'gene': gene,
+            'region': "others",
+            'variant_num': len(calcVariationWithoutGap(submsa))
+                           - gene_variation_with_flanking_num[-1]['variant_num'],  # type: ignore
+        })
+
+    df_variant_num               = pd.DataFrame(gene_variation_num)
+    df_variant_with_flanking_num = pd.DataFrame(gene_variation_with_flanking_num)
+    df_length                    = pd.DataFrame(gene_length)
+    df_length_with_flanking      = pd.DataFrame(gene_length_with_flanking)
+
+    df_variant_num               = addPercentage(df_variant_num)
+    df_variant_with_flanking_num = addPercentage(df_variant_with_flanking_num)
+    df_length                    = addPercentage(df_length)
+    df_length_with_flanking      = addPercentage(df_length_with_flanking)
+    print(df_variant_num)
+    print(df_variant_with_flanking_num)
+    print(df_length)
+    print(df_length_with_flanking)
+
+    return [
+        px.bar(df_variant_num,               x="gene", y="variant_num", color="region",
+               text_auto="d",   title="Number of variants (exclude deletion)"),
+        px.bar(df_variant_num,               x="gene", y="percentage",  color="region",
+               text_auto=".0%", title="Number of variants (exclude deletion)"),
+        px.bar(df_length,                    x="gene", y="length",      color="region",
+               text_auto="d",   title="Length of Sequence"),
+        px.bar(df_length,                    x="gene", y="percentage",  color="region",
+               text_auto=".0%", title="Length of Sequence"),
+        px.bar(df_variant_with_flanking_num, x="gene", y="variant_num", color="region",
+               text_auto="d",   title="Number of variants (exclude deletion)"),
+        px.bar(df_variant_with_flanking_num, x="gene", y="percentage",  color="region",
+               text_auto=".0%", title="Number of variants (exclude deletion)"),
+        px.bar(df_length_with_flanking,      x="gene", y="length",      color="region",
+               text_auto="d",   title="Length of Sequence"),
+        px.bar(df_length_with_flanking,      x="gene", y="percentage",  color="region",
+               text_auto=".0%", title="Length of Sequence"),
+    ]
 
 
 if __name__ == "__main__":
-    # extractRepeatSequence("index/kir_2100_raw.save", "KIR3DL2", "7")
-    # extractRepeatSequence("index/kir_2100_merge.save", "KIR", "5")
+    # displayRepeatRegions(*extractRepeatSequence("index/kir_2100_raw.save", "KIR3DL3"), "7")
+    # displayRepeatRegions(*extractRepeatSequence("index/kir_2100_merge.save", "KIR"), "5")
     # addGroupName("index/kir_2100_merge.save.KIR")
     # addGroupName("index/kir_2100_merge_assign1.save.KIR")
     # exit()
-    figs = []
-    # figs.extend(plot400bpMatchness())
-    # figs.extend(plotVariantPosBetweenPairs())
-    # figs.extend(plotVariationAllGene())
-    figs.extend(dbLength("index/kir_2100_ab"))
+    figs: list[go.Figure] = []
+    # figs.extend(plot400bpMatchness())  # deprecated
+    # figs.extend(plotVariantPositions())
+    # figs.extend(plotDissimilarity())
+    # figs.extend(plotAllelesLength("index/kir_2100_ab.save"))
+    figs.extend(plotNumOfVariants())
 
     # dash
     app = Dash(__name__)

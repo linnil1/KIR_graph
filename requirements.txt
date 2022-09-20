@@ -6,3 +6,5 @@ tqdm
 dash
 plotly
 scipy
+matplotlib
+scikit-learn
