@@ -295,6 +295,35 @@ def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[st
     return summary
 
 
+def plotGeneLevelSummary(df: pd.DataFrame) -> None:
+    """ Plot gene-level matrics from printSummaryGeneLevel """
+    from graphkir.gk_plot import showPlot
+    from plotly.subplots import make_subplots
+    import plotly.express as px
+    # reorganize the datafrmae
+    df_plot = pd.melt(df, id_vars="gene",  # type: ignore
+                      value_vars=['7digits_acc', "5digits_acc",
+                                  "3digits_acc", "gene_acc"],
+                      value_name="accuracy",
+                      var_name="level")
+    df_plot = df_plot.sort_values(by=["gene", "level"])
+    df_plot1 = pd.melt(df, id_vars="gene",  # type: ignore
+                       value_vars=["FN", "FP"],
+                       value_name="count",
+                       var_name="error")
+    # plot in the same figure
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_traces(list(px.line(df_plot, x="gene", y="accuracy", color="level").select_traces()))
+    for i in px.bar(df_plot1, x="gene", y="count", color="error", opacity=0.5).select_traces():
+        fig.add_trace(i, secondary_y=True)
+    fig.update_layout(
+        yaxis_title="Accuracy",
+        yaxis2_title="FN or FP count",
+        yaxis2_range=(0, max(df_plot1['count']) * 2),
+    )
+    showPlot([fig])
+
+
 def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> dict[str, dict[str, int]]:
     """
     printSummaryByResolution but in gene-level mode
@@ -322,24 +351,10 @@ def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> dict[str, 
     df["3digits_acc"] = df["3digits_correct"] / df["3digits_total"]
     df["gene_acc"]    = df["gene_correct"]    / df["gene_total"]
     df["FN"]          = df["gene_total"]      - df["gene_correct"]
-    df["FN_ratio"]    = df["FN"]              / df["gene_total"]
-    df["FP_ratio"]    = df["FP"]              / df["gene_total"]
 
-    with pd.option_context('display.max_rows', None,
-                           'display.max_columns', None):  # type: ignore
-        print(df)
-
-    df_plot = pd.melt(df, id_vars="gene",  # type: ignore
-                      value_vars=['7digits_acc', "5digits_acc",
-                                  "3digits_acc", "gene_acc",
-                                  "FN_ratio", "FP_ratio"],
-                      value_name="accuracy",
-                      var_name="level")
-    df_plot = df_plot.sort_values(by=["gene", "level"])
-    # print(df_plot)
-    # from graphkir.gk_plot import showPlot
-    # import plotly.express as px
-    # showPlot([px.line(df_plot, x="gene", y="accuracy", color="level")])
+    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
+    #     print(df)
+    # plotGeneLevelSummary(df)
     return summary_by_gene
 
 

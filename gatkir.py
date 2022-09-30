@@ -458,10 +458,10 @@ def answerPloidy(folder_name, answer):
 def testThreshold():
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
-    from dash import Dash, dcc, html
     from sklearn.neighbors import KernelDensity
     from scipy.signal import argrelextrema
-    import numpy as np
+    from graphkir.gk_cn_model import KDEcut
+    from graphkir.gk_plot import showPlot
 
     # data from linnil1_syn_30x_seed87 cohert
     ori_data = np.array([57.0, 24.0, 27.0, 60.0, 29.0, 30.0, 27.0, 0.0, 27.0, 26.0, 28.0, 59.0, 60.0, 56.0, 28.0, 59.0, 0.0, 55.0, 60.0, 60.0, 0.0, 57.0, 58.0, 59.0, 60.0, 57.0, 0.0, 57.0, 49.0, 0.0, 60.0, 61.0, 30.0, 55.0, 27.0, 28.0, 26.0, 29.0, 60.0, 60.0, 56.5, 27.0, 87.0, 23.0, 28.0, 60.0, 61.0, 60.0, 27.0, 59.0, 27.0, 29.0, 59.0, 60.0, 56.0, 26.0, 28.0, 49.0, 0.0, 29.0, 29.0, 0.0, 55.0, 0.0, 28.0, 25.0, 29.0, 60.0, 60.0, 26.0, 0.0, 57.0, 49.0, 0.0, 30.0, 59.0, 31.0, 56.0, 29.0, 28.0, 24.0, 28.0, 60.0, 60.0, 26.0, 0.0, 86.0, 23.0, 27.0, 88.0, 60.0, 60.0, 28.0, 26.0, 28.0, 26.0, 29.0, 59.0, 59.0, 85.0, 55.0, 56.0, 24.0, 27.0, 59.0, 29.0, 30.0, 26.0, 0.0, 27.0, 26.0, 28.0, 59.0, 59.0, 56.0, 28.0, 145.0, 28.0, 21.0, 88.0, 122.0, 90.0, 27.0, 59.0, 0.0, 53.0, 0.0, 59.0, 60.0, 89.0, 85.0, 57.0, 49.0, 0.0, 59.0, 60.0, 30.0, 55.0, 56.0, 29.0, 0.0, 28.0, 59.0, 58.0, 48.0, 28.0])
@@ -482,7 +482,6 @@ def testThreshold():
         fig.add_vline(x=x[m], line_width=2, line_dash="dash", line_color="green", annotation_text=f"CN={cn}", annotation_font_color="green")
 
     # Our method
-    from graphkir.gk_cn_model import KDEcut
     kde = KDEcut()
     kde.fit(ori_data)
     x = np.linspace(0, 1.1, kde.points)
@@ -501,13 +500,46 @@ def testThreshold():
     for cn, m in enumerate(mi):
         fig.add_vline(x=x[m], line_width=2, line_dash="dash", line_color="red", annotation_text=f"CN={cn}", annotation_font_color="red")
 
-    app = Dash(__name__)
-    app.layout = html.Div(dcc.Graph(figure=fig))
-    app.run_server(debug=True, port=8051)
+    showPlot([fig])
+
+
+def testShowIdea():
+    from ping import readPingLocusCount
+    import plotly.express as px
+    from graphkir.gk_cn_model import KDEcut
+    from graphkir.gk_plot import showPlot
+
+    folder = "data3/ping_linnil1_syn_30x_seed87.result"
+    df_ping = readPingLocusCount(f"{folder}/locusRatioFrame.csv")
+    threshold_df = pd.read_csv(f"{folder}/manualCopyThresholds.csv")
+    threshold_df.columns = ["gene", *threshold_df.columns[1:]]
+    df = pd.concat([df_ping])
+    print(df)
+    print(threshold_df)
+    df = df.melt(["id", "method"], var_name="gene")
+    df = df.sort_values(["method", "value"], ascending=[False, True])  # PING value is ascending
+
+    # plot
+    figs = []
+    for gene in sorted(set(df["gene"])):
+        df_gene = df[df["gene"] == gene]
+        fig = px.scatter(df_gene, x="id", y="value", title=gene)
+        fig.update_layout(yaxis_title=f"{gene}/KIR3DL3 ratio",
+                          xaxis_title="Sample ID")
+        figs.append(fig)
+        kde = KDEcut()
+        kde.bandwidth = 0.08
+        kde.fit(df_gene['value'])
+        figs.extend(kde.plot())
+        figs[-1].update_layout(title=f"{gene}'s copy number estimation by KDE")
+
+    showPlot(figs)
 
 
 if __name__ == "__main__":
     # testThreshold()
+    # testShowIdea()
+    # exit()
     data_folder = "data3"
     answer = "linnil1_syn_30x_seed87"
     Path(data_folder).mkdir(exist_ok=True)

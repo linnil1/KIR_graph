@@ -20,7 +20,6 @@ def mergeAllele(allele_result_files: list[str], final_result_file: str):
     """ Merge allele calling result """
     df = pd.concat(pd.read_csv(f, sep="\t") for f in allele_result_files)
     df.to_csv(final_result_file, index=False, sep="\t")
-    print(df)
 
 
 def buildIndex(msa_type: str, index_folder: str = "index") -> tuple[str, str]:

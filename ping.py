@@ -133,6 +133,9 @@ def plotPing(input_name, answer):
     for gene in sorted(set(df["gene"])):
         df_gene = df[df["gene"] == gene]
         fig = px.scatter(df_gene, x="id", y="value", color="method", title=gene)
+        # fig = px.scatter(df_gene[df_gene['method'] == "PING"], x="id", y="value", color="method", title=gene)
+        fig.update_layout(yaxis_title=f"{gene}/KIR3DL3 ratio",
+                          xaxis_title="Sample ID")
 
         # plot
         for i in range(6):
@@ -257,7 +260,7 @@ if __name__ == "__main__":
     samples = f"{answer}/{answer}" + ".{}.read" >> linkSamples.set_args(data_folder) >> pingCopyFile
     ping_index = None >> buildPing.set_args("PING")
     ping_index = None >> buildPing.set_args("PING20220527")
-    ping_predict = samples >> ping.set_args(index=str(ping_index), answer_name=answer) 
+    ping_predict = samples >> ping.set_args(index=str(ping_index), answer_name=answer)
     ping_predict >> pingResult.set_args(answer=answer)
     samples >> plotPing.set_args(answer=answer)
     print(ping_predict)

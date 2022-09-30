@@ -10,7 +10,7 @@ from graphkir.gk_hisat2 import hisatMap, extractVariantFromBam
 from graphkir.gk_cn import predictSamplesCN, loadCN
 from graphkir.gk_kir_typing import selectKirTypingModel
 from graphkir.gk_main import mergeAllele
-from graphkir.gk_plot import showPlot, plotCN
+from graphkir.gk_plot import showPlot, plotCN, plotGeneDepths
 from graphkir.gk_msa_leftalign import genemsaLeftAlign
 from graphkir.gk_utils import (
     runShell,
@@ -210,7 +210,7 @@ def hisatMapWrap(input_name, index):
     if Path(f"{output_name}.bam").exists():
         return output_name
     f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
-    hisatMap(index, f1, f2, output_name + ".bam")
+    hisatMap(index, f1, f2, output_name + ".bam", threads=threads)
     return output_name
 
 
@@ -306,6 +306,7 @@ def kirResult(input_name, answer):
 
     answer = readAnswerAllele(f"{answer}/{answer}.summary.csv")
     predit = readPredictResult(output_name + ".tsv")
+    print(output_name + ".tsv")
     compareCohort(answer, predit, skip_empty=True)
     return output_name
 
@@ -335,6 +336,8 @@ def plotCNWrap(input_name):
         figs.extend(plotCN(output_name + ".json"))
     else:
         for name in input_name.get_input_names():
+            # hard-coded
+            figs.extend(plotGeneDepths(name[:name.find(".depth") + 6] + ".tsv", title=name))
             figs.extend(plotCN(name + ".json"))
     showPlot(figs)
 
@@ -368,7 +371,6 @@ if __name__ == "__main__":
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap
 
-    print(index)
     mapping = samples >> hisatMapWrap.set_args(index=str(index))
     variant = mapping >> extractVariant.set_args(ref_index=str(ref_index))
 

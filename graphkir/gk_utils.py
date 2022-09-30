@@ -22,14 +22,14 @@ images = {
 }
 
 
-def runDocker(image: str, cmd: str, capture_output=False) -> subprocess.CompletedProcess:
+def runDocker(image: str, cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedProcess:
     """ run docker container """
     image = images.get(image, image)
     name = str(uuid.uuid4()).split("-", 1)[0]
     # docker_path = "docker"
     proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
                     f"-w /app -v $PWD:/app {image} {cmd}",
-                    capture_output=capture_output)
+                    capture_output=capture_output, cwd=cwd)
     return proc
 
 
@@ -46,8 +46,8 @@ def runShell(cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedPr
 
 def samtobam(name: str, keep=False) -> None:
     """ samfile -> sorted bamfile and index (This is so useful) """
-    runDocker("samtools", f"samtools sort -@4 {name}.sam -o {name}.bam")
-    runDocker("samtools", f"samtools index    {name}.bam")
+    runDocker("samtools", f"samtools sort -@{threads} {name}.sam -o {name}.bam")
+    runDocker("samtools", f"samtools index            {name}.bam")
     if not keep:
         runShell(f"rm {name}.sam")
 

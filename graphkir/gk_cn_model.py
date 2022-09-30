@@ -300,13 +300,16 @@ class KDEcut(Dist):
         x = np.linspace(0, 1.1, self.points)
         y = self.kde.score_samples(x[:, None])
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Scatter(x=x, y=y, name="kde"))
+        fig.add_trace(go.Scatter(x=x, y=y, name="KDE"))
+        fig.update_layout(yaxis_title="KDE score",
+                          yaxis2_title="Fraction of samples",
+                          xaxis_title="Normalized Depth")
         for cn, m in enumerate(self.local_min):
             fig.add_vline(x=m, line_width=2, line_dash="dash", annotation_text=f"cn={cn}")
 
         fig.add_trace(go.Histogram(
             x=np.array(self.data) / self.x_max,
-            name="Relative Depth", nbinsx=100, histnorm="probability"), secondary_y=True)
+            name="samples", nbinsx=100, histnorm="probability"), secondary_y=True)
         return [fig]
 
 
