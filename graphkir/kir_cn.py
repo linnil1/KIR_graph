@@ -4,8 +4,8 @@ Raw depths -> gene depths -> gene's CN
 from itertools import chain
 import pandas as pd
 
-from .gk_cn_model import CNgroup, KDEcut, Dist
-from .gk_utils import runDocker
+from .cn_model import CNgroup, KDEcut, Dist
+from .utils import runDocker
 
 
 def bam2Depth(file_bam: str, file_depth: str):

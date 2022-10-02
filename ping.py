@@ -2,11 +2,12 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from functools import partial
 from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from namepipe import nt, NameTask
+from namepipe import nt, compose
 
 from kg_utils import runDocker, runShell, threads
 from kg_main import linkSamples
@@ -112,9 +113,9 @@ def cutThresholdByAns(answer, sample_index):
     return df, threshold_df
 
 
-@nt
 def plotPing(input_name, answer):
-    folder = input_name + ".result"
+    folder = str(Path(input_name).parent)
+    print(folder)
     from dash import Dash, dcc, html
     import plotly.express as px
 
@@ -146,16 +147,15 @@ def plotPing(input_name, answer):
                               line_dash="dash", line_color="gray")
         figs.append(fig)
 
-    with open(f"{folder}/plots_of_cn_threashold.html", 'w') as f:
-        for fig in figs:
-            f.write(fig.to_html(full_html=False, include_plotlyjs='cdn'))
+    # with open(f"{folder}/plots_of_cn_threashold.html", 'w') as f:
+    #     for fig in figs:
+    #         f.write(fig.to_html(full_html=False, include_plotlyjs='cdn'))
     # start dash
     app = Dash(__name__)
     app.layout = html.Div(children=[dcc.Graph(figure=fig) for fig in figs])
     app.run_server(debug=True)
 
 
-@nt
 def buildPing(input_name, folder):
     if os.path.exists(folder):
         return folder
@@ -164,7 +164,6 @@ def buildPing(input_name, folder):
     return folder
 
 
-@nt
 def pingCopyFile(input_name):
     # generate isolated fastq folder
     name = Path(input_name).name
@@ -187,7 +186,6 @@ def pingMain(index, folder_in, folder_out):
     """)
 
 
-@nt
 def ping(input_name, index, answer_name):
     folder_in = input_name
     folder_out = input_name + ".result"
@@ -216,7 +214,6 @@ def ping(input_name, index, answer_name):
     return folder_out + "/finalAlleleCalls"
 
 
-@nt
 def pingResult(input_name, answer):
     compareCohort(
         readAnswerAllele(f"{answer}/{answer}.summary.csv"),
@@ -257,10 +254,14 @@ if __name__ == "__main__":
     # answer += "_exon"
     data_folder = "data3"
     Path(data_folder).mkdir(exist_ok=True)
-    samples = f"{answer}/{answer}" + ".{}.read" >> linkSamples.set_args(data_folder) >> pingCopyFile
-    ping_index = None >> buildPing.set_args("PING")
-    ping_index = None >> buildPing.set_args("PING20220527")
-    ping_predict = samples >> ping.set_args(index=str(ping_index), answer_name=answer)
-    ping_predict >> pingResult.set_args(answer=answer)
-    samples >> plotPing.set_args(answer=answer)
+    ping_index = None >> nt(buildPing).set_args("PING")
+    ping_index = None >> nt(buildPing).set_args("PING20220527")
+    ping_predict = compose([
+        f"{answer}/{answer}" + ".{}.read",
+        partial(linkSamples, data_folder=data_folder),
+        pingCopyFile,
+        partial(ping, index=str(ping_index), answer_name=answer),
+        partial(pingResult, answer=answer),
+        partial(plotPing, answer=answer),
+    ])
     print(ping_predict)

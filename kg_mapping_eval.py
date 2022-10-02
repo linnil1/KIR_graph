@@ -13,8 +13,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-from graphkir.gk_hisat2 import loadReadsAndVariantsData
-from graphkir.gk_utils import samtobam, getGeneName, getAlleleField
+from graphkir.hisat2 import loadReadsAndVariantsData
+from graphkir.utils import samtobam, getGeneName, getAlleleField
 from kg_utils import runDocker
 
 

@@ -4,7 +4,7 @@ import uuid
 import subprocess
 from concurrent.futures import ProcessPoolExecutor
 
-from graphkir.gk_utils import (
+from graphkir.utils import (
     runShell,
     samtobam,
     runDocker as runDockerGK,

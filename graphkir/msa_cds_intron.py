@@ -1,7 +1,7 @@
 from typing import Iterable
 from pyhlamsa import KIRmsa, Genemsa
 
-from .gk_utils import getAlleleField, limitAlleleField
+from .utils import getAlleleField, limitAlleleField
 
 
 def removeExonIncompleteSeq(msa: Genemsa) -> Genemsa:
@@ -89,7 +89,7 @@ def fillMissingIntrons(genes: dict[str, Genemsa]) -> dict[str, Genemsa]:
 
 
 if __name__ == "__main__":
-    from graphkir.gk_build_msa import saveAllMsa
+    from graphkir.kir_msa import saveAllMsa
     kir = KIRmsa(filetype=["nuc", "gen"], version="2100")
     genes = fillMissingIntrons(kir.genes)
     saveAllMsa(genes, "index5/kir_2100_withexon")

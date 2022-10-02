@@ -10,7 +10,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .gk_hisat2 import PairRead, Variant
+from .hisat2 import PairRead, Variant
 
 
 @dataclass
@@ -335,6 +335,7 @@ class AlleleTyping:
             allele_prob    = allele_n_top_prob[:, rank_index],
             fraction       = allele_n_top_frac[rank_index],
         ))
+        # breakpoint()
         return self.result[-1]
 
     def plot(self, title: str = "") -> list[go.Figure]:
@@ -425,8 +426,8 @@ class AlleleTypingExonFirst(AlleleTyping):
             variantset_to_allele[tuple()] = sorted(other_allele)
         self.allele_group = {alleles[0]: alleles for alleles in variantset_to_allele.values()}
         exon_variants = self.removeDuplicateAllele(variants, self.createInverseMapping(self.allele_group))
-        # from pprint import pprint
-        # pprint(self.allele_group)
+        from pprint import pprint
+        pprint(self.allele_group)
 
         # same as before
         super().__init__(exon_reads, exon_variants)

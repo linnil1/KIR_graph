@@ -15,7 +15,7 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .gk_utils import NumpyEncoder
+from .utils import NumpyEncoder
 
 
 class Dist:

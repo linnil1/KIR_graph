@@ -17,8 +17,8 @@ from Bio.SeqRecord import SeqRecord
 from dash import Dash, dcc, html, Input, Output
 from pyhlamsa import msaio, Genemsa
 
-from graphkir.gk_build_msa import readFromMSAs, muscle
-from graphkir.gk_utils import runShell, samtobam, getGeneName
+from graphkir.kir_msa import readFromMSAs, muscle
+from graphkir.utils import runShell, samtobam, getGeneName
 from kg_utils import threads, runDocker
 
 

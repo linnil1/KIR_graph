@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
     answer = "linnil1_syn_30x"
     answer = "linnil1_syn_30x_seed87"
-    samples = answer + "/" + answer + ".{}.read" >> linkSamples.set_args(data_folder)
+    samples = answer + "/" + answer + ".{}.read" >> nt(linkSamples).set_args(data_folder)
     samples >> mapVG.set_args(index=str(index))
 
     # visualize

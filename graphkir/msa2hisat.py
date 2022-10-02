@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 
 from Bio import SeqIO
 from pyhlamsa import Genemsa
-from .gk_utils import runDocker
-from .gk_build_msa import readFromMSAs
+from .utils import runDocker
+from .kir_msa import readFromMSAs
 
 
 @dataclass
@@ -27,12 +27,12 @@ class Variant:
     freq: None | float = None  # allele frequency
     ignore: None | bool = False  # Ture if freq < min_freq_threshold
     min_freq_threshold: ClassVar[float] = 0.1
-    in_exon: bool = False  # for gk_hisat2
+    in_exon: bool = False  # is the variant in exon
 
     # graph level
     count: ClassVar[int] = 0  # variant id
     haplo_id: ClassVar[int] = 0  # haplotype id
-    novel_id: ClassVar[int] = 0  # novel allele id (use in gk_hisat2)
+    novel_id: ClassVar[int] = 0  # novel allele id (increase when find new variant in in hisat2.py)
 
     # const
     order_type: ClassVar[dict] = {"insertion": 0, "single": 1, "deletion": 2, "match": 3}

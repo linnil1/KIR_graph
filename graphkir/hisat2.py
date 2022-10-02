@@ -12,9 +12,9 @@ import bisect
 from typing import Iterator, TypedDict, Iterable
 from dataclasses import dataclass, field, asdict
 
-from .gk_utils import runDocker, samtobam
-from .gk_build_index import Variant
-from .gk_pileup import PileupCount, getPileupBaseRatio
+from .utils import runDocker, samtobam
+from .msa2hisat import Variant
+from .pileup import PileupCount, getPileupBaseRatio
 # TODO
 # = typing_common.identify_ambigious_diffs(ref_seq,
 

@@ -8,12 +8,12 @@ import argparse
 from glob import glob
 import pandas as pd
 
-from .gk_build_msa import buildKirMsa
-from .gk_build_index import msa2HisatReference, buildHisatIndex
-from .gk_hisat2 import hisatMap, extractVariantFromBam, readExons
-from .gk_cn import predictSamplesCN, loadCN
-from .gk_kir_typing import selectKirTypingModel
-from .gk_plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
+from .kir_msa import buildKirMsa
+from .msa2hisat import msa2HisatReference, buildHisatIndex
+from .hisat2 import hisatMap, extractVariantFromBam, readExons
+from .kir_cn import predictSamplesCN, loadCN
+from .kir_typing import selectKirTypingModel
+from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
 
 
 def mergeAllele(allele_result_files: list[str], final_result_file: str):

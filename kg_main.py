@@ -2,17 +2,17 @@ import os
 from glob import glob
 from pathlib import Path
 import pandas as pd
-from namepipe import nt, NameTask
+from namepipe import nt, NameTask, compose
 
-from graphkir.gk_build_index import buildHisatIndex, msa2HisatReference
-from graphkir.gk_build_msa import buildKirMsa
-from graphkir.gk_hisat2 import hisatMap, extractVariantFromBam
-from graphkir.gk_cn import predictSamplesCN, loadCN
-from graphkir.gk_kir_typing import selectKirTypingModel
-from graphkir.gk_main import mergeAllele
-from graphkir.gk_plot import showPlot, plotCN, plotGeneDepths
-from graphkir.gk_msa_leftalign import genemsaLeftAlign
-from graphkir.gk_utils import (
+from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
+from graphkir.kir_msa import buildKirMsa
+from graphkir.hisat2 import hisatMap, extractVariantFromBam
+from graphkir.kir_cn import predictSamplesCN, loadCN
+from graphkir.kir_typing import selectKirTypingModel
+from graphkir.main import mergeAllele
+from graphkir.plot import showPlot, plotCN, plotGeneDepths
+from graphkir.msa_leftalign import genemsaLeftAlign
+from graphkir.utils import (
     runShell,
     samtobam,
 )
@@ -26,7 +26,6 @@ from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 from kg_extract_exon_seq import extractExonPairReads
 
 
-@nt
 def link10Samples(input_name):
     output_name = input_name.template.format("test10.{}")
     if not input_name.template_args[0].isdigit() or int(input_name.template_args[0]) >= 10:
@@ -42,7 +41,6 @@ def link10Samples(input_name):
     return output_name
 
 
-@nt
 def createSamples(input_name):
     # 0 -> 1
     # "linnil1_syn_30x_seed87/linnil1_syn_30x_seed87"
@@ -56,7 +54,6 @@ def createSamples(input_name):
     return output_name
 
 
-@nt
 def linkSamples(input_name, data_folder):
     # 1 -> 1
     name = input_name.split('/')[0]
@@ -69,7 +66,6 @@ def linkSamples(input_name, data_folder):
     return output_name
 
 
-@nt
 def bowtie2BuildFull(input_name):
     # No matter what index, this file will have the same sequences
     name = input_name
@@ -84,7 +80,6 @@ def bowtie2BuildFull(input_name):
     return name
 
 
-@nt
 def bowtie2BuildConsensus(input_name="index/kir_2100_raw.mut01"):
     # brute force (remove mut01)
     name = input_name
@@ -98,7 +93,6 @@ def bowtie2BuildConsensus(input_name="index/kir_2100_raw.mut01"):
     return name
 
 
-@nt
 def bowtie2(input_name, index, use_arg="default"):
     suffix = "." + index.replace("/", "_") + ".bowtie2"
     args = ""
@@ -120,7 +114,6 @@ def bowtie2(input_name, index, use_arg="default"):
     return output_name
 
 
-@nt
 def bwaIndex(input_name="index/kir_2100_raw.mut01"):
     # brute force (remove mut01)
     name = input_name
@@ -135,7 +128,6 @@ def bwaIndex(input_name="index/kir_2100_raw.mut01"):
     return name
 
 
-@nt
 def bwa(input_name, index, use_arg="default"):
     suffix = "." + index.replace("/", "_") + ".bwa"
     args = ""
@@ -152,7 +144,6 @@ def bwa(input_name, index, use_arg="default"):
     return output_name
 
 
-@nt
 def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     output_name = f"{input_name}/kir_2100_{msa_type}"
     if len(glob(output_name + ".KIR*")):
@@ -161,7 +152,6 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     return output_name
 
 
-@nt
 def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
     exon_name = f"{input_name}/kir_2100_withexon"
     output_name = exon_name + "_" + msa_type
@@ -175,7 +165,6 @@ def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
     return output_name
 
 
-@nt
 def leftAlignWrap(input_name):
     output_name = input_name + ".leftalign"
     if len(glob(output_name + ".KIR*")):
@@ -184,7 +173,6 @@ def leftAlignWrap(input_name):
     return output_name
 
 
-@nt
 def buildHisatIndexWrap(input_name):
     output_name = input_name + ".graph"
     if Path(output_name + ".8.ht2").exists():
@@ -194,7 +182,6 @@ def buildHisatIndexWrap(input_name):
     return output_name
 
 
-@nt
 def msa2HisatReferenceWrap(input_name):
     output_name = input_name + ".mut01"
     if Path(output_name + ".haplotype").exists():
@@ -203,18 +190,18 @@ def msa2HisatReferenceWrap(input_name):
     return output_name
 
 
-@nt
 def hisatMapWrap(input_name, index):
     # 1 to 1
     output_name = input_name + "." + index.replace("/", "_")
     if Path(f"{output_name}.bam").exists():
         return output_name
-    f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
+    f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
+    if not os.path.exists(f1):
+        f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
     hisatMap(index, f1, f2, output_name + ".bam", threads=threads)
     return output_name
 
 
-@nt
 def extractVariant(input_name, ref_index):
     output_name = input_name + ".variant"
     if Path(output_name + ".json").exists():
@@ -223,7 +210,6 @@ def extractVariant(input_name, ref_index):
     return output_name
 
 
-@nt
 def cnPredict(input_name, ref_index, exon=False):
     suffix_variant = ".no_multi"
     cn_cluster = "CNgroup"
@@ -265,7 +251,6 @@ def cnPredict(input_name, ref_index, exon=False):
     return output_name
 
 
-@nt
 def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # setup
     assert len(input_name.template_args) == 1
@@ -295,7 +280,6 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     return output_name_template
 
 
-@nt
 def kirResult(input_name, answer):
     output_name = input_name.replace_wildcard("_merge")
 
@@ -311,7 +295,6 @@ def kirResult(input_name, answer):
     return output_name
 
 
-@nt
 def extractExon(input_name, folder):
     Path(folder).mkdir(exist_ok=True)
     copy_name = f"{folder}/{Path(input_name).name.replace('.read', '')}"
@@ -327,7 +310,6 @@ def extractExon(input_name, folder):
     return output_template + ".read"
 
 
-@nt
 def plotCNWrap(input_name):
     figs = []
 
@@ -355,30 +337,29 @@ if __name__ == "__main__":
     answer_folder = "linnil1_syn_30x_seed87"
     Path(answer_folder).mkdir(exist_ok=True)
 
-    samples = answer_folder >> createSamples
+    samples = answer_folder >> nt(createSamples)
 
     if extract_exon:
-        samples = samples >> extractExon.set_args(folder=answer_folder + "_exon")
+        samples = samples >> nt(extractExon).set_args(folder=answer_folder + "_exon")
         runShell(f"ln -fs ../{answer_folder}/{answer_folder}.summary.csv {answer_folder}_exon/{answer_folder}_exon.summary.csv")
         answer_folder = answer_folder + "_exon"
 
-    samples = samples >> linkSamples.set_args(data_folder)
+    samples = samples >> nt(linkSamples).set_args(data_folder)
     if answer_folder == "linnil1_syn_wide":
         samples = samples >> link10Samples
 
     # msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1") >> leftAlignWrap
-    msa_index = index_folder >> buildMsaWithCds.set_args("ab_2dl1s1") >> leftAlignWrap
+    msa_index = index_folder >> nt(buildMsaWithCds).set_args("ab_2dl1s1") >> leftAlignWrap
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap
 
-    mapping = samples >> hisatMapWrap.set_args(index=str(index))
-    variant = mapping >> extractVariant.set_args(ref_index=str(ref_index))
+    mapping = samples >> nt(hisatMapWrap).set_args(index=str(index))
+    variant = mapping >> nt(extractVariant).set_args(ref_index=str(ref_index))
 
-    cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
+    cn = variant >> nt(cnPredict).set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
     # cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon).set_depended(0)
 
-    typing = variant >> kirTyping.set_args(cn, "pv_exonfirst") >> kirResult.set_args(answer=answer_folder).set_depended(0)
-
+    typing = variant >> nt(kirTyping).set_args(cn, "pv_exonfirst") >> nt(kirResult).set_args(answer=answer_folder).set_depended(0)
     # cn >> plotCNWrap.set_depended(0)
 
     # bowtie mapping rate

@@ -4,7 +4,7 @@ Pileup utilies
 import re
 from collections import Counter
 from typing import Iterator
-from .gk_utils import runDocker
+from .utils import runDocker
 
 PileupCount = dict[tuple[str, int], dict[str, float]]
 

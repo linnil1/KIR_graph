@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from pyhlamsa import msaio, Genemsa
 
-from .gk_build_msa import readFromMSAs, saveAllMsa
+from .kir_msa import readFromMSAs, saveAllMsa
 
 
 @dataclass(order=True)

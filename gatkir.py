@@ -460,8 +460,8 @@ def testThreshold():
     from plotly.subplots import make_subplots
     from sklearn.neighbors import KernelDensity
     from scipy.signal import argrelextrema
-    from graphkir.gk_cn_model import KDEcut
-    from graphkir.gk_plot import showPlot
+    from graphkir.cn_model import KDEcut
+    from graphkir.plot import showPlot
 
     # data from linnil1_syn_30x_seed87 cohert
     ori_data = np.array([57.0, 24.0, 27.0, 60.0, 29.0, 30.0, 27.0, 0.0, 27.0, 26.0, 28.0, 59.0, 60.0, 56.0, 28.0, 59.0, 0.0, 55.0, 60.0, 60.0, 0.0, 57.0, 58.0, 59.0, 60.0, 57.0, 0.0, 57.0, 49.0, 0.0, 60.0, 61.0, 30.0, 55.0, 27.0, 28.0, 26.0, 29.0, 60.0, 60.0, 56.5, 27.0, 87.0, 23.0, 28.0, 60.0, 61.0, 60.0, 27.0, 59.0, 27.0, 29.0, 59.0, 60.0, 56.0, 26.0, 28.0, 49.0, 0.0, 29.0, 29.0, 0.0, 55.0, 0.0, 28.0, 25.0, 29.0, 60.0, 60.0, 26.0, 0.0, 57.0, 49.0, 0.0, 30.0, 59.0, 31.0, 56.0, 29.0, 28.0, 24.0, 28.0, 60.0, 60.0, 26.0, 0.0, 86.0, 23.0, 27.0, 88.0, 60.0, 60.0, 28.0, 26.0, 28.0, 26.0, 29.0, 59.0, 59.0, 85.0, 55.0, 56.0, 24.0, 27.0, 59.0, 29.0, 30.0, 26.0, 0.0, 27.0, 26.0, 28.0, 59.0, 59.0, 56.0, 28.0, 145.0, 28.0, 21.0, 88.0, 122.0, 90.0, 27.0, 59.0, 0.0, 53.0, 0.0, 59.0, 60.0, 89.0, 85.0, 57.0, 49.0, 0.0, 59.0, 60.0, 30.0, 55.0, 56.0, 29.0, 0.0, 28.0, 59.0, 58.0, 48.0, 28.0])
@@ -506,8 +506,8 @@ def testThreshold():
 def testShowIdea():
     from ping import readPingLocusCount
     import plotly.express as px
-    from graphkir.gk_cn_model import KDEcut
-    from graphkir.gk_plot import showPlot
+    from graphkir.kir_cn_model import KDEcut
+    from graphkir.plot import showPlot
 
     folder = "data3/ping_linnil1_syn_30x_seed87.result"
     df_ping = readPingLocusCount(f"{folder}/locusRatioFrame.csv")

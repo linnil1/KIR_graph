@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
 
-from graphkir.gk_utils import getGeneName, getAlleleField
+from graphkir.utils import getGeneName, getAlleleField
 
 
 CohortAlleles = dict[str, list[str]]  # it's ordered dict too
@@ -297,7 +297,7 @@ def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[st
 
 def plotGeneLevelSummary(df: pd.DataFrame) -> None:
     """ Plot gene-level matrics from printSummaryGeneLevel """
-    from graphkir.gk_plot import showPlot
+    from graphkir.plot import showPlot
     from plotly.subplots import make_subplots
     import plotly.express as px
     # reorganize the datafrmae

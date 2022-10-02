@@ -10,8 +10,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import msaio, Genemsa, KIRmsa
-from .gk_utils import runDocker
-from .gk_fill_intron import fillMissingIntrons
+from .utils import runDocker
+from .msa_cds_intron import fillMissingIntrons
 
 
 # TODO:

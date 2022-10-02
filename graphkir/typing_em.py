@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from Bio import SeqIO
 import numpy as np
-from .gk_hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
+from .hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
 
 
 @dataclass
@@ -22,7 +22,7 @@ class Hisat2AlleleResult:
     allele: str  # allele name
     count: int   # allele count
     prob: float  # allele abundance
-    cn: int = 0  # Copy number (used in gk_kir_typing)
+    cn: int = 0  # Copy number (used in.kir_typing)
 
 
 def readAlleleLength(file_fasta: str) -> dict[str, int]:

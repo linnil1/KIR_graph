@@ -6,10 +6,10 @@ from typing import Any
 from collections import defaultdict
 from dataclasses import asdict
 
-from .gk_utils import NumpyEncoder
-from .gk_hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead, Variant
-from .gk_multi_allele_typing import AlleleTyping, AlleleTypingExonFirst
-from .gk_hisat2em import preprocessHisatReads, hisat2TypingPerGene, printHisatTyping
+from .utils import NumpyEncoder
+from .hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead, Variant
+from .typing_mulit_allele import AlleleTyping, AlleleTypingExonFirst
+from .typing_em import preprocessHisatReads, hisat2TypingPerGene, printHisatTyping
 
 
 def groupReads(reads: list[PairRead]) -> dict[str, list[PairRead]]:
@@ -50,6 +50,7 @@ class Typing:
             if not cn:
                 continue
             predict_alleles.extend(self.typingPerGene(gene, cn))
+            # exit()
         return predict_alleles
 
     def save(self, filename: str):
@@ -63,7 +64,7 @@ class TypingWithPosNegAllele(Typing):
 
     def __init__(self, filename_variant_json: str, multiple: bool = False,
                  exon_first: bool = False, exon_only: bool = False):
-        """ Read all reads and variants from the json file (From gk_hisat2.py) """
+        """ Read all reads and variants from the json file (From .hisat2.py) """
         super().__init__()
         reads_data = loadReadsAndVariantsData(filename_variant_json)
         if not multiple:
@@ -95,7 +96,6 @@ class TypingWithReport(Typing):
     def __init__(self, filename_variant_json: str):
         """ Read report files (json) """
         super().__init__()
-        # break down gk_hisat2_em
         reads_data = loadReadsAndVariantsData(filename_variant_json)
         reads_data = removeMultipleMapped(reads_data)
         self._gene_reads = preprocessHisatReads(reads_data)
