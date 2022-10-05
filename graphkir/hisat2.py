@@ -215,6 +215,9 @@ def readPair(bam_file: str) -> Iterator[tuple[str, str]]:
         # skip header
         if not line or line.startswith("@"):
             continue
+        # skip accidentally pipe stderr to stdout
+        if line.startswith("[bam_sort_core]"):
+            continue
 
         # preprocess
         read_id, flag, ref, pos, _, _, next_ref, next_pos = line.split('\t')[:8]
