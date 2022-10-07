@@ -106,6 +106,56 @@ def linkBam(input_name: str, folder: str) -> str:
     return output_name + ".{}"
 
 
+def linkHg38Bam(input_name: str, folder: str) -> str:
+    output_name = folder + "/hg38.twbb"
+    if os.path.exists(f"{output_name}.{input_name}.bam.bai"):
+        return output_name + ".{}"
+
+    # get input_name bam file
+    global twbk_bam_samples
+    try:
+        twbk_bam_samples
+    except NameError:
+        samples = glob(twbk_path + "TWBR11002-01/WGS/GRCh38/BAM/GATKv2/*")
+        samples_dict = defaultdict(list)
+        for i in samples:
+            name = i.split("/")[-1]
+            samples_dict[name].append(f"{i}/{name}.hs38DH.dedup.postalt.sorted")
+        twbk_bam_samples = samples_dict
+    if input_name not in twbk_bam_samples:
+        print(input_name, "doesn't exists")
+        return output_name + ".{}"
+    bam_path = twbk_bam_samples[input_name][0]
+
+    # link
+    os.makedirs(folder, exist_ok=True)
+    runShell(f"ln -s {bam_path}.bam     {output_name}.{input_name}.bam")
+    runShell(f"ln -s {bam_path}.bam.bai {output_name}.{input_name}.bam.bai")
+    return output_name + ".{}"
+
+
+def extractFromHg38(input_name):
+    """ Extract hg38 """
+    output_name = input_name + ".part.{}"
+    output_all_name = input_name + ".part_merge"
+    if os.path.exists(f"{output_all_name}.bam"):
+        return output_all_name
+
+    # samtools view -H /staging/biodata/lions/twbk/TWBR11002-01/WGS/GRCh38/BAM/GATKv2/NGS2_20150110G/NGS2_20150110G.hs38DH.dedup.postalt.sorted.bam | grep "SN:"| grep chr19 | awk '{print $2}' > hg38_chr19
+    regions = ["chr19:50000000"] \
+              + list(filter(None, map(lambda i: i.strip(), open("./hg38_chrun")))) \
+              + list(filter(None, map(lambda i: i.strip(), open("./hg38_chr19"))))
+    regions_text = " ".join(regions)
+    b1 = f"{output_name.format('mapped')}.bam"
+    b2 = f"{output_name.format('bad_pair')}.bam"
+    runDocker("samtools", f"samtools view  -@ {threads} {input_name}.bam {regions_text} -o {b1}")
+    # non proper pair but execlude depulicated
+    runDocker("samtools", f"samtools view  -@ {threads} {input_name}.bam -F 2 -f 1024 -o {b2}")
+    runDocker("samtools", f"samtools merge -@ {threads} -o {output_all_name}.sam {b1} {b2}")
+    samtobam(output_all_name)
+    return output_all_name
+
+
 def extractFromHg19(input_name):
     """ Extract hg19 """
     output_name = input_name + ".part.{}"
@@ -358,26 +408,31 @@ NGS2_20150104E
     ngs_sample = list(filter(None, map(lambda i: i.strip(), ngs_sample.split("\n"))))
     print(ngs_sample)
     print(len(ngs_sample))
-    ngs_sample = ngs_sample[:7]
+    ngs_sample = ngs_sample[0:14]
     NameTask.default_executor = ConcurrentTaskExecutor()
     NameTask.default_executor.threads = 7
 
     samples = ""
+    ref = "hg38"
     for id in ngs_sample:
-        samples = linkBam(id, "data_tmp")
         # samples = link(id, "data_tmp")
-    samples = compose([samples, extractFromHg19])
-    # samples = compose(["data_twbb/hg19.twbb.NGS2_20150412B.part_merge"])
+        if ref == "hg38":
+            samples = linkHg38Bam(id, "data_tmp")
+        else:
+            samples = linkBam(id, "data_tmp")
 
+    print(samples)
     samples = compose([
+        samples,
+        extractFromHg38 if ref == "hg38" else extractFromHg19,
         samples,
         # bam2fastqViaSamtools,
         bam2fastqWrap,
     ])
     print(samples)
+
     ref_index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
     index = ref_index + ".graph"
-
     compose([
         samples,
         partial(hisatMapWrap, index=str(index)),

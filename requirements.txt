@@ -10,3 +10,5 @@ git+https://github.com/linnil1/name-based-pipeline
 matplotlib
 plotly
 dash
+requests
+types-requests
