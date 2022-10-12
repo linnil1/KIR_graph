@@ -1,6 +1,7 @@
 """
 Our main typing method
 """
+from __future__ import annotations
 import copy
 from typing import Optional
 from itertools import chain
@@ -109,6 +110,37 @@ class TypingResult:
         self.allele_name_group = [[allele_group_mapping[j] for j in i]
                                   for i in self.allele_name]
 
+    def sortByScoreAndEveness(self) -> TypingResult:
+        """ reorder the internal top_n axis by score """
+        rank_index = rankScore(self.value, self.value_sum_indv, self.fraction)
+        return TypingResult(
+            n              = self.n,
+            value          = self.value          [rank_index],
+            value_sum_indv = self.value_sum_indv [rank_index],
+            allele_id      = self.allele_id      [rank_index],
+            allele_name    = [self.allele_name[i] for i in rank_index],
+            allele_prob    = self.allele_prob [:, rank_index],
+            fraction       = self.fraction       [rank_index],
+        )
+
+
+def argSortRow(data: np.ndarray) -> list[int]:
+    """ Argsort the data by row """
+    return sorted(range(len(data)), key=lambda i: tuple(data[i]))
+
+
+def rankScore(value: np.ndarray, value_sum_indv: np.ndarray, fraction: np.ndarray) -> list[int]:
+    """
+    Sort by likelihood score, sum of likelihood score per alele,
+    and difference of allele abundance (smaller -> evenly-distributed)
+    """
+    fraction_diff = fraction - fraction.mean(axis=1, keepdims=True)           # size: top_n x CN
+    fraction_diff = np.abs(fraction_diff).sum(axis=1)                         # size: top_n
+    rank_index    = argSortRow(np.array([-value,
+                                         -value_sum_indv.sum(axis=1),
+                                         fraction_diff]).T)
+    return rank_index                                                         # size: top_n
+
 
 class AlleleTyping:
     """
@@ -208,11 +240,6 @@ class AlleleTyping:
     def mapAlleleIDs(self, list_ids: np.ndarray) -> list[list[str]]:
         """ id (m x n np array) -> name (m list x n list of str)"""
         return [[self.id_to_allele[id] for id in ids] for ids in list_ids]
-
-    @staticmethod
-    def argSortRow(data: np.ndarray) -> list[int]:
-        """ Argsort the data by row """
-        return sorted(range(len(data)), key=lambda i: tuple(data[i]))
 
     @staticmethod
     def uniqueAllele(data: np.ndarray) -> np.ndarray:
@@ -319,22 +346,16 @@ class AlleleTyping:
         # sum across read and normalize by n
         allele_n_top_frac  = belong_norm.sum(axis=0) / self.log_probs.shape[0] # size: top_n x CN
 
-        # sorted by likelihood and the difference value toward evenly-distributed
-        fraction_diff      = allele_n_top_frac - allele_n_top_frac.mean(axis=1, keepdims=True)  # size: top_n x CN
-        fraction_diff      = np.abs(fraction_diff).sum(axis=1)                                  # size: top_n
-        rank_index         = self.argSortRow(np.array([-allele_n_top_value,
-                                                       -allele_n_top_sum.sum(axis=1),  # compare-sum
-                                                       fraction_diff]).T)                       # size: top_n
-        # save result
+        # sort and save the result
         self.result.append(TypingResult(
             n              = len(self.result) + 1,
-            value          = allele_n_top_value[rank_index],
-            value_sum_indv = allele_n_top_sum[rank_index],
-            allele_id      = allele_n_top_id[rank_index],
-            allele_name    = self.mapAlleleIDs(allele_n_top_id[rank_index]),
-            allele_prob    = allele_n_top_prob[:, rank_index],
-            fraction       = allele_n_top_frac[rank_index],
-        ))
+            value          = allele_n_top_value,
+            value_sum_indv = allele_n_top_sum,
+            allele_id      = allele_n_top_id,
+            allele_name    = self.mapAlleleIDs(allele_n_top_id),
+            allele_prob    = allele_n_top_prob,
+            fraction       = allele_n_top_frac,
+        ).sortByScoreAndEveness())
         # breakpoint()
         return self.result[-1]
 
@@ -408,7 +429,9 @@ class AlleleTypingExonFirst(AlleleTyping):
         return variants
 
     def __init__(self, reads: list[PairRead], variants: list[Variant],
-                 exon_only: bool = False):
+                 exon_only: bool = False,
+                 candidate_set: str = "first_score",
+                 candidate_set_threshold: float = 1.1):
         """ Extracting exon alleles """
         # extract exon variants
         exon_variants = [v for v in variants if v.in_exon]
@@ -431,10 +454,28 @@ class AlleleTypingExonFirst(AlleleTyping):
 
         # same as before
         super().__init__(exon_reads, exon_variants)
+        self.first_set_only = candidate_set == "first_score"
+        if candidate_set == "same_score":
+            self.candidate_set_max_score_ratio = 1.
+        elif candidate_set == "max_score_ratio":
+            self.candidate_set_max_score_ratio = candidate_set_threshold
+        else:
+            self.candidate_set_max_score_ratio = 1.1
+
         if not exon_only:
             self.full_model: AlleleTyping | None = AlleleTyping(reads, variants)
+            self.full_model.top_n = 30  # TODO
         else:
             self.full_model = None
+
+    def typingIntron(self, exon_candidates: list[list[str]], verbose=True) -> AlleleTyping:
+        assert self.full_model
+        model = copy.deepcopy(self.full_model)
+        for cand in exon_candidates:
+            res = model.addCandidate(cand)
+            if verbose:
+                res.print()
+        return model
 
     def typing(self, cn: int) -> TypingResult:
         """
@@ -455,8 +496,31 @@ class AlleleTypingExonFirst(AlleleTyping):
             # how to output (change selectBest() ? )
             return result
         assert cn == result.n
-        for i in range(cn):
-            res = self.full_model.addCandidate(result.allele_name_group[0][i])
-            res.print()
-        self.result.extend(self.full_model.result)
-        return res
+        if self.first_set_only:
+            full_model = self.typingIntron(result.allele_name_group[0])
+            self.result.extend(full_model.result)
+            return self.result[-1]
+
+        # all same-score KIR exon allele set
+        max_score = result.value.max()
+        mixed_result = []
+        for i in range(len(result.value)):
+            print(f"Typing Intron of set {i}")
+            if result.value[i] < max_score * self.candidate_set_max_score_ratio:
+                continue
+            full_model = self.typingIntron(result.allele_name_group[i], verbose=False)
+            self.result.extend(full_model.result)
+            mixed_result.append(full_model.result[-1])
+        print(f"{len(mixed_result)=}")
+
+        # Merge result and sort it (same sorting method as addCandidate)
+        result = TypingResult(
+            n              = mixed_result[0].n,
+            value          = np.concatenate([res.value          for res in mixed_result]),
+            value_sum_indv = np.concatenate([res.value_sum_indv for res in mixed_result]),
+            allele_id      = np.concatenate([res.allele_id      for res in mixed_result]),
+            allele_name    = list(chain.from_iterable(res.allele_name for res in mixed_result)),
+            allele_prob    = np.concatenate([res.allele_prob    for res in mixed_result], axis=1),
+            fraction       = np.concatenate([res.fraction       for res in mixed_result]),
+        )
+        return result.sortByScoreAndEveness()

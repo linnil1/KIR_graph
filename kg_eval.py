@@ -4,7 +4,11 @@ from typing import Iterator, Callable, Iterable, Any
 from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
+from plotly.subplots import make_subplots
+import plotly.express as px
+import plotly.graph_objects as go
 
+from graphkir.plot import showPlot
 from graphkir.utils import getGeneName, getAlleleField
 
 
@@ -80,7 +84,9 @@ def readPredictResult(tsv_file: str,
 
 
 def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
-                  skip_empty: bool = True, verbose_sample: bool = True) -> None:
+                  skip_empty: bool = True,
+                  verbose_sample: bool = True,
+                  plot: bool = False) -> None:
     """
     Compare answer and called alleles from all samples
 
@@ -95,6 +101,8 @@ def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
         samples_id = samples_id & set(cohort_predit.keys())
 
     results = []
+    if verbose_sample:
+        print(" === Per sample comparison === ")
     for sample_id in sorted(samples_id):
         results.append(compareSample(
             cohort_answer[sample_id],
@@ -104,9 +112,19 @@ def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
             print(f"Sample {sample_id}")
             printSummarySample(results[-1])
 
+    print(" === Per gene comparison === ")
+    df_gene_acc = printSummaryGeneLevel(results)
+    print(" === Per unit comparison === ")
     printSummary(results)
+    print(" === Per Resolution comparison === ")
     printSummaryByResolution(results)
-    printSummaryGeneLevel(results)
+
+    if plot:
+        print(" === Plot gene comparison === ")
+        showPlot([
+            *plotGeneLevelSummary(df_gene_acc),
+            *plotGeneLevelSummary(df_gene_acc, order_by_accuracy=True),
+        ])
 
 
 def compareSample(answer_list: list[str], predict_list: list[str]) -> list[MatchResult]:
@@ -274,7 +292,6 @@ def calcSummaryByResolution(cohort_results: Iterable[MatchResult]) -> dict[str, 
     return summary
 
 
-
 def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[str, int]:
     """
     Summarize the match results in the cohort but normalized by answer's resolution
@@ -295,14 +312,12 @@ def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[st
     return summary
 
 
-def plotGeneLevelSummary(df: pd.DataFrame) -> None:
+def plotGeneLevelSummary(df: pd.DataFrame,
+                         order_by_accuracy: bool = False) -> list[go.Figure]:
     """ Plot gene-level matrics from printSummaryGeneLevel """
-    from graphkir.plot import showPlot
-    from plotly.subplots import make_subplots
-    import plotly.express as px
     # reorganize the datafrmae
     df_plot = pd.melt(df, id_vars="gene",  # type: ignore
-                      value_vars=['7digits_acc', "5digits_acc",
+                      value_vars=["7digits_acc", "5digits_acc",
                                   "3digits_acc", "gene_acc"],
                       value_name="accuracy",
                       var_name="level")
@@ -311,20 +326,40 @@ def plotGeneLevelSummary(df: pd.DataFrame) -> None:
                        value_vars=["FN", "FP"],
                        value_name="count",
                        var_name="error")
-    # plot in the same figure
+    # order
+    color = px.colors.qualitative.Plotly
+    df_acc = df_plot.groupby("gene")["accuracy"].mean().reset_index()
+    df_acc_sort = df_acc.sort_values(["accuracy", "gene"], ascending=[False, True])
+    if order_by_accuracy:
+        gene_order = list(df_acc_sort["gene"])
+    else:
+        gene_order = sorted(df_acc_sort["gene"])
+    level_order = ["gene_acc", "3digits_acc", "5digits_acc", "7digits_acc", "FP", "FN"]
+
+    # plot
+    fig_accs = px.bar(df_plot, x="gene",  y="accuracy", color="level",
+                      color_discrete_sequence=color[:4],
+                      category_orders={"level": level_order})
+    fig_fnfp = px.bar(df_plot1, x="gene", y="count", color="error", text="count",
+                      color_discrete_sequence=color[4:],
+                      category_orders={"level": level_order})
+    # put them in the same figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_traces(list(px.line(df_plot, x="gene", y="accuracy", color="level").select_traces()))
-    for i in px.bar(df_plot1, x="gene", y="count", color="error", opacity=0.5).select_traces():
+    fig.add_traces(list(fig_accs.select_traces()))
+    for i in fig_fnfp.select_traces():
         fig.add_trace(i, secondary_y=True)
+    fig.update_traces(textposition='outside')
     fig.update_layout(
+        xaxis_categoryarray=gene_order,
+        xaxis_categoryorder="array",
         yaxis_title="Accuracy",
         yaxis2_title="FN or FP count",
         yaxis2_range=(0, max(df_plot1['count']) * 2),
     )
-    showPlot([fig])
+    return [fig]
 
 
-def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> dict[str, dict[str, int]]:
+def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> pd.DataFrame:
     """
     printSummaryByResolution but in gene-level mode
 
@@ -352,10 +387,9 @@ def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> dict[str, 
     df["gene_acc"]    = df["gene_correct"]    / df["gene_total"]
     df["FN"]          = df["gene_total"]      - df["gene_correct"]
 
-    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
-    #     print(df)
-    # plotGeneLevelSummary(df)
-    return summary_by_gene
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
+        print(df.set_index("gene"))
+    return df
 
 
 if __name__ == "__main__":

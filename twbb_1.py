@@ -1,17 +1,53 @@
 import os
-from Bio.Seq import Seq
 from glob import glob
 from typing import Iterator, TextIO
 from pathlib import Path
 from functools import partial
 from collections import defaultdict
+from Bio.Seq import Seq
 import pysam
 
 from namepipe import nt, NameTask, compose, ConcurrentTaskExecutor
-from graphkir.utils import runShell, threads, runDocker, samtobam
-
-
+from kg_utils import runShell, threads, runDocker, samtobam
 from graphkir.hisat2 import hisatMap
+
+
+def downloadHG38(folder="index5"):
+    output_name = f"{folder}/hg38.ucsc"
+    if os.path.exists(f"{output_name}.fa.gz"):
+        return output_name
+    runShell("wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/p13/hg38.p13.fa.gz "
+             f"-O {output_name}.fa.gz")
+    runShell("wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.refGene.gtf.gz "
+             f"-O {output_name}.gff.gz")
+    return output_name
+
+
+def bwaIndex(input_name):
+    output_name = input_name + ".bwa"
+    if Path(output_name + ".bwt").exists():
+        return output_name
+    runDocker("bwa", f"bwa index {input_name}.fa.gz -p {output_name}")
+    return output_name
+
+
+def bwa(input_name, index):
+    suffix = "." + index.replace("/", "_")
+    output_name = input_name + suffix
+    if Path(f"{output_name}.bam").exists():
+        return output_name
+
+    # main
+    f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
+    if not os.path.exists(f1):
+        f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
+    runDocker("bwa",
+              f"bwa mem -t {threads} {index} -K 100000000 -p -v 3 "
+              f" {f1} {f2} -o {output_name}.sam")
+    samtobam(output_name)
+    return output_name
+
+
 # from kg_main import hisatMapWrap
 def hisatMapWrap(input_name, index):
     # 1 to 1
@@ -408,29 +444,45 @@ NGS2_20150104E
     ngs_sample = list(filter(None, map(lambda i: i.strip(), ngs_sample.split("\n"))))
     print(ngs_sample)
     print(len(ngs_sample))
-    ngs_sample = ngs_sample[0:14]
+    ngs_sample = ngs_sample[0:7]
+    ref = "hg38_ucsc"
+
+    threads = 7
+    if ref == "hg38_ucsc":  # fastq -> ucsc bam
+        index = compose([
+            "index",
+            downloadHG38,
+            bwaIndex,
+        ])
+        for id in ngs_sample:
+            samples = link(id, "data_tmp")
+        samples = compose([samples, partial(bwa, index=str(index))])
+
     NameTask.default_executor = ConcurrentTaskExecutor()
     NameTask.default_executor.threads = 7
+    threads = 3
 
-    samples = ""
-    ref = "hg38"
-    for id in ngs_sample:
-        # samples = link(id, "data_tmp")
-        if ref == "hg38":
-            samples = linkHg38Bam(id, "data_tmp")
-        else:
-            samples = linkBam(id, "data_tmp")
-
+    if ref in ["hg38", "hg19", "hg38_ucsc"]:
+        # bam -> fastq
+        for id in ngs_sample:
+            if ref == "hg38":
+                samples = linkHg38Bam(id, "data_tmp")
+            elif ref == "hg19":
+                samples = linkBam(id, "data_tmp")
+        print(samples)
+        samples = compose([
+            samples,
+            extractFromHg38 if ref == "hg38" else extractFromHg19,
+            # bam2fastqViaSamtools,
+            bam2fastqWrap,
+        ])
+    elif ref == "fastq":
+        # fastq
+        for id in ngs_sample:
+            samples = link(id, "data_tmp")
     print(samples)
-    samples = compose([
-        samples,
-        extractFromHg38 if ref == "hg38" else extractFromHg19,
-        samples,
-        # bam2fastqViaSamtools,
-        bam2fastqWrap,
-    ])
-    print(samples)
 
+    # fastq -> kir bam
     ref_index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
     index = ref_index + ".graph"
     compose([

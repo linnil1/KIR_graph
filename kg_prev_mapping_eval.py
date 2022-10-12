@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, html
 from graphkir.plot import showPlot
+from kg_utils import runShell
 from plotly.subplots import make_subplots
 
 
@@ -18,8 +19,6 @@ def extractCurrentAndPreviousPosition(
 ) -> Iterator[tuple[str, int, str, str]]:
     """yield: reference_mapped_on, pos_mapped_on, previous_reference, previous_position"""
     for record in pysam.AlignmentFile(bam_file, "rb").fetch(until_eof=True):
-        # print(record.reference_name)
-        # print(record.reference_name)
         if not record.is_proper_pair:
             continue
         # print(str(record))
@@ -95,8 +94,8 @@ def plotAllHistogram(rps: Iterable[tuple[str, list[int]]]) -> go.Figure | None:
     return fig_all
 
 
-def printPrevMappingSummary(df: pd.DataFrame):
-    """ print the previous mapping positions with current mapping positions """
+def getPrevMappingSummary(df: pd.DataFrame) -> pd.DataFrame:
+    """print the previous mapping positions with current mapping positions"""
     significant_count = 30
     mapping_info = []
     for gene in sorted(set(df["ref"])):
@@ -106,7 +105,7 @@ def printPrevMappingSummary(df: pd.DataFrame):
         ):
             mapping_info.append(
                 {
-                    "gene": gene,
+                    "gene": gene.split("*")[0],  # remove *BACKBONE
                     "reference": reference,
                     "pos_left": min(positions),
                     "pos_right": max(positions),
@@ -116,11 +115,34 @@ def printPrevMappingSummary(df: pd.DataFrame):
     df_mapping_info = pd.DataFrame(mapping_info)
     print("Our mapping data")
     print(df_mapping_info)
-    print(df_mapping_info[df_mapping_info["reference"] == "chr19"])
+    return df_mapping_info
 
 
-def plotPrevMappingSummary(df: pd.DataFrame):
-    """ Plot the previous mapping positions with current mapping positions """
+def extractMappingPosition(ref: str = "hg19"):
+    """Extract all position from all the bamfiles"""
+    if ref == "hg19":
+        bam_files = glob(
+            "data_twbb/hg19.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
+        )
+    elif ref == "hg38":
+        bam_files = glob(
+            "data_twbb/hg38.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
+        )
+    print(bam_files)
+    datas = []
+    for bam_file in bam_files:
+        datas.append(extractCurrentAndPreviousPosition(bam_file))
+    data = chain.from_iterable(datas)
+
+    # data part
+    df = pd.DataFrame(data, columns=["ref", "pos", "prev_ref", "prev_pos"])  # type: ignore
+    df = removePrevUnmapped(df)
+    df["prev_pos"] = df["prev_pos"].astype(int)
+    return df
+
+
+def plotPrevMapping(df: pd.DataFrame) -> list[go.Figure]:
+    """Plot the previous mapping positions with current mapping positions"""
     # plot part
     significant_count = 30
     figs = []
@@ -137,33 +159,7 @@ def plotPrevMappingSummary(df: pd.DataFrame):
     return figs
 
 
-def plotPrevMapping() -> list[go.Figure]:
-    """ Plot previous mapping with current gene"""
-    bam_files = glob(
-        # "data_twbb/hg19.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
-        "data_twbb/hg38.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
-    )
-    print(bam_files)
-    # bam_files = ["data_twbb/hg19.twbb.NGS2_20150412B.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"]
-    # bam_file = "data_twbb/hg19.twbb.NGS2_20150505B.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
-    # data = extractCurrentAndPreviousPosition(bam_file)
-    datas = []
-    for bam_file in bam_files:
-        datas.append(extractCurrentAndPreviousPosition(bam_file))
-    data = chain.from_iterable(datas)
-
-    # data part
-    df = pd.DataFrame(data, columns=["ref", "pos", "prev_ref", "prev_pos"])  # type: ignore
-    df = removePrevUnmapped(df)
-    df["prev_pos"] = df["prev_pos"].astype(int)
-
-    # data
-    printPrevMappingSummary(df)
-    # plot
-    return plotPrevMappingSummary(df)
-
-
-def getNCBIKirGene(ref: str = "hg38"):
+def getNCBIKirGene(ref: str = "hg19") -> pd.DataFrame:
     """Get KIR genes position from NCBI record"""
     # read NCBI data
     df_ncbi = pd.read_csv("ncbi_kir_search_result.tsv", sep="\t")
@@ -222,9 +218,64 @@ def getNCBIKirGene(ref: str = "hg38"):
     print("NCBI KIR gene data")
     print(df_loc)
     print(df_loc[df_loc["reference"].str.startswith("NC_")])
+    return df_loc
+
+
+def getUCSCKirGene(ref: str = "hg19") -> pd.DataFrame:
+    """Get UCSC annotation of KIR gene"""
+    if ref == "hg19":
+        if not os.path.exists("hg19.refGene.gtf.gz"):
+            runShell(
+                "wget https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/genes/hg19.refGene.gtf.gz"
+            )
+            runShell(
+                'zcat hg19.refGene.gtf.gz | grep "\\"KIR" | grep -v "exon" | grep -v "KIRREL" > hg19.refGene.kir.gtf'
+            )
+        gff = "hg19.refGene.kir.gtf"
+    elif ref == "hg38":
+        if not os.path.exists("hg38.refGene.gtf.gz"):
+            runShell(
+                "wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.refGene.gtf.gz"
+            )
+            runShell(
+                'zcat hg38.refGene.gtf.gz | grep "\\"KIR" | grep -v "exon" | grep -v "KIRREL" > hg38.refGene.kir.gtf'
+            )
+        gff = "hg38.refGene.kir.gtf"
+
+    # to dataframe
+    df = pd.read_csv(
+        gff,
+        sep="\t",
+        names=[
+            "seqname",
+            "source",
+            "feature",
+            "start",
+            "end",
+            "score",
+            "strand",
+            "frame",
+            "attribute",
+        ],
+    )
+    df["gene"] = (
+        df["attribute"].str.split(";", expand=True)[0].str.split('"', expand=True)[1]
+    )
+    df_gene_regions = (
+        df[["gene", "seqname", "start", "end"]].sort_values("gene").drop_duplicates()
+    )
+    df_gene_regions.columns = ["gene", "reference", "pos_left", "pos_right"]
+    print("UCSC KIR gene")
+    print(df_gene_regions)
+    return df_gene_regions
 
 
 if __name__ == "__main__":
-    getNCBIKirGene()
+    ref = "hg19"
+    # getNCBIKirGene(ref)
     # work with twbb1 bam2fastq data
-    showPlot(plotPrevMapping())
+    df = extractMappingPosition(ref)
+    # print
+    getUCSCKirGene(ref)
+    getPrevMappingSummary(df)
+    showPlot(plotPrevMapping(df))

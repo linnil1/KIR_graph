@@ -62,8 +62,12 @@ class Typing:
 class TypingWithPosNegAllele(Typing):
     """ Our proposed allele typing method """
 
-    def __init__(self, filename_variant_json: str, multiple: bool = False,
-                 exon_first: bool = False, exon_only: bool = False):
+    def __init__(self, filename_variant_json: str,
+                 multiple: bool = False,
+                 exon_first: bool = False,
+                 exon_only: bool = False,
+                 exon_candidate: str = "first_score",
+                 exon_candidate_threshold: float = 1.1):
         """ Read all reads and variants from the json file (From .hisat2.py) """
         super().__init__()
         reads_data = loadReadsAndVariantsData(filename_variant_json)
@@ -73,6 +77,8 @@ class TypingWithPosNegAllele(Typing):
         self._gene_variants = groupVariants(reads_data['variants'])
         self._exon_first = exon_first
         self._exon_only = exon_only
+        self._exon_candidate = exon_candidate
+        self._exon_candidate_threshold = exon_candidate_threshold
 
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """ Select reads belonged to the gene and typing it """
@@ -84,7 +90,9 @@ class TypingWithPosNegAllele(Typing):
             typ = AlleleTyping(self._gene_reads[gene], self._gene_variants[gene])
         else:
             typ = AlleleTypingExonFirst(self._gene_reads[gene], self._gene_variants[gene],
-                                        exon_only=self._exon_only)
+                                        exon_only=self._exon_only,
+                                        candidate_set=self._exon_candidate,
+                                        candidate_set_threshold=self._exon_candidate_threshold)
         res = typ.typing(cn)
         self._result[gene] = typ.result
         return res.selectBest()
@@ -149,7 +157,10 @@ def selectKirTypingModel(method: str, filename_variant_json: str) -> Typing:
     if method == "pv":
         return TypingWithPosNegAllele(filename_variant_json)
     elif method == "pv_exonfirst":
-        return TypingWithPosNegAllele(filename_variant_json, exon_first=True)
+        return TypingWithPosNegAllele(filename_variant_json, exon_first=True, exon_candidate="first_score")
+    elif method.startswith("pv_exonfirst_"):
+        thres = float(method[len("pv_exonfirst_"):])
+        return TypingWithPosNegAllele(filename_variant_json, exon_first=True, exon_candidate="max_score_ratio", exon_candidate_threshold=thres)
     elif method == "em":
         return TypingWithReport(filename_variant_json)
     raise NotImplementedError

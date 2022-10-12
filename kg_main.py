@@ -291,7 +291,8 @@ def kirResult(input_name, answer):
     answer = readAnswerAllele(f"{answer}/{answer}.summary.csv")
     predit = readPredictResult(output_name + ".tsv")
     print(output_name + ".tsv")
-    compareCohort(answer, predit, skip_empty=True)
+    # compareCohort(answer, predit, skip_empty=True)
+    compareCohort(answer, predit, skip_empty=True, plot=True)
     return output_name
 
 
@@ -359,8 +360,8 @@ if __name__ == "__main__":
     cn = variant >> nt(cnPredict).set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
     # cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon).set_depended(0)
 
-    typing = variant >> nt(kirTyping).set_args(cn, "pv_exonfirst") >> nt(kirResult).set_args(answer=answer_folder).set_depended(0)
-    # cn >> plotCNWrap.set_depended(0)
+    typing = variant >> nt(kirTyping).set_args(cn, "pv_exonfirst_1.1") >> nt(kirResult).set_args(answer=answer_folder).set_depended(0)
+    # cn >> nt(plotCNWrap).set_depended(0)
 
     # bowtie mapping rate
     # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
