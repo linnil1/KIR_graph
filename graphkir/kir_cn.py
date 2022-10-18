@@ -99,39 +99,45 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
     return sample_gene_cns, dist
 
 
-def predictSamplesCN(samples_bam: list[str],
-                     samples_cn: list[str],
-                     bam_selected_regions: dict[str, list[tuple[int, int]]] = {},
-                     save_cn_model_path: str | None = None,
-                     assume_3DL3_diploid: bool = False,
-                     select_mode: str = "p75",
-                     cluster_method: str = "CNgroup"
-                     ):
+def filterDepth(depth_file: str,
+                filtered_depth_file: str,
+                bam_selected_regions: dict[str, list[tuple[int, int]]] = {}):
     """
-    Read bamfile and predict CN per gene per sample
+    Bam -> tsv of read depth
 
     Parameters:
-      samples_bam: Bamfile path per sample
-      samples_cn: The output CN file path per sample
-      save_cn_model_path: Save the parameters of CN model into specific path
       bam_selected_regions:
         Use selected regions of read depths.
         Format: `dict[key=referce, value=list of tuple[start-position, end_position]]`
         Leave Empty to selected all regions
     """
-    assert len(samples_bam) == len(samples_cn)
+    depths = readSamtoolsDepth(depth_file)
+    depths = selectSamtoolsDepth(depths, bam_selected_regions)
+    depths.to_csv(filtered_depth_file, header=False, index=False, sep="\t")
+
+
+def predictSamplesCN(samples_depth_tsv: list[str],
+                     samples_cn: list[str],
+                     save_cn_model_path: str | None = None,
+                     assume_3DL3_diploid: bool = False,
+                     select_mode: str = "p75",
+                     cluster_method: str = "CNgroup",
+                     ):
+    """
+    Read depth tsv and predict CN per gene per sample
+
+    Parameters:
+      samples_depth_tsv: Depths per sample (in tsv)
+      samples_cn: The output CN file path per sample
+      save_cn_model_path: Save the parameters of CN model into specific path
+    """
+    assert len(samples_depth_tsv) == len(samples_cn)
 
     # read bam -> depth per position -> depth per gene
-    names = [bam.replace(".bam", "") for bam in samples_bam]
-    sample_gene_depths = []
-    for name in names:
-        bam2Depth(name + ".bam", name + ".depth.tsv")
-        depths = readSamtoolsDepth(name + ".depth.tsv")
-        if bam_selected_regions:
-            depths = selectSamtoolsDepth(depths, bam_selected_regions)
-            depths.to_csv(name + ".depth.exon.tsv", index=False, sep="\t")
-        gene_depths = aggrDepths(depths, select_mode=select_mode)
-        sample_gene_depths.append(gene_depths)
+    sample_gene_depths = [
+        aggrDepths(readSamtoolsDepth(depth_file), select_mode=select_mode)
+        for depth_file in samples_depth_tsv
+    ]
 
     # depth per gene -> cn per gene
     cns, model = depthToCN(sample_gene_depths,

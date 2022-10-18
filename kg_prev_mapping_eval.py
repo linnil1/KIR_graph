@@ -126,7 +126,8 @@ def extractMappingPosition(ref: str = "hg19"):
         )
     elif ref == "hg38":
         bam_files = glob(
-            "data_twbb/hg38.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
+            # "data_twbb/hg38.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
+            "data_twbb/twbb.*.index_hg38.ucsc.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
         )
     print(bam_files)
     datas = []

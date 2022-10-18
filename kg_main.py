@@ -2,12 +2,14 @@ import os
 from glob import glob
 from pathlib import Path
 import pandas as pd
-from namepipe import nt, NameTask, compose
+from namepipe import nt, NameTask, compose, ConcurrentTaskExecutor
+from functools import partial
 
 from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
 from graphkir.kir_msa import buildKirMsa
-from graphkir.hisat2 import hisatMap, extractVariantFromBam
-from graphkir.kir_cn import predictSamplesCN, loadCN
+from graphkir import kir_msa
+from graphkir.hisat2 import hisatMap, extractVariantFromBam, readExons
+from graphkir.kir_cn import bam2Depth, filterDepth, loadCN, predictSamplesCN
 from graphkir.kir_typing import selectKirTypingModel
 from graphkir.main import mergeAllele
 from graphkir.plot import showPlot, plotCN, plotGeneDepths
@@ -21,48 +23,61 @@ from kg_utils import (
     threads,
     runDocker,
 )
-import kg_create_data
+from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
-from kg_extract_exon_seq import extractExonPairReads
+from kg_extract_exon_seq import (
+    extractPairReadsOnceInBed,
+    calcExonToBed,
+    bam2fastq,
+)
 
 
-def link10Samples(input_name):
-    output_name = input_name.template.format("test10.{}")
-    if not input_name.template_args[0].isdigit() or int(input_name.template_args[0]) >= 10:
-        return output_name
-
-    id = input_name.template_args[0]
-    name = output_name.format(id)
-    if Path(f"{name}.read.1.fq").exists():
-        return output_name
-
-    runShell(f"ln -s {Path(input_name).name}.read.1.fq {output_name.format(id)}.read.1.fq")
-    runShell(f"ln -s {Path(input_name).name}.read.2.fq {output_name.format(id)}.read.2.fq")
-    return output_name
-
-
-def createSamples(input_name):
+def createSamplesWithAnswer(input_name, N=10):
     # 0 -> 1
     # "linnil1_syn_30x_seed87/linnil1_syn_30x_seed87"
     name = input_name + "/" + input_name
-    output_name = name + ".{}.read"
-    N = 10
-    for i in range(N):
-        if Path(f"{name}.{i:02d}.read.1.fq").exists():
-            return output_name
-    kg_create_data.createSamples(N=10, basename=name, depth=30, seed=87)
+    output_name = name + ".{}"
+    if Path(f"{name}_summary.csv").exists():
+        return output_name
+    createSamplesAllele(N, basename=name, seed=878)
     return output_name
 
 
-def linkSamples(input_name, data_folder):
+def createSampleFastq(input_name, depth=30):
     # 1 -> 1
-    name = input_name.split('/')[0]
-    output_name = os.path.join(data_folder, name + ".{}")
-    new_name = output_name.format(input_name.template_args[0])
-    if Path(new_name + ".read.1.fq").exists():
+    output_name = input_name + ".read"
+    if Path(f"{input_name}.sam").exists():
         return output_name
-    runShell(f"ln -s ../{input_name}.1.fq {new_name}.read.1.fq")  # add .read is for previous naming
-    runShell(f"ln -s ../{input_name}.2.fq {new_name}.read.2.fq")
+    createSamplesReads(input_name, depth=depth, seed=878)
+    return output_name
+
+
+def linkSamples(input_name, data_folder, new_name=None, fastq=True, fasta=False, sam=False):
+    # 1 -> 1
+    # only work for unix relative folder
+    if new_name is None:
+        name = Path(input_name.template).name
+    else:
+        name = new_name
+    output_name = str(Path(data_folder) / name)
+    new_name = output_name.format(input_name.template_args[0])
+    relative = "../" * (len(Path(new_name).parents) - 1)
+    if fastq:
+        if Path(new_name + ".read.1.fq").exists():
+            return output_name
+        runShell(f"ln -s {relative}{input_name}.read.1.fq {new_name}.read.1.fq")  # add .read is for previous naming
+        runShell(f"ln -s {relative}{input_name}.read.2.fq {new_name}.read.2.fq")
+    if fasta:
+        if Path(new_name + ".fa").exists():
+            return output_name
+        runShell(f"ln -s {relative}{input_name}.fa {new_name}.fa")
+    if sam:
+        if Path(new_name + ".sam").exists():
+            return output_name
+        if Path(f"{input_name}.read..sam").exists():
+            runShell(f"ln -s {relative}{input_name}.read..sam {new_name}.sam")
+        else:
+            runShell(f"ln -s {relative}{input_name}.sam {new_name}.sam")
     return output_name
 
 
@@ -148,7 +163,7 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     output_name = f"{input_name}/kir_2100_{msa_type}"
     if len(glob(output_name + ".KIR*")):
         return output_name
-    buildKirMsa(msa_type, output_name)
+    buildKirMsa(msa_type, output_name, mergeMSA=mergeMSA)
     return output_name
 
 
@@ -161,7 +176,7 @@ def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
 
     if len(glob(output_name + ".KIR*")):
         return output_name
-    buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name)
+    buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name, mergeMSA=mergeMSA)
     return output_name
 
 
@@ -196,7 +211,7 @@ def hisatMapWrap(input_name, index):
     if Path(f"{output_name}.bam").exists():
         return output_name
     f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
-    if not os.path.exists(f1):
+    if not Path(f1).exists():
         f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
     hisatMap(index, f1, f2, output_name + ".bam", threads=threads)
     return output_name
@@ -210,29 +225,44 @@ def extractVariant(input_name, ref_index):
     return output_name
 
 
-def cnPredict(input_name, ref_index, exon=False):
-    suffix_variant = ".no_multi"
+def bam2DepthWrap(input_name):
+    output_name = input_name + ".depth"
+    if Path(output_name + ".tsv").exists():
+        return output_name
+    bam2Depth(input_name + ".bam", output_name + ".tsv")
+    return output_name
+
+
+def filterDepthWrap(input_name, ref_index, exon=False):
+    output_name = input_name
+    exon_regions = {}
+    if exon:
+        exon_regions = readExons(ref_index)
+        output_name += ".exon"
+    if Path(output_name + ".tsv").exists():
+        return output_name
+    filterDepth(input_name + ".tsv",
+                output_name + ".tsv",
+                exon_regions)
+    return output_name
+
+
+def cnPredict(input_name):
     cn_cluster = "CNgroup"
     cn_select = "p75"
     assume_3DL3_diploid = True
-
-    suffix_depth = f"{suffix_variant}.depth{'.exon' if exon else ''}"
-    suffix_cn = f"{suffix_depth}.{cn_select}.{cn_cluster}"
+    suffix_cn = f".{cn_select}.{cn_cluster}"
     if ".{}." not in input_name and assume_3DL3_diploid:
         suffix_cn += "_assume3DL3"
     if ".{}." in input_name:
         suffix_cn += ".cohort"
     output_name = input_name + suffix_cn
-    exon_regions = {}
-    if exon:
-        exon_regions = readExons(ref_index)
 
     if ".{}." not in input_name:
         if Path(output_name + ".json").exists():
             return output_name
-        predictSamplesCN([input_name + suffix_variant + ".bam"],
-                         [input_name + suffix_cn      + ".tsv"],
-                         bam_selected_regions=exon_regions,
+        predictSamplesCN([input_name  + ".tsv"],
+                         [output_name + ".tsv"],
                          cluster_method=cn_cluster,
                          select_mode=cn_select,
                          assume_3DL3_diploid=assume_3DL3_diploid,
@@ -241,9 +271,8 @@ def cnPredict(input_name, ref_index, exon=False):
         output_name1 = input_name.replace_wildcard("_merge_cn") + suffix_cn
         if Path(output_name1 + ".json").exists():
             return output_name
-        predictSamplesCN([name + suffix_variant + ".bam" for name in input_name.get_input_names()],
-                         [name + suffix_cn      + ".tsv" for name in input_name.get_input_names()],
-                         bam_selected_regions=exon_regions,
+        predictSamplesCN([name             + ".tsv" for name in input_name.get_input_names()],
+                         [name + suffix_cn + ".tsv" for name in input_name.get_input_names()],
                          cluster_method=cn_cluster,
                          select_mode=cn_select,
                          assume_3DL3_diploid=False,
@@ -287,28 +316,15 @@ def kirResult(input_name, answer):
         [name + ".tsv" for name in input_name.get_input_names()],
         output_name + ".tsv"
     )
-
-    answer = readAnswerAllele(f"{answer}/{answer}.summary.csv")
+    if Path(f"{answer}/{answer}.summary.csv").exists():
+        answer = readAnswerAllele(f"{answer}/{answer}.summary.csv")
+    else:
+        answer = readAnswerAllele(f"{answer}/{answer}_summary.csv")
     predit = readPredictResult(output_name + ".tsv")
     print(output_name + ".tsv")
     # compareCohort(answer, predit, skip_empty=True)
     compareCohort(answer, predit, skip_empty=True, plot=True)
     return output_name
-
-
-def extractExon(input_name, folder):
-    Path(folder).mkdir(exist_ok=True)
-    copy_name = f"{folder}/{Path(input_name).name.replace('.read', '')}"
-    output_template = f"{folder}/{Path(input_name.template).name.replace('.read', '').replace('.{}', '_exon.{}')}"
-    output_name = output_template.format(input_name.template_args[0])
-
-    if Path(f"{output_name}.read.1.fq").exists():
-        return output_template + ".read"
-
-    runShell(f"ln -s ../{input_name.replace('.read', '')}.fa {copy_name}.fa")
-    runShell(f"ln -s ../{input_name}..sam                    {copy_name}.sam")
-    extractExonPairReads(f"{copy_name}.fa", f"{copy_name}.sam", output_name)
-    return output_template + ".read"
 
 
 def plotCNWrap(input_name):
@@ -325,42 +341,117 @@ def plotCNWrap(input_name):
     showPlot(figs)
 
 
+def realignBlock(file, method):
+    """ rewrite realignBlock in graphkir/kir_msa.py """
+    if Path(f"{file}.{method}.fa").exists():
+        return file + f".{method}"
+    if method == "clustalo":
+        return kir_msa.clustalo(file)
+    elif method == "muscle":
+        return kir_msa.muscle(file)
+    else:
+        raise NotImplementedError
+
+
+def mergeMSA(genes: kir_msa.GenesMsa,
+             method: str = "clustalo",
+             tmp_prefix: str = "tmp") -> kir_msa.Genemsa:
+    """ Rewrite in graphkir/kir_msa.py """
+    blocks = kir_msa.splitMsaToBlocks(genes)
+    files = kir_msa.blockToFile(blocks, tmp_prefix=tmp_prefix)
+    files_name = list((tmp_prefix + ".{}" >> nt(realignBlock)(method=method)).output_name.get_input_names())
+    files = {i.template_args[-1]: i for i in files_name}
+    # original method
+    # files = kir_msa.realignBlock(files, method)
+    print(files)
+    blocks = kir_msa.fileToBlock(files)
+    msa = kir_msa.mergeBlockToMsa(blocks)
+    kir_msa.isEqualMsa(genes, msa)
+    return msa
+
+
+def samtobamWrap(input_name):
+    if Path(f"{input_name}.bam").exists():
+        return input_name
+    return samtobam(input_name)
+
+
+def back(input_name):
+    return str(Path(input_name.template).with_suffix(""))
+
+
+def addSuffix(input_name, suffix):
+    return input_name + suffix
+
+
 if __name__ == "__main__":
+    NameTask.default_executor = ConcurrentTaskExecutor()
+    NameTask.default_executor.threads = 20
+
     data_folder = "data5"
-    index_folder = "index5"
+    index_folder = "index6"
     Path(data_folder).mkdir(exist_ok=True)
     Path(index_folder).mkdir(exist_ok=True)
-    extract_exon = False
+    extract_exon = True
 
-    answer_folder = "linnil1_syn_wide"
-    answer_folder = "linnil1_syn_exon"
-    answer_folder = "linnil1_syn_30x"
     answer_folder = "linnil1_syn_30x_seed87"
+    answer_folder = "linnil1_syn_20x"
     Path(answer_folder).mkdir(exist_ok=True)
 
-    samples = answer_folder >> nt(createSamples)
+    samples = compose([
+        answer_folder,
+        partial(createSamplesWithAnswer, N=10),
+        partial(createSampleFastq, depth=20),
+        back,
+    ])
 
     if extract_exon:
-        samples = samples >> nt(extractExon).set_args(folder=answer_folder + "_exon")
-        runShell(f"ln -fs ../{answer_folder}/{answer_folder}.summary.csv {answer_folder}_exon/{answer_folder}_exon.summary.csv")
-        answer_folder = answer_folder + "_exon"
+        new_answer_folder = answer_folder + "_exon"
+        Path(new_answer_folder).mkdir(exist_ok=True)
+        samples = compose([
+            samples,
+            partial(linkSamples, data_folder=new_answer_folder, fastq=False, sam=True, fasta=True),
+        ])
+        bed = samples >> nt(calcExonToBed)
+        samples = compose([
+            samples,
+            samtobamWrap,
+            partial(extractPairReadsOnceInBed, bed_name=bed),
+            bam2fastq,
+            back,
+            partial(linkSamples, data_folder=new_answer_folder, new_name=new_answer_folder + ".{}"),
+        ])
+        runShell(f"ln -fs ../{answer_folder}/{answer_folder}_summary.csv {new_answer_folder}/{new_answer_folder}_summary.csv")
+        answer_folder = new_answer_folder
 
-    samples = samples >> nt(linkSamples).set_args(data_folder)
-    if answer_folder == "linnil1_syn_wide":
-        samples = samples >> link10Samples
+    samples = samples >> nt(linkSamples)(data_folder=data_folder)
 
-    # msa_index = index_folder >> buildKirMsaWrap.set_args("ab_2dl1s1") >> leftAlignWrap
-    msa_index = index_folder >> nt(buildMsaWithCds).set_args("ab_2dl1s1") >> leftAlignWrap
-    ref_index = msa_index >> msa2HisatReferenceWrap
-    index = ref_index >> buildHisatIndexWrap
+    ref_index = compose([
+        index_folder,
+        partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),
+        # nt(buildMsaWithCds).set_args("ab_2dl1s1")
+        leftAlignWrap,
+        msa2HisatReferenceWrap,
+    ])
+    index = ref_index >> nt(buildHisatIndexWrap)
+    variant = compose([
+        samples,
+        partial(hisatMapWrap, index=str(index)),
+        partial(extractVariant, ref_index=str(ref_index)),
+    ])
 
-    mapping = samples >> nt(hisatMapWrap).set_args(index=str(index))
-    variant = mapping >> nt(extractVariant).set_args(ref_index=str(ref_index))
-
-    cn = variant >> nt(cnPredict).set_args(ref_index=str(ref_index), exon=extract_exon)  # .set_depended(0)
-    # cn = variant >> cnPredict.set_args(ref_index=str(ref_index), exon=extract_exon).set_depended(0)
-
-    typing = variant >> nt(kirTyping).set_args(cn, "pv_exonfirst_1.1") >> nt(kirResult).set_args(answer=answer_folder).set_depended(0)
+    cn = compose([
+        variant,
+        partial(addSuffix, suffix=".no_multi"),
+        bam2DepthWrap,
+        partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
+        nt(cnPredict)  # .set_depended(0),
+    ])
+    typing = compose([
+        variant,
+        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),
+        nt(kirResult)(answer=answer_folder).set_depended(0),
+    ])
     # cn >> nt(plotCNWrap).set_depended(0)
 
     # bowtie mapping rate

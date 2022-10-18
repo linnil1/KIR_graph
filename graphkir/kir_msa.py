@@ -4,9 +4,9 @@
 * realign the MSA when merge (muscle, clustalo)
 """
 from glob import glob
+from typing import Callable
 from itertools import chain
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
 
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import msaio, Genemsa, KIRmsa
@@ -138,21 +138,15 @@ def realignBlock(files: BlockFile, method="clustalo") -> BlockFile:
     Returns:
         files: A dictionary of block's name and its filename after realign
     """
-    with ProcessPoolExecutor(max_workers=4) as executor:
-        exes = {}
-        for block_name, f in files.items():
-            if method == "clustalo":
-                exes[block_name] = executor.submit(clustalo, f)
-            elif method == "muscle":
-                exes[block_name] = executor.submit(muscle, f)
-            else:
-                raise NotImplementedError
-
-        files_aligned = {
-            block_name: str(exe.result())
-            for block_name, exe in exes.items()
-        }
-
+    files_aligned = {}
+    for block_name, f in files.items():
+        if method == "clustalo":
+            result = clustalo(f)
+        elif method == "muscle":
+            result = muscle(f)
+        else:
+            raise NotImplementedError
+        files_aligned[block_name] = result
     return files_aligned
 
 
@@ -213,6 +207,19 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
     return msa
 
 
+def isEqualMsa(msas: GenesMsa, msa: Genemsa) -> bool:
+    assert set(msa.alleles.keys()) \
+        == set(chain.from_iterable(msa_old.alleles.keys() for msa_old in msas.values()))
+    for msa_old in msas.values():
+        for name, seq in msa_old.alleles.items():
+            if seq.replace("-", "") != msa.get(name).replace("-", ""):
+                print(name)
+                for i, j in zip(seq.replace("-", ""), msa.get(name).replace("-", "")):
+                    print(i, j)
+            assert seq.replace("-", "") == msa.get(name).replace("-", "")
+    return True
+
+
 def mergeMSA(genes: GenesMsa,
              method: str = "clustalo",
              tmp_prefix: str = "tmp") -> Genemsa:
@@ -231,44 +238,36 @@ def mergeMSA(genes: GenesMsa,
     files = realignBlock(files, method)
     blocks = fileToBlock(files)
     msa = mergeBlockToMsa(blocks)
-
-    # validate
-    assert set(msa.alleles.keys()) \
-        == set(chain.from_iterable(i.alleles.keys() for i in genes.values()))
-    for msa_old in genes.values():
-        for name, seq in msa_old.alleles.items():
-            if seq.replace("-", "") != msa.get(name).replace("-", ""):
-                print(name)
-                for i, j in zip(seq.replace("-", ""), msa.get(name).replace("-", "")):
-                    print(i, j)
-            assert seq.replace("-", "") == msa.get(name).replace("-", "")
+    isEqualMsa(genes, msa)
     return msa
 
 
-def muscle(name: str) -> str:
+def muscle(name: str, threads: int = 16) -> str:
     """
     Construct MSA with muscle
     (Input and output are filename without suffix)
     """
     runDocker("muscle",
-              f"muscle -align {name}.fa -threads 4 "
+              f"muscle -align {name}.fa -threads {threads}"
               f"       -output {name}.muscle.fa")
-    return f"{name}.muscle"
+    return name + ".muscle"
 
 
-def clustalo(name: str) -> str:
+def clustalo(name: str, threads: int = 16) -> str:
     """
     Construct MSA with clustalo
     (Input and output are filename without suffix)
     """
     runDocker("clustalo",
-              f"clustalo --infile {name}.fa -o {name}.clustalo.fa "
-              f"         --outfmt fasta --threads 4 --force")
-    return f"{name}.clustalo"
+              f"clustalo --infile {name}.fa -o {name}.clustalo.fa"
+              f"         --outfmt fasta --threads {threads} --force")
+    return name + ".clustalo"
 
 
 def buildKirMsa(mode: str, prefix: str, version: str = "2100",
-                input_msa_prefix: str = "", full_length_only: bool = True):
+                input_msa_prefix: str = "",
+                full_length_only: bool = True,
+                mergeMSA: Callable = mergeMSA):
     """
     Read KIR from database and save MSA into files with prefix
 

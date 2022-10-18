@@ -139,7 +139,8 @@ def rewriteSam(file_in, file_out):
             f_out.write(line)
 
 
-def createSamples(N, basename, depth=30, seed=44):
+def createSamplesAllele(N, basename, seed=44):
+    """ Random pick the alleles for N samples """
     # read
     seqs_dict = readSequences()
     seqs_dict = {k: v for k, v in seqs_dict.items() if len(v.seq) > 4200}  # remove exon-only sequence, min 3DP1 4240
@@ -161,13 +162,17 @@ def createSamples(N, basename, depth=30, seed=44):
             "alleles": "_".join([i.id.split("-")[0] for i in alleles]),
         })
         SeqIO.write(alleles, f"{name}.fa", "fasta")
-        generateFastq(name, depth=depth, seed=seed)
-        rewriteSam(name + ".read..sam", name + ".sam")
 
     # write summary
     summary = pd.DataFrame(summary)
     print(summary)
-    summary.to_csv(f"{basename}.summary.csv", sep="\t", index=False)
+    summary.to_csv(f"{basename}_summary.csv", sep="\t", index=False)
+
+
+def createSamplesReads(name, depth=30, seed=44):
+    """ Random generate fastq in name.fa """
+    generateFastq(name, depth=depth, seed=seed)
+    rewriteSam(name + ".read..sam", name + ".sam")
 
 
 if __name__ == "__main__":
@@ -176,5 +181,10 @@ if __name__ == "__main__":
     # output_name = "linnil1_syn_full"  # m = 200, N=10, seed=444
     # output_name = "linnil1_syn_wide"  # m = 400, N=100, seed=44
     # change note: 30x and exon use seed=44 for allele seelct seed=444 for fastq generation
-    createSamples(N, "linnil1_syn_30x/linnil1_syn_30x", 30)
-    createSamples(N, "linnil1_syn_exon/linnil1_syn_exon", 90)
+    # createSamples(N, "linnil1_syn_30x/linnil1_syn_30x", 30)
+    # createSamples(N, "linnil1_syn_exon/linnil1_syn_exon", 90)
+    basename = "test/linnil1_syn_20x"
+    createSamplesAllele(N, basename, seed=444)
+    for id in range(N):
+        name = f"{basename}.{id:02d}"
+        createSamplesReads(name, depth=20, seed=444)

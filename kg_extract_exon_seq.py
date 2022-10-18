@@ -1,48 +1,50 @@
 import glob
 from pathlib import Path
 from Bio import SeqIO
-from kg_utils import runDocker, runShell, samtobam
+
 from pyhlamsa import KIRmsa, msaio
+from kg_utils import runDocker, runShell, samtobam
+
 
 kir_default = None
 
 
-def extractRegion(name, regions):
-    runDocker("samtools", f"samtools view {name}.bam -o {name}.exon.bam {' '.join(regions)}")
-    return name + ".exon"
+def extractRegion(input_name, bed_file):
+    output_name = input_name + ".extract"
+    if Path(output_name + ".bam").exists():
+        return output_name
+    runDocker("samtools", f"samtools view -L {bed_file} {input_name}.bam -o {output_name}.bam")
+    return output_name
 
 
 def reservePair(name_filtered, name_original):
+    # retrieve all filter-PASSed read id
     proc = runDocker("samtools", f"samtools view {name_filtered}.bam", capture_output=True)
     reads = set([line.split("\t")[0] for line in proc.stdout.split("\n")])
-    print(reads)
 
+    # filter read if it is in the id set
     proc = runDocker("samtools", f"samtools view {name_original}.bam -h", capture_output=True)
-    first = True
+    first_line = True
     with open(f"{name_filtered}.reserve_pair.sam", "w") as f:
         for line in proc.stdout.split("\n"):
             if line.startswith("@") or line.split("\t")[0] in reads:
-                if not first:
+                if not first_line:
                     f.write("\n")
                 f.write(line)
-                first = False
+                first_line = False
     name_filtered += ".reserve_pair"
     samtobam(name_filtered)
     return name_filtered
 
 
 def bam2fastq(name):
-    runDocker("samtools", f"samtools sort -n {name}.bam -o {name}.sortn.bam")
+    if Path(f"{name}.sortn.read.1.fq").exists():
+        return name + ".sortn.read"
+    runDocker("samtools", f"samtools sort  -n {name}.bam -o {name}.sortn.bam")
     name += ".sortn"
     runDocker("samtools", f"samtools fastq -n {name}.bam -1 {name}.read.1.fq -2 {name}.read.2.fq -0 /dev/null -s /dev/null")
     name += ".read"
     return name
-
-
-def rename(name_ori, output_name):
-    runShell(f"ln -fs ../{name_ori}.1.fq {output_name}.read.1.fq")
-    runShell(f"ln -fs ../{name_ori}.2.fq {output_name}.read.2.fq")
-    return output_name
 
 
 def getExonRegion(msa, seq, gff_name=""):
@@ -62,58 +64,41 @@ def getExonRegion(msa, seq, gff_name=""):
 
     for pos in exon_pos:
         # bed-format = included start + included end
-        yield f"{seq.id}:{pos[0]+1}-{pos[1]}"
+        if pos[0] == pos[1]:
+            continue
+        yield seq.id, pos[0] + 1, pos[1]
 
 
-def mergeGff(gff_files, name):
-    with open(f"{name}.gff", "w") as f_gff:
-        f_gff.write("##gff-version 3\n")
-        for f_gff_allele in gff_files:
-            allele = f_gff_allele.split('.')[-2]
-            with open(f_gff_allele) as f:
-                for i in f:
-                    if i.startswith("##"):
-                        continue
-                    # rename ref to ref-1 ref-2
-                    f_gff.write("\t".join([allele, *i.strip().split("\t")[1:]]) + "\n")
-            runShell(f"rm '{f_gff_allele}'")
-
-
-def extractExonPairReads(reference_fasta, bam_file, output_name, kir=None):
-    seqs = SeqIO.parse(reference_fasta, "fasta")
-    name = ".".join(bam_file.split('.')[:-1])
-
+def calcExonToBed(reference_name, kir=None):
     # save kir object in global
+    output_name = reference_name + ".exon_region"
+    if Path(output_name + ".bed").exists():
+        return output_name
+
     global kir_default
     if not kir:
         if not kir_default:
             kir_default = KIRmsa(filetype=["gen"], version="2100")
         kir = kir_default
 
+    seqs = SeqIO.parse(reference_name + ".fa", "fasta")
     regions = []
     for seq in seqs:
         ref = seq.id[:7]  # KIR2DL5AB -> KIR2DL5
-        regions.extend(getExonRegion(kir[ref], seq, name))
-    mergeGff(list(glob.glob(f"{name}.KIR*.gff")), name)
+        regions.extend(getExonRegion(kir[ref], seq))
 
-    print(regions)
-    samtobam(name, keep=True)
-    name_overlap = extractRegion(name, regions)
-    name_extract = reservePair(name_overlap, name)
-    runShell(f"ln -fs ../{name_extract}.bam     {output_name}.bam")
-    runShell(f"ln -fs ../{name_extract}.bam.bai {output_name}.bam.bai")
-    name_extract = bam2fastq(name_extract)
-    # name_extract = name + ".exon.reserve_pair.sortn.read"
-    name = rename(name_extract, output_name)
-    return name
+    with open(f"{output_name}.bed", "w") as f:
+        for chrom, start, end in regions:
+            f.write(f"{chrom}\t{start}\t{end}\n")
+    return output_name
 
 
-if __name__ == "__main__":
-    """
-    Run this after kg_create_data.py
-    """
-    kir = KIRmsa(filetype=["gen"], version="2100")
-    for i in range(10):
-        name = f"linnil1_exon_30x/linnil1_exon_30x.{i:02d}"
-        name = extractExonPairReads(name + ".fa", name + ".read..sam", name + "_exon", kir=kir)
-        print(name)
+def extractPairReadsOnceInBed(input_name, bed_name, kir=None):
+    output_name = input_name + ".extract.reserve_pair"
+    bed_file = bed_name.output_name.format(input_name.template_args[0]) + ".bed"
+    if Path(output_name + ".bam").exists():
+        return output_name
+    bam_bed = extractRegion(input_name, bed_file)
+    bam_pair = reservePair(bam_bed, input_name)
+    assert str(bam_pair) == str(output_name)
+    return output_name
