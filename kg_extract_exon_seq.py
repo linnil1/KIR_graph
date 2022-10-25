@@ -3,7 +3,8 @@ from pathlib import Path
 from Bio import SeqIO
 
 from pyhlamsa import KIRmsa, msaio
-from kg_utils import runDocker, runShell, samtobam
+from graphkir.utils import runShell, samtobam
+from kg_utils import runDocker
 
 
 kir_default = None

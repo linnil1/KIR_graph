@@ -163,7 +163,6 @@ def main(args: argparse.Namespace):
             suffix_cn = f"{suffix}.{args.cn_select}.{args.cn_cluster}"
             predictSamplesCN([name + suffix_cn_base + ".bam"],
                              [name + suffix_cn + ".tsv"],
-                             bam_selected_regions=exon_regions,
                              cluster_method=args.cn_cluster,
                              assume_3DL3_diploid=True,
                              save_cn_model_path=name + suffix + ".json",
@@ -179,7 +178,6 @@ def main(args: argparse.Namespace):
         cohort_name = args.cn_cohort_model_output + suffix_cn
         predictSamplesCN([name + suffix_cn_base + ".bam" for name in names],
                          [name + suffix_cn + ".tsv" for name in names],
-                         bam_selected_regions=exon_regions,
                          save_cn_model_path=cohort_name + ".json",
                          cluster_method=args.cn_cluster,
                          select_mode=args.cn_select)

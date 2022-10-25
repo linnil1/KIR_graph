@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 
 from namepipe import nt, compose
-
-from kg_utils import runDocker, runShell, threads
+from graphkir.utils import runShell, threads
+from kg_utils import runDocker
 from kg_main import linkSamples
 from kg_eval import readAnswerAllele, compareCohort
 
@@ -251,6 +251,7 @@ def readPingResult(csv_file: str) -> dict[str, list[str]]:
 if __name__ == "__main__":
     answer = "linnil1_syn_30x"
     answer = "linnil1_syn_30x_seed87"
+    answer = "linnil1_syn_20x"
     # answer += "_exon"
     data_folder = "data3"
     Path(data_folder).mkdir(exist_ok=True)

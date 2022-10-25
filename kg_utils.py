@@ -3,10 +3,12 @@ import sys
 import time
 import uuid
 import pickle
+import traceback
 import __main__
 import subprocess
+import importlib.util
 from glob import glob
-from typing import Callable
+from typing import Callable, Any
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -60,12 +62,54 @@ class IsolateTaskExecutor(BaseTaskExecutor):
 
     def __init__(self, threads: int = 100):
         super().__init__()
-        self.executor = f"python isolate_task.py {__main__.__file__}"
+        self.executor = ('python -c "from kg_utils import IsolateTaskExecutor; '
+                         'IsolateTaskExecutor.runIsolateInCommandLine()" '
+                         f'{__main__.__file__}')
         self.threads = threads
 
-    def startIsolateTask(self, name: str) -> subprocess.CompletedProcess:
+    @staticmethod
+    def wildcardImportFromFile(path: str) -> None:
+        """ same as from main.py import * """
+        spec = importlib.util.spec_from_file_location("tmp", path)
+        assert spec
+        assert spec.loader
+        module = importlib.util.module_from_spec(spec)
+        assert module
+        spec.loader.exec_module(module)
+        for i in dir(module):
+            if not i.startswith("__"):
+                setattr(__main__, i, getattr(module, i))
+
+    @staticmethod
+    def runIsolateFunc(func: Callable, input_name: str) -> Any:
+        """ run the function """
+        try:
+            return func(input_name)
+        except BaseException as e:
+            print(e)
+            return BaseException(traceback.format_exc())
+
+    @staticmethod
+    def runIsolate(main_file_path: str, name: str) -> None:
+        """ read input, run the function and save the output """
+        IsolateTaskExecutor.wildcardImportFromFile(main_file_path)
+        func, input_name = pickle.load(open(f"{name}.tmp.in", "rb"))
+        out = IsolateTaskExecutor.runIsolateFunc(func, input_name)
+        pickle.dump(out, open(f"{name}.tmp.out", "wb"), pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def runIsolateInCommandLine() -> None:
+        """ same as runIsolateFunc but read sys.argv """
+        if sys.argv[1] == "-c":
+            main_file_path, name = sys.argv[2], sys.argv[3]
+        else:
+            main_file_path, name = sys.argv[1], sys.argv[2]
+        IsolateTaskExecutor.runIsolate(main_file_path, name)
+
+    def submitIsolateTask(self, name: str) -> subprocess.CompletedProcess:
         """ Define how to run the task in isolated python """
-        return runShell(f"{self.executor} {name}")
+        cmd = f"{self.executor} {name}"
+        return runShell(cmd)
 
     def submit(self, func: Callable, input_name: NamePath) -> str:
         """
@@ -75,12 +119,13 @@ class IsolateTaskExecutor(BaseTaskExecutor):
         * {name}.tmp.out
         """
         name = "job_" + str(input_name).replace("/", "_")
+        self._logger.info(f"Write {name}.tmp.in")
         # create tmp input parameters
         pickle.dump(
             (func, input_name), open(f"{name}.tmp.in", "wb"), pickle.HIGHEST_PROTOCOL
         )
         # submit/start each task
-        self.startIsolateTask(name)
+        self.submitIsolateTask(name)
         return f"{name}.tmp.out"
 
     def run_tasks(self, names: list[NamePath], func: Callable) -> list[NamePath | str]:
@@ -94,20 +139,23 @@ class IsolateTaskExecutor(BaseTaskExecutor):
         #     output_tmp_files.append(self.submit(func, name))
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             exes = [executor.submit(self.submit, func, name) for name in names]
+            self._logger.info(f"Submit {len(exes)} tasks")
             output_tmp_files = [exe.result() for exe in exes]
+            self._logger.info(f"{len(exes)} tasks done")
 
         # use xx.tmp.out to check if the task is done
         output_name = []
         for output_tmp_file in output_tmp_files:
             while not os.path.exists(output_tmp_file):
                 time.sleep(3)
+            self._logger.info(f"Load {output_tmp_file}")
             output_name.append(pickle.load(open(output_tmp_file, "rb")))
 
         # print and raise error if return Error
         has_error = False
         for i in output_name:
             if isinstance(output_name[-1], BaseException):
-                print("ERROR", output_name[-1])
+                self._logger.error(f"{output_name[-1]}")
                 has_error = True
         if has_error:
             raise ValueError("Some tasks have error")
@@ -121,7 +169,7 @@ class SlurmTaskExecutor(IsolateTaskExecutor):
         super().__init__(threads=1)
         self.template = open(template_file).read()
 
-    def startIsolateTask(self, name: str) -> subprocess.CompletedProcess:
+    def submitIsolateTask(self, name: str) -> subprocess.CompletedProcess:
         """
         Save the command into shell script(xx.tmp.sh).
 

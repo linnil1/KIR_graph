@@ -36,14 +36,15 @@ def bwa(input_name, index):
     output_name = input_name + suffix
     if Path(f"{output_name}.bam").exists():
         return output_name
+    return output_name
 
     # main
     f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
     if not os.path.exists(f1):
         f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
     runDocker("bwa",
-              f"bwa mem -t {threads} {index} -K 100000000 -p -v 3 "
-              f" {f1} {f2} -o {output_name}.sam")
+              f"bwa mem -t {threads} {index} -K 100000000 -v 3 "
+              f"{f1} {f2} -o {output_name}.sam")
     samtobam(output_name)
     return output_name
 
@@ -170,7 +171,7 @@ def linkHg38Bam(input_name: str, folder: str) -> str:
     return output_name + ".{}"
 
 
-def extractFromHg38(input_name):
+def extractFromHg38(input_name, ucsc=False):
     """ Extract hg38 """
     output_name = input_name + ".part.{}"
     output_all_name = input_name + ".part_merge"
@@ -178,9 +179,13 @@ def extractFromHg38(input_name):
         return output_all_name
 
     # samtools view -H /staging/biodata/lions/twbk/TWBR11002-01/WGS/GRCh38/BAM/GATKv2/NGS2_20150110G/NGS2_20150110G.hs38DH.dedup.postalt.sorted.bam | grep "SN:"| grep chr19 | awk '{print $2}' > hg38_chr19
-    regions = ["chr19:50000000"] \
-              + list(filter(None, map(lambda i: i.strip(), open("./hg38_chrun")))) \
-              + list(filter(None, map(lambda i: i.strip(), open("./hg38_chr19"))))
+    regions = ["chr19:50000000"]
+    if not ucsc:
+        regions += list(filter(None, map(lambda i: i.strip(), open("./hg38_chr19"))))
+        regions += list(filter(None, map(lambda i: i.strip(), open("./hg38_chrun"))))
+    else:
+        regions += list(filter(None, map(lambda i: i.strip(), open("./ucsc_chr19"))))
+        regions += list(filter(None, map(lambda i: i.strip(), open("./ucsc_chrun"))))
     regions_text = " ".join(regions)
     b1 = f"{output_name.format('mapped')}.bam"
     b2 = f"{output_name.format('bad_pair')}.bam"
@@ -444,10 +449,10 @@ NGS2_20150104E
     ngs_sample = list(filter(None, map(lambda i: i.strip(), ngs_sample.split("\n"))))
     print(ngs_sample)
     print(len(ngs_sample))
-    ngs_sample = ngs_sample[0:7]
+    ngs_sample = ngs_sample[0:14]
     ref = "hg38_ucsc"
 
-    threads = 7
+    threads = 14
     if ref == "hg38_ucsc":  # fastq -> ucsc bam
         index = compose([
             "index",
@@ -459,8 +464,8 @@ NGS2_20150104E
         samples = compose([samples, partial(bwa, index=str(index))])
 
     NameTask.default_executor = ConcurrentTaskExecutor()
-    NameTask.default_executor.threads = 7
-    threads = 3
+    NameTask.default_executor.threads = 14
+    threads = 7
 
     if ref in ["hg38", "hg19", "hg38_ucsc"]:
         # bam -> fastq
@@ -472,7 +477,7 @@ NGS2_20150104E
         print(samples)
         samples = compose([
             samples,
-            extractFromHg38 if ref == "hg38" else extractFromHg19,
+            extractFromHg19 if ref == "hg19" else partial(extractFromHg38, ucsc=ref=="hg38_ucsc"),
             # bam2fastqViaSamtools,
             bam2fastqWrap,
         ])

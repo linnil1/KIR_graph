@@ -2,12 +2,12 @@ import os
 from glob import glob
 from pathlib import Path
 import pandas as pd
-from namepipe import nt, NameTask, compose, ConcurrentTaskExecutor
+from namepipe import NameTask, compose, ConcurrentTaskExecutor
 from functools import partial
+from Bio import SeqIO
 
-from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
-from graphkir.kir_msa import buildKirMsa
 from graphkir import kir_msa
+from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
 from graphkir.hisat2 import hisatMap, extractVariantFromBam, readExons
 from graphkir.kir_cn import bam2Depth, filterDepth, loadCN, predictSamplesCN
 from graphkir.kir_typing import selectKirTypingModel
@@ -17,12 +17,9 @@ from graphkir.msa_leftalign import genemsaLeftAlign
 from graphkir.utils import (
     runShell,
     samtobam,
-)
-
-from kg_utils import (
     threads,
-    runDocker,
 )
+from kg_utils import runDocker
 from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 from kg_extract_exon_seq import (
@@ -81,35 +78,17 @@ def linkSamples(input_name, data_folder, new_name=None, fastq=True, fasta=False,
     return output_name
 
 
-def bowtie2BuildFull(input_name):
-    # No matter what index, this file will have the same sequences
-    name = input_name
-    assert "kir_2100_raw" in name
-    if ".mut01" in name:
-        name = name.replace(".mut01", "")
-    name += "_full"
-    if Path(name + ".1.bt2").exists():
-        return name
+def bowtie2Index(input_name):
+    output_name = input_name + ".bowtie2"
+    if Path(output_name + ".1.bt2").exists():
+        return output_name
     runDocker("bowtie",
-              f"bowtie2-build {input_name}_sequences.fa {name} --threads {threads}")
-    return name
-
-
-def bowtie2BuildConsensus(input_name="index/kir_2100_raw.mut01"):
-    # brute force (remove mut01)
-    name = input_name
-    if ".mut01" in name:
-        name = name.replace(".mut01", "")
-    name += "_cons"
-    if Path(name + ".1.bt2").exists():
-        return name
-    runDocker("bowtie",
-              f"bowtie2-build {input_name}_backbone.fa {name} --threads {threads}")
-    return name
+              f"bowtie2-build {input_name}.fa {output_name} --threads {threads}")
+    return output_name
 
 
 def bowtie2(input_name, index, use_arg="default"):
-    suffix = "." + index.replace("/", "_") + ".bowtie2"
+    suffix = "." + index.replace("/", "_")
     args = ""
     if use_arg == "ping":
         args = "  -5 0  -3 6  -N 0  --end-to-end  --score-min L,-2,-0.08  " + \
@@ -131,20 +110,16 @@ def bowtie2(input_name, index, use_arg="default"):
 
 def bwaIndex(input_name="index/kir_2100_raw.mut01"):
     # brute force (remove mut01)
-    name = input_name
-    if ".mut01" in name:
-        name = name.replace(".mut01", "")
-
-    name += "_cons_bwa"
-    if Path(name + ".bwt").exists():
-        return name
+    output_name = input_name + ".bwa"
+    if Path(output_name + ".bwt").exists():
+        return output_name
     runDocker("bwa",
-              f"bwa index {input_name}_backbone.fa -p {name}")
-    return name
+              f"bwa index {input_name}.fa -p {output_name}")
+    return output_name
 
 
 def bwa(input_name, index, use_arg="default"):
-    suffix = "." + index.replace("/", "_") + ".bwa"
+    suffix = "." + index.replace("/", "_")
     args = ""
     output_name = input_name + suffix
     if Path(f"{output_name}.bam").exists():
@@ -163,7 +138,7 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     output_name = f"{input_name}/kir_2100_{msa_type}"
     if len(glob(output_name + ".KIR*")):
         return output_name
-    buildKirMsa(msa_type, output_name, mergeMSA=mergeMSA)
+    kir_msa.buildKirMsa(msa_type, output_name, mergeMSA=mergeMSA)
     return output_name
 
 
@@ -172,11 +147,11 @@ def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
     output_name = exon_name + "_" + msa_type
 
     if not len(glob(exon_name + ".KIR*")):
-        buildKirMsa("ab", exon_name, full_length_only=False)
+        kir_msa.buildKirMsa("ab", exon_name, full_length_only=False)
 
     if len(glob(output_name + ".KIR*")):
         return output_name
-    buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name, mergeMSA=mergeMSA)
+    kir_msa.buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name, mergeMSA=mergeMSA)
     return output_name
 
 
@@ -218,10 +193,13 @@ def hisatMapWrap(input_name, index):
 
 
 def extractVariant(input_name, ref_index):
+    error_correction = False
     output_name = input_name + ".variant"
+    if not error_correction:
+        output_name += ".noerrcorr"
     if Path(output_name + ".json").exists():
         return output_name
-    extractVariantFromBam(ref_index, input_name + ".bam", output_name)
+    extractVariantFromBam(ref_index, input_name + ".bam", output_name, error_correction=error_correction)
     return output_name
 
 
@@ -282,11 +260,14 @@ def cnPredict(input_name):
 
 def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # setup
+    top_n = 300
     assert len(input_name.template_args) == 1
     id = input_name.template_args[0]
     cn_name = cn_input_name.output_name.template.format(id)
     output_name_template = cn_input_name.output_name + "." + allele_method
     output_name_template += ".compare_sum"
+    if top_n != 300:
+        output_name_template += f".top{top_n}"
     output_name = output_name_template.format(id)
 
     if Path(output_name + ".tsv").exists():
@@ -295,7 +276,7 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # if "02" != input_name.template_args[0]:
     #     return output_name_template
 
-    t = selectKirTypingModel(allele_method, input_name + ".json")
+    t = selectKirTypingModel(allele_method, input_name + ".json", top_n=top_n)
     cn = loadCN(cn_name + ".tsv")
     called_alleles = t.typing(cn)
     t.save(output_name + ".json")
@@ -359,7 +340,8 @@ def mergeMSA(genes: kir_msa.GenesMsa,
     """ Rewrite in graphkir/kir_msa.py """
     blocks = kir_msa.splitMsaToBlocks(genes)
     files = kir_msa.blockToFile(blocks, tmp_prefix=tmp_prefix)
-    files_name = list((tmp_prefix + ".{}" >> nt(realignBlock)(method=method)).output_name.get_input_names())
+    task = tmp_prefix + ".{}" >> NameTask(partial(realignBlock, method=method))
+    files_name = list(task.output_name.get_input_names())
     files = {i.template_args[-1]: i for i in files_name}
     # original method
     # files = kir_msa.realignBlock(files, method)
@@ -384,18 +366,52 @@ def addSuffix(input_name, suffix):
     return input_name + suffix
 
 
+def getMSABackbone(input_name):
+    output_name = input_name + ".backbone"
+    if Path(output_name + ".fa").exists():
+        return output_name
+
+    genes = kir_msa.readFromMSAs(str(input_name))
+    sequences = []
+    for gene, msa in genes.items():
+        ref_name = msa.get_reference()[0]
+        assert "BACKBONE" in ref_name
+        sequences.extend(
+            msa.select_allele([ref_name]).to_records(gap=False)
+        )
+    SeqIO.write(sequences, output_name + ".fa", "fasta")
+    return output_name
+
+
+def getMSAFullSequence(input_name):
+    output_name = input_name + ".full"
+    if Path(output_name + ".fa").exists():
+        return output_name
+
+    genes = kir_msa.readFromMSAs(str(input_name))
+    sequences = []
+    for gene, msa in genes.items():
+        ref_name = msa.get_reference()[0]
+        assert "BACKBONE" in ref_name
+        msa = msa.remove(ref_name)
+        sequences.extend(
+            msa.to_records(gap=False)
+        )
+    SeqIO.write(sequences, output_name + ".fa", "fasta")
+    return output_name
+
+
 if __name__ == "__main__":
-    NameTask.default_executor = ConcurrentTaskExecutor()
-    NameTask.default_executor.threads = 20
+    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
 
     data_folder = "data5"
-    index_folder = "index6"
+    index_folder = "index5"
     Path(data_folder).mkdir(exist_ok=True)
     Path(index_folder).mkdir(exist_ok=True)
-    extract_exon = True
+    extract_exon = False
 
-    answer_folder = "linnil1_syn_30x_seed87"
     answer_folder = "linnil1_syn_20x"
+    answer_folder = "linnil1_syn_30x_seed87"
     Path(answer_folder).mkdir(exist_ok=True)
 
     samples = compose([
@@ -412,7 +428,7 @@ if __name__ == "__main__":
             samples,
             partial(linkSamples, data_folder=new_answer_folder, fastq=False, sam=True, fasta=True),
         ])
-        bed = samples >> nt(calcExonToBed)
+        bed = samples >> calcExonToBed
         samples = compose([
             samples,
             samtobamWrap,
@@ -424,16 +440,16 @@ if __name__ == "__main__":
         runShell(f"ln -fs ../{answer_folder}/{answer_folder}_summary.csv {new_answer_folder}/{new_answer_folder}_summary.csv")
         answer_folder = new_answer_folder
 
-    samples = samples >> nt(linkSamples)(data_folder=data_folder)
+    samples = samples >> partial(linkSamples, data_folder=data_folder)
 
-    ref_index = compose([
+    msa_index = compose([
         index_folder,
         partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),
-        # nt(buildMsaWithCds).set_args("ab_2dl1s1")
+        # partial(buildMsaWithCds, msa_type="ab_2dl1s1"),
         leftAlignWrap,
-        msa2HisatReferenceWrap,
     ])
-    index = ref_index >> nt(buildHisatIndexWrap)
+    ref_index = msa_index >> msa2HisatReferenceWrap
+    index = ref_index >> buildHisatIndexWrap
     variant = compose([
         samples,
         partial(hisatMapWrap, index=str(index)),
@@ -445,22 +461,36 @@ if __name__ == "__main__":
         partial(addSuffix, suffix=".no_multi"),
         bam2DepthWrap,
         partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
-        nt(cnPredict)  # .set_depended(0),
+        NameTask(cnPredict)  # .set_depended(0),
     ])
     typing = compose([
         variant,
         partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),
-        nt(kirResult)(answer=answer_folder).set_depended(0),
+        NameTask(partial(kirResult, answer=answer_folder), depended_pos=[0]),
     ])
     # cn >> nt(plotCNWrap).set_depended(0)
 
     # bowtie mapping rate
+    """
+    backbone_index = compose([
+        msa_index,
+        getMSABackbone,
+        # getMSAFullSequence,
+    ])
+    mapping = compose([
+        samples,
+        partial(bowtie2, index=str(bowtie2_index)),
+    ])
+    bowtie2_index = backbone_index >> bowtie2Index
     # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
     # bowtie2_index = index >> "index/kir_2100_raw.mut01" >> bowtie2BuildFull >> "index/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
-    # mapping = samples >> bowtie2.set_args(index=str(bowtie2_index))
     # mapping = samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
 
     # bwa
-    # bwa_index = index >> bwaIndex  # "index/kir_2100_?_cons"
-    # mapping = samples >> bwa.set_args(index=str(bwa_index))
+    bwa_index = backbone_index >> bwaIndex
+    mapping = compose([
+        samples,
+        partial(bwa, index=str(bwa_index)),
+    ])
     runShell("stty echo opost")
+    """

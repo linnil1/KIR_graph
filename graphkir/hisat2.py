@@ -842,7 +842,7 @@ def saveReadsToBam(reads_data: ReadsAndVariantsData,
     samtobam(filename_prefix)
 
 
-def extractVariantFromBam(index: str, bam_file: str, output_prefix: str):
+def extractVariantFromBam(index: str, bam_file: str, output_prefix: str, error_correction: bool = True):
     """
     Extract reads and variants from bamfile
 
@@ -862,7 +862,10 @@ def extractVariantFromBam(index: str, bam_file: str, output_prefix: str):
     variants = getVariants(index)
     pair_reads = readPair(bam_file)
     pair_reads = filter(lambda lr: filterRead(lr[0]) and filterRead(lr[1]), pair_reads)
-    pileup = getPileupBaseRatio(bam_file)
+    if error_correction:
+        pileup = getPileupBaseRatio(bam_file)
+    else:
+        pileup = None
 
     # main
     reads_data = extractVariant(pair_reads, variants, pileup=pileup)

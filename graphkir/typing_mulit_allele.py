@@ -154,7 +154,8 @@ class AlleleTyping:
       id_to_allele (dict[int, str]): map the allele id to allele name
     """
 
-    def __init__(self, reads: list[PairRead], variants: list[Variant]):
+    def __init__(self, reads: list[PairRead], variants: list[Variant],
+                 top_n: int = 300, no_empty :bool = True):
         """
         Parameters:
           reads: The reads belonged to the gene
@@ -163,14 +164,18 @@ class AlleleTyping:
             The variant_id in each reads will map to the variant for
             getting related alleles.
         """
-        self.top_n = 300
+        self.top_n = top_n
 
         self.variants: dict[str, Variant] = {str(v.id): v for v in variants}
         allele_names = self.collectAlleleNames(variants)
         self.id_to_allele: dict[int, str] = dict(enumerate(sorted(allele_names)))
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
 
-        self.probs = self.reads2AlleleProb(self.removeEmptyReads(reads))
+        self._no_empty = no_empty
+        if self._no_empty:
+            reads = self.removeEmptyReads(reads)
+
+        self.probs = self.reads2AlleleProb(reads)
         self.log_probs = np.log10(self.probs)
 
         self.result: list[TypingResult] = []
@@ -218,7 +223,10 @@ class AlleleTyping:
                 *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.rnv],
             ]
             if not prob:
-                continue
+                if self._no_empty:
+                    continue
+                else:
+                    prob = [np.ones(len(self.allele_to_id)) * 0.999]
             probs.append(np.stack(prob).prod(axis=0))
         # probs = [i for i in probs if i is not None]
         return np.stack(probs)
@@ -249,7 +257,7 @@ class AlleleTyping:
         The boolean in the mask: 1 for unqiue allele set 0 for non-unique.
 
         Example:
-          * data [[0,1], [1,0], [2,0], [2, 2], [2,0], [1, 0]]
+          * data [[0,1], [1,0], [2,0], [2,2], [2,0], [1,0]]
           * return [1, 0, 1, 1, 0, 0]
         """
         s = set()
@@ -428,10 +436,13 @@ class AlleleTypingExonFirst(AlleleTyping):
             variant.allele = list(set(filter(None, [allele_map.get(v, "") for v in variant.allele])))
         return variants
 
-    def __init__(self, reads: list[PairRead], variants: list[Variant],
-                 exon_only: bool = False,
-                 candidate_set: str = "first_score",
-                 candidate_set_threshold: float = 1.1):
+    def __init__(self,
+        reads: list[PairRead], variants: list[Variant],
+        top_n: int = 300,
+        exon_only: bool = False,
+        candidate_set: str = "first_score",
+        candidate_set_threshold: float = 1.1,
+    ):
         """ Extracting exon alleles """
         # extract exon variants
         exon_variants = [v for v in variants if v.in_exon]
@@ -453,7 +464,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         pprint(self.allele_group)
 
         # same as before
-        super().__init__(exon_reads, exon_variants)
+        super().__init__(exon_reads, exon_variants, top_n=top_n)
         self.first_set_only = candidate_set == "first_score"
         if candidate_set == "same_score":
             self.candidate_set_max_score_ratio = 1.
@@ -464,7 +475,7 @@ class AlleleTypingExonFirst(AlleleTyping):
 
         if not exon_only:
             self.full_model: AlleleTyping | None = AlleleTyping(reads, variants)
-            self.full_model.top_n = 30  # TODO
+            self.full_model.top_n = self.top_n // 10  # TODO: default = 30
         else:
             self.full_model = None
 

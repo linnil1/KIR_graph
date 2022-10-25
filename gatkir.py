@@ -9,12 +9,8 @@ from scipy.signal import argrelextrema
 from collections import Counter
 
 from namepipe import nt, NameTask
-from kg_utils import (
-    runShell,
-    runDocker,
-    threads,
-    samtobam,
-)
+from graphkir.utils import runShell, threads, samtobam
+from kg_utils import runDocker
 from kg_eval import readAnswerAllele, compareCohort
 
 
