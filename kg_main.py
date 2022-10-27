@@ -19,6 +19,11 @@ from graphkir.utils import (
     samtobam,
     threads,
 )
+
+from vg import (
+    msa2vcf, buildVG, mapVG,
+    vgindex2VGTube, writeVGTubeSettings, startVGTube, setupVGTube
+)
 from kg_utils import runDocker
 from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
@@ -465,18 +470,50 @@ if __name__ == "__main__":
     ])
     typing = compose([
         variant,
-        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),
-        NameTask(partial(kirResult, answer=answer_folder), depended_pos=[0]),
+        partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv_exonfirst_1
     ])
+
+    typing >> partial(typingNovelWrap,
+        msa_name=msa_index.output_name,
+        variant_name=variant.output_name,
+    )
+
+    typing >> NameTask(partial(kirResult, answer_name=samples_ori.output_name), depended_pos=[0])
     # cn >> nt(plotCNWrap).set_depended(0)
 
-    # bowtie mapping rate
     """
+    # vg
+    vg_index = compose([
+        msa_index,
+        getMSABackbone,
+        back,
+        partial(addSuffix, suffix=".{}"),
+        msa2vcf,
+        NameTask(buildVG, depended_pos=[-1]),
+    ])
+    mapping = compose([
+        samples,
+        partial(mapVG, index=str(vg_index)),
+    ])
+
+    # visualize
+    tube_index = vg_index >> vgindex2VGTube
+    tube = compose([None, setupVGTube])
+    samples_vis = compose([
+        samples,
+        partial(mapVG, index=str(vg_index), output_type="gam"),
+        NameTask(partial(writeVGTubeSettings, index=str(tube_index), tube_path=str(tube)), depended_pos=[-1]),
+        NameTask(partial(startVGTube, tube_path=str(tube), port=8001), depended_pos=[-1]),
+    ])
+
+    # bowtie or bwa
     backbone_index = compose([
         msa_index,
         getMSABackbone,
         # getMSAFullSequence,
     ])
+
+    # bowtie
     mapping = compose([
         samples,
         partial(bowtie2, index=str(bowtie2_index)),
@@ -492,5 +529,5 @@ if __name__ == "__main__":
         samples,
         partial(bwa, index=str(bwa_index)),
     ])
-    runShell("stty echo opost")
     """
+    runShell("stty echo opost")
