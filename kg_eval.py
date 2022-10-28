@@ -166,6 +166,10 @@ def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
         * a_allele
         * b_allele
     """
+    # remove novel suffix ...
+    a_list = list(map(lambda i: i.split('-')[0], a_list))
+    b_list = list(map(lambda i: i.split('-')[0], b_list))
+
     # Find perfect match
     for allele in list(b_list):
         if allele in a_list:

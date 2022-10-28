@@ -26,7 +26,9 @@ from vg import (
 )
 from kg_utils import runDocker
 from kg_create_data import createSamplesAllele, createSamplesReads
+from kg_create_novel import addNovelFromMsaWrap, updateNovelAnswer
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
+from kg_typing_novel import typingNovel
 from kg_extract_exon_seq import (
     extractPairReadsOnceInBed,
     calcExonToBed,
@@ -37,20 +39,23 @@ from kg_extract_exon_seq import (
 def createSamplesWithAnswer(input_name, N=10):
     # 0 -> 1
     # "linnil1_syn_30x_seed87/linnil1_syn_30x_seed87"
-    name = input_name + "/" + input_name
+    seed = 44
+    name = input_name + "/" + input_name + f"_s{seed}"
     output_name = name + ".{}"
     if Path(f"{name}_summary.csv").exists():
         return output_name
-    createSamplesAllele(N, basename=name, seed=878)
+    createSamplesAllele(N, basename=name, seed=seed)
     return output_name
 
 
 def createSampleFastq(input_name, depth=30):
     # 1 -> 1
-    output_name = input_name + ".read"
-    if Path(f"{input_name}.sam").exists():
+    seed = 444
+    output_base = input_name + f".{depth}x_s{seed}"
+    output_name = output_base + ".read"
+    if Path(f"{output_base}.sam").exists():
         return output_name
-    createSamplesReads(input_name, depth=depth, seed=878)
+    createSamplesReads(input_name + ".fa", output_base, depth=depth, seed=seed)
     return output_name
 
 
@@ -295,21 +300,19 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     return output_name_template
 
 
-def kirResult(input_name, answer):
+def kirResult(input_name, answer_name):
     output_name = input_name.replace_wildcard("_merge")
+    answer_file = answer_name.get_input_names([-1])[0].replace_wildcard("_summary")
 
     mergeAllele(
         [name + ".tsv" for name in input_name.get_input_names()],
         output_name + ".tsv"
     )
-    if Path(f"{answer}/{answer}.summary.csv").exists():
-        answer = readAnswerAllele(f"{answer}/{answer}.summary.csv")
-    else:
-        answer = readAnswerAllele(f"{answer}/{answer}_summary.csv")
+    answer = readAnswerAllele(f"{answer_file}.csv")
     predit = readPredictResult(output_name + ".tsv")
     print(output_name + ".tsv")
-    # compareCohort(answer, predit, skip_empty=True)
-    compareCohort(answer, predit, skip_empty=True, plot=True)
+    compareCohort(answer, predit, skip_empty=True)
+    # compareCohort(answer, predit, skip_empty=True, plot=True)
     return output_name
 
 
@@ -357,10 +360,11 @@ def mergeMSA(genes: kir_msa.GenesMsa,
     return msa
 
 
-def samtobamWrap(input_name):
+def samtobamWrap(input_name, keep=False):
     if Path(f"{input_name}.bam").exists():
         return input_name
-    return samtobam(input_name)
+    samtobam(input_name, keep=keep)
+    return input_name
 
 
 def back(input_name):
@@ -406,46 +410,43 @@ def getMSAFullSequence(input_name):
     return output_name
 
 
+def linkAnswer(input_name, old_name):
+    # input: all to 1
+    # return 1 to 1
+    output_path = input_name.replace(".{}", "_summary")
+    answer_path = old_name.get_input_names([-1])[0].replace_wildcard("_summary")
+    if Path(output_path + ".csv").exists():
+        return input_name
+    relative = "../" * (len(Path(answer_path).parents) - 1)
+    runShell(f"ln -s {relative}{answer_path}.csv {output_path}.csv")
+    return input_name
+
+
+def typingNovelWrap(input_name, msa_name, variant_name):
+    output_name = input_name + ".novel"
+    if "00" not in input_name.template_args:
+        return output_name
+    # if Path(output_name + ".fa").exists():
+    #     return output_name
+    typingNovel(
+        variant_name=variant_name.replace("{}", input_name.template_args[-1]),
+        msa_name=msa_name.replace("{}", input_name.template_args[-1]),
+        result_name=input_name,
+        output_name=output_name,
+    )
+    return output_name
+
+
 if __name__ == "__main__":
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
-
     data_folder = "data5"
     index_folder = "index5"
     Path(data_folder).mkdir(exist_ok=True)
     Path(index_folder).mkdir(exist_ok=True)
     extract_exon = False
-
-    answer_folder = "linnil1_syn_20x"
-    answer_folder = "linnil1_syn_30x_seed87"
+    add_novel = True
+    answer_folder = "linnil1_syn"
     Path(answer_folder).mkdir(exist_ok=True)
-
-    samples = compose([
-        answer_folder,
-        partial(createSamplesWithAnswer, N=10),
-        partial(createSampleFastq, depth=20),
-        back,
-    ])
-
-    if extract_exon:
-        new_answer_folder = answer_folder + "_exon"
-        Path(new_answer_folder).mkdir(exist_ok=True)
-        samples = compose([
-            samples,
-            partial(linkSamples, data_folder=new_answer_folder, fastq=False, sam=True, fasta=True),
-        ])
-        bed = samples >> calcExonToBed
-        samples = compose([
-            samples,
-            samtobamWrap,
-            partial(extractPairReadsOnceInBed, bed_name=bed),
-            bam2fastq,
-            back,
-            partial(linkSamples, data_folder=new_answer_folder, new_name=new_answer_folder + ".{}"),
-        ])
-        runShell(f"ln -fs ../{answer_folder}/{answer_folder}_summary.csv {new_answer_folder}/{new_answer_folder}_summary.csv")
-        answer_folder = new_answer_folder
-
-    samples = samples >> partial(linkSamples, data_folder=data_folder)
 
     msa_index = compose([
         index_folder,
@@ -453,6 +454,44 @@ if __name__ == "__main__":
         # partial(buildMsaWithCds, msa_type="ab_2dl1s1"),
         leftAlignWrap,
     ])
+
+    samples = compose([
+        answer_folder,
+        partial(createSamplesWithAnswer, N=10),
+    ])
+
+    # novel
+    if add_novel:
+        # bed = samples >> calcExonToBed
+        samples = compose([
+            samples,
+            partial(addNovelFromMsaWrap, msa_name=str(msa_index)),
+            # partial(addNovelWrap, bed_name=bed.output_name),
+            NameTask(partial(updateNovelAnswer, old_name=samples.output_name), depended_pos=[-1]),
+        ])
+
+    samples = compose([
+        samples,
+        partial(createSampleFastq, depth=30),
+        back,
+        NameTask(partial(linkAnswer, old_name=samples.output_name), depended_pos=[-1]),
+    ])
+
+    if extract_exon:
+        bed = samples >> calcExonToBed
+        samples = compose([
+            samples,
+            partial(samtobamWrap, keep=True),
+            partial(extractPairReadsOnceInBed, bed_name=bed.output_name),
+            bam2fastq,
+            back,
+            partial(linkSamples, data_folder=answer_folder, new_name=Path(samples.output_name).name + "_exon"),
+            NameTask(partial(linkAnswer, old_name=samples.output_name), depended_pos=[-1]),
+        ])
+
+    samples_ori = samples
+    samples = samples >> partial(linkSamples, data_folder=data_folder)
+
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap
     variant = compose([

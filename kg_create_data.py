@@ -1,11 +1,11 @@
 import re
-import os
 import copy
 import random
 from pathlib import Path
 from collections import defaultdict
-import pandas as pd
+
 from Bio import SeqIO
+import pandas as pd
 from pyhlamsa import KIRmsa
 from kg_utils import runDocker, runShell
 
@@ -88,7 +88,7 @@ def randomSelectAlleles(haplo_df, gene_dict):
     return haplos, alleles
 
 
-def generateFastq(name, depth=50, fragment_length=400, seed=444):
+def generateFastq(input_fasta, output_name, depth=50, fragment_length=400, seed=444):
     """
     Use art_illumina to generate the fastq
 
@@ -103,7 +103,7 @@ def generateFastq(name, depth=50, fragment_length=400, seed=444):
     * -rs       randomseed
     * -sam      Output sam
     """
-    if not os.path.exists("art_illumina"):
+    if not Path("art_illumina").exists():
         # not exists -> download
         runShell("wget https://www.niehs.nih.gov/research/resources/assets/docs/artbinmountrainier2016.06.05linux64.tgz")
         runShell("tar xf artbinmountrainier2016.06.05linux64.tgz")
@@ -113,14 +113,14 @@ def generateFastq(name, depth=50, fragment_length=400, seed=444):
     runDocker("alpine", f"""\
         ./art_illumina \
         -ss HS25 \
-        -i {name}.fa \
+        -i {input_fasta} \
         -l 150 \
         -f {depth} \
         -m {fragment_length} \
         -s 10 \
         -sam -na\
         -rs {seed} \
-        -o {name}.read. \
+        -o {output_name}.read. \
     """)
 
 
@@ -169,10 +169,10 @@ def createSamplesAllele(N, basename, seed=44):
     summary.to_csv(f"{basename}_summary.csv", sep="\t", index=False)
 
 
-def createSamplesReads(name, depth=30, seed=44):
+def createSamplesReads(input_fasta, output_name, depth=30, seed=44):
     """ Random generate fastq in name.fa """
-    generateFastq(name, depth=depth, seed=seed)
-    rewriteSam(name + ".read..sam", name + ".sam")
+    generateFastq(input_fasta, output_name, depth=depth, seed=seed)
+    rewriteSam(output_name + ".read..sam", output_name + ".sam")
 
 
 if __name__ == "__main__":
@@ -187,4 +187,4 @@ if __name__ == "__main__":
     createSamplesAllele(N, basename, seed=444)
     for id in range(N):
         name = f"{basename}.{id:02d}"
-        createSamplesReads(name, depth=20, seed=444)
+        createSamplesReads(name + ".fa", name, depth=20, seed=444)

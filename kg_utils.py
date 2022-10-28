@@ -147,6 +147,7 @@ class IsolateTaskExecutor(BaseTaskExecutor):
         output_name = []
         for output_tmp_file in output_tmp_files:
             while not os.path.exists(output_tmp_file):
+                self._logger.info(f"Wait for {output_tmp_file}")
                 time.sleep(3)
             self._logger.info(f"Load {output_tmp_file}")
             output_name.append(pickle.load(open(output_tmp_file, "rb")))

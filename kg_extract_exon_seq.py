@@ -96,7 +96,7 @@ def calcExonToBed(reference_name, kir=None):
 
 def extractPairReadsOnceInBed(input_name, bed_name, kir=None):
     output_name = input_name + ".extract.reserve_pair"
-    bed_file = bed_name.output_name.format(input_name.template_args[0]) + ".bed"
+    bed_file = bed_name.format(input_name.template_args[0]) + ".bed"
     if Path(output_name + ".bam").exists():
         return output_name
     bam_bed = extractRegion(input_name, bed_file)

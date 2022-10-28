@@ -123,7 +123,7 @@ def applyNovelVariant(
     novel_variants: dict[str, dict[Variant, int]],
     msa: Genemsa,
     queryPileup: Callable,
-) -> tuple[bool, str]:
+) -> tuple[list[tuple[int, str, str]], str]:
     # sequences
     backbone_seq = msa.get_reference()[1]
     allele_seq_msa = msa.get(allele).replace("E", "")
@@ -144,7 +144,7 @@ def applyNovelVariant(
     # print("sum", np.sum(np.log10(probs), axis=0))
 
     # apply variant
-    is_novel = False
+    novel_variants_apply = []
     for stat, v_count in novel_variants.items():
         print(" ", stat)
         if not v_count:
@@ -197,11 +197,11 @@ def applyNovelVariant(
             assert base_ref != base_alt
             assert base_alt
             assert type(base_alt) is str
-            is_novel = True
+            novel_variants_apply.append((pos, base_ref, base_alt))
             allele_seq_msa = allele_seq_msa[:pos] + base_alt + allele_seq_msa[pos + 1 :]
             print("      After:   ", allele_seq_msa[pos - 5 : pos + 6])
-    print("  novel", is_novel)
-    return is_novel, allele_seq_msa
+    print("  novel count", len(novel_variants_apply))
+    return novel_variants_apply, allele_seq_msa
 
 
 def groupReadToBam(
@@ -237,16 +237,8 @@ def queryPileup(bamfile: AlignmentFile, ref: str, pos: int) -> dict[str, str]:
     return base
 
 
-def writeFasta(sequences: Iterable[tuple[str, str]], output_fasta: str) -> None:
-    SeqIO.write(
-        [SeqRecord(Seq(seq), id=id, description="") for id, seq in sequences],
-        output_fasta,
-        "fasta",
-    )
-
-
 def typingNovel(
-    input_name: str,
+    variant_name: str,
     msa_name: str,
     result_name: str,
     output_name: str,
@@ -259,8 +251,8 @@ def typingNovel(
     # predict_alleles = ["KIR2DL5A*00103", "KIR2DL5A*031"]
 
     # read json and bam
-    bamfile = AlignmentFile(input_name + suffix_bam + ".bam", "rb")
-    data = TypingWithPosNegAllele(input_name + ".json")
+    bamfile = AlignmentFile(variant_name + suffix_bam + ".bam", "rb")
+    data = TypingWithPosNegAllele(variant_name + ".json")
 
     assign_reads_all = {}
     allele_seqs = []
@@ -290,7 +282,7 @@ def typingNovel(
                 allele, reads, typ.variants, threshold=4
             )
             # fp/fn/novel variants -> seq
-            is_novel, seq = applyNovelVariant(
+            novel_variants_apply, seq = applyNovelVariant(
                 allele,
                 reads,
                 novel_variants,
@@ -299,19 +291,21 @@ def typingNovel(
             )
             # save seq
             allele_name = allele
-            if is_novel:
-                allele_name += "_new"
-            allele_seqs.append((allele_name, seq))
+            allele_seqs.append(SeqRecord(
+                Seq(seq),
+                id=allele_name + "".join(f"_{pos}{base_alt}" for pos, base_ref, base_alt in novel_variants_apply),
+                description=",".join(f"{allele_name}:{pos}{base_ref}>{base_alt}" for pos, base_ref, base_alt in novel_variants_apply),
+            ))
 
     groupReadToBam(
-        input_name + suffix_bam + ".bam", output_name + ".bam", assign_reads_all
+        variant_name + suffix_bam + ".bam", output_name + ".bam", assign_reads_all
     )
-    writeFasta(allele_seqs, output_name + ".fa")
+    SeqIO.write(allele_seqs, output_name + ".fa", "fasta")
 
 
 if __name__ == "__main__":
     ref_name = "index5/kir_2100_ab_2dl1s1.leftalign"
-    input_name = "data5/linnil1_syn_30x_seed87.02.index5_kir_2100_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr"
+    variant_name = "data5/linnil1_syn_30x_seed87.02.index5_kir_2100_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr"
     suffix_called_alleles = ".no_multi.depth.p75.CNgroup_assume3DL3.pv.compare_sum"
     output_name = "tmp"
-    typingNovel(input_name, ref_name, input_name + suffix_called_alleles, output_name)
+    typingNovel(variant_name, ref_name, variant_name + suffix_called_alleles, output_name)
