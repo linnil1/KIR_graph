@@ -66,6 +66,7 @@ def linkSamples(input_name, data_folder, new_name=None, fastq=True, fasta=False,
         name = Path(input_name.template).name
     else:
         name = new_name
+    Path(data_folder).mkdir(exist_ok=True)
     output_name = str(Path(data_folder) / name)
     new_name = output_name.format(input_name.template_args[0])
     relative = "../" * (len(Path(new_name).parents) - 1)
@@ -300,15 +301,24 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     return output_name_template
 
 
-def kirResult(input_name, answer_name):
+def getAnswerFile(sample_name: str) -> str:
+    # TODO: tempoary solution
+    from namepipe import NamePath
+    sample_name = NamePath(sample_name)
+    print(sample_name)
+    print(sample_name.get_input_names([-1]))
+    return sample_name.get_input_names([-1])[0].replace_wildcard("_summary") + ".csv"
+
+
+def kirResult(input_name, sample_name):
     output_name = input_name.replace_wildcard("_merge")
-    answer_file = answer_name.get_input_names([-1])[0].replace_wildcard("_summary")
+    answer_file = getAnswerFile(sample_name)
 
     mergeAllele(
         [name + ".tsv" for name in input_name.get_input_names()],
         output_name + ".tsv"
     )
-    answer = readAnswerAllele(f"{answer_file}.csv")
+    answer = readAnswerAllele(answer_file)
     predit = readPredictResult(output_name + ".tsv")
     print(output_name + ".tsv")
     compareCohort(answer, predit, skip_empty=True)
@@ -441,7 +451,6 @@ if __name__ == "__main__":
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
     data_folder = "data5"
     index_folder = "index5"
-    Path(data_folder).mkdir(exist_ok=True)
     Path(index_folder).mkdir(exist_ok=True)
     extract_exon = False
     add_novel = True
@@ -517,7 +526,7 @@ if __name__ == "__main__":
         variant_name=variant.output_name,
     )
 
-    typing >> NameTask(partial(kirResult, answer_name=samples_ori.output_name), depended_pos=[0])
+    typing >> NameTask(partial(kirResult, sample_name=samples_ori.output_name), depended_pos=[0])
     # cn >> nt(plotCNWrap).set_depended(0)
 
     """

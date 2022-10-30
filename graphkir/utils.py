@@ -22,13 +22,13 @@ images = {
 }
 
 
-def runDocker(image: str, cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedProcess:
+def runDocker(image: str, cmd: str, capture_output=False, cwd=None, opts="") -> subprocess.CompletedProcess:
     """ run docker container """
     image = images.get(image, image)
     name = str(uuid.uuid4()).split("-", 1)[0]
     # docker_path = "docker"
     proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
-                    f"-w /app -v $PWD:/app {image} {cmd}",
+                    f"-w /app -v $PWD:/app {opts} {image} {cmd}",
                     capture_output=capture_output, cwd=cwd)
     return proc
 

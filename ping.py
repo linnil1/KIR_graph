@@ -7,10 +7,10 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from namepipe import nt, compose
+from namepipe import compose, NameTask
 from graphkir.utils import runShell, threads
 from kg_utils import runDocker
-from kg_main import linkSamples
+from kg_main import linkSamples, getAnswerFile
 from kg_eval import readAnswerAllele, compareCohort
 
 
@@ -77,11 +77,11 @@ def saveThreshold(threshold_list, filename):
     return df
 
 
-def cutThresholdByAns(answer, sample_index):
+def cutThresholdByAns(answer_csv, sample_index):
     """ Find the threshold by answer """
     # read
     df_ping = readPingLocusCount(f"{sample_index}/locusRatioFrame.csv")
-    df_ans = readAns(f"{answer}/{answer}.summary.csv")
+    df_ans = readAns(answer_csv)
     """
        id method  KIR2DL1  KIR2DL2  KIR2DL4  KIR2DL5  
        0  00    ans      0.5      1.0      1.0      1.5
@@ -113,14 +113,14 @@ def cutThresholdByAns(answer, sample_index):
     return df, threshold_df
 
 
-def plotPing(input_name, answer):
+def plotPing(input_name, sample_name):
     folder = str(Path(input_name).parent)
     print(folder)
     from dash import Dash, dcc, html
     import plotly.express as px
 
     df_ping = readPingLocusCount(f"{folder}/locusRatioFrame.csv")
-    df_ans = readAns(f"{answer}/{answer}.summary.csv")
+    df_ans = readAns(getAnswerFile(sample_name))
     threshold_df = pd.read_csv(f"{folder}/manualCopyThresholds.csv")
     threshold_df.columns = ["gene", *threshold_df.columns[1:]]
     df = pd.concat([df_ping, df_ans])
@@ -164,18 +164,6 @@ def buildPing(input_name, folder):
     return folder
 
 
-def pingCopyFile(input_name):
-    # generate isolated fastq folder
-    name = Path(input_name).name
-    output_folder = f"{Path(input_name).parents[0]}/ping_{name.split('.')[0]}"
-    Path(output_folder).mkdir(exist_ok=True)
-    if Path(f"{output_folder}/{name}.read.1.fq").exists():
-        return output_folder
-    runShell(f"ln -s ../{name}.read.1.fq {output_folder}/{name}.read.1.fq")
-    runShell(f"ln -s ../{name}.read.2.fq {output_folder}/{name}.read.2.fq")
-    return output_folder
-
-
 def pingMain(index, folder_in, folder_out):
     runDocker("ping", f"Rscript PING_run.R", opts=f""" \
         -e INDEX={index} \
@@ -186,11 +174,11 @@ def pingMain(index, folder_in, folder_out):
     """)
 
 
-def ping(input_name, index, answer_name):
-    folder_in = input_name
-    folder_out = input_name + ".result"
-    if index != "PING":
-        folder_out += index.replace("/", "_")
+def ping(input_name, index, sample_name):
+    answer_file = getAnswerFile(sample_name)
+    folder_in = str(Path(input_name).parent)
+    folder_out = folder_in + ".result_"
+    folder_out += index.replace("/", "_")
 
     # first time will fail
     # but we'll get locusRatioFrame.csv
@@ -205,8 +193,8 @@ def ping(input_name, index, answer_name):
         assert os.path.exists(folder_out + "/locusRatioFrame.csv")
         # data2_linnil1_syn_30x_seed87/
         # -> linnil1_syn_30x_seed87
-        print(f"Set CN threshold fro PING", answer_name)
-        cutThresholdByAns(answer_name, folder_out)
+        print(f"Set CN threshold for PING", answer_file)
+        cutThresholdByAns(answer_file, folder_out)
 
     # This will success
     if not os.path.exists(folder_out + "/finalAlleleCalls.csv"):
@@ -214,9 +202,9 @@ def ping(input_name, index, answer_name):
     return folder_out + "/finalAlleleCalls"
 
 
-def pingResult(input_name, answer):
+def pingResult(input_name, sample_name):
     compareCohort(
-        readAnswerAllele(f"{answer}/{answer}.summary.csv"),
+        readAnswerAllele(getAnswerFile(sample_name)),
         readPingResult(f"{input_name}.csv"),
     )
     return input_name
@@ -249,20 +237,18 @@ def readPingResult(csv_file: str) -> dict[str, list[str]]:
 
 
 if __name__ == "__main__":
-    answer = "linnil1_syn_30x"
-    answer = "linnil1_syn_30x_seed87"
-    answer = "linnil1_syn_20x"
-    # answer += "_exon"
-    data_folder = "data3"
-    Path(data_folder).mkdir(exist_ok=True)
-    ping_index = None >> nt(buildPing).set_args("PING")
-    ping_index = None >> nt(buildPing).set_args("PING20220527")
+    samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
+    ping_folder = f"data5/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
+    ping_index = compose([
+        None,
+        # partial(buildPing, folder="PING"),
+        partial(buildPing, folder="PING20220527"),
+    ])
     ping_predict = compose([
-        f"{answer}/{answer}" + ".{}.read",
-        partial(linkSamples, data_folder=data_folder),
-        pingCopyFile,
-        partial(ping, index=str(ping_index), answer_name=answer),
-        partial(pingResult, answer=answer),
-        partial(plotPing, answer=answer),
+        samples,
+        partial(linkSamples,   data_folder=ping_folder),
+        NameTask(partial(ping, index=str(ping_index), sample_name=samples), depended_pos=[-1]),
+        partial(pingResult,    sample_name=samples),
+        partial(plotPing,      sample_name=samples),
     ])
     print(ping_predict)

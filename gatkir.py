@@ -1,37 +1,21 @@
 # the pipeline is modified from https://github.com/saorisakaue/KIR_project
 import os
 from pathlib import Path
+from functools import partial
+from collections import Counter
 import numpy as np
 import pandas as pd
-from sklearn.neighbors import KernelDensity
 import matplotlib.pyplot as plt
+from sklearn.neighbors import KernelDensity
 from scipy.signal import argrelextrema
-from collections import Counter
 
-from namepipe import nt, NameTask
-from graphkir.utils import runShell, threads, samtobam
+from namepipe import NameTask, compose, ConcurrentTaskExecutor
+from graphkir.utils import runShell, threads, samtobam, getGeneName
 from kg_utils import runDocker
 from kg_eval import readAnswerAllele, compareCohort
+from kg_main import linkSamples, getAnswerFile
 
 
-def getGeneName(s):
-    return s.split("*")[0]
-
-
-@nt
-def linkSamples(input_name, data_folder):
-    # 1 -> 1
-    name = input_name.split('/')[0]
-    output_name = os.path.join(data_folder, name + ".{}")
-    new_name = output_name.format(input_name.template_args[0])
-    if Path(new_name + ".read.1.fq").exists():
-        return output_name
-    runShell(f"ln -s ../{input_name}.1.fq {new_name}.read.1.fq")
-    runShell(f"ln -s ../{input_name}.2.fq {new_name}.read.2.fq")
-    return output_name
-
-
-@nt
 def setupGATKIR(input_name):
     folder = "gatkir"
     if Path(folder).exists():
@@ -42,7 +26,6 @@ def setupGATKIR(input_name):
     return folder
 
 
-@nt
 def bwa(input_name, index):
     id = input_name.template_args[0]
     output_name = input_name + ".bwa"
@@ -62,7 +45,6 @@ def bwa(input_name, index):
     return output_name
 
 
-@nt
 def addGroup(input_name):
     output_name = input_name + ".rg"
     id = input_name.template_args[0]
@@ -78,7 +60,6 @@ def addGroup(input_name):
     return output_name
 
 
-@nt
 def markDupliate(input_name):
     output_name = input_name + ".md"
     if Path(output_name + ".bam").exists():
@@ -96,7 +77,6 @@ def markDupliate(input_name):
     return output_name
 
 
-@nt
 def analysisTK(input_name, index):
     output_name = input_name + ".coverage"
     if Path(output_name + ".vcf").exists():
@@ -112,7 +92,6 @@ def analysisTK(input_name, index):
     return output_name
 
 
-@nt
 def getCoverage(input_name):
     output_name = input_name + ".depth_per_gene"
     if Path(output_name + ".csv").exists():
@@ -185,7 +164,6 @@ def getPloidy(cov, thres_dic):
     return copy
 
 
-@nt
 def ploidyEstimate(input_name):
     names = input_name.get_input_names()
     output_name = input_name.replace_wildcard("_merge_depth") + ".ploidy"
@@ -218,14 +196,14 @@ def ploidyEstimate(input_name):
     return output_name
 
 
-@nt
 def ploidyExploded(input_name, ploidy_name):
-    output_name = input_name + ".ploidy_" + ploidy_name.split('/')[-1].replace(".", "_") + ".{}"
+    id = input_name.template_args[-1]
+    output_name = input_name + ".ploidy_" + ploidy_name.format("same").split('/')[-1].replace(".", "_") + ".{}"
     if Path(output_name.format("KIR3DL3") + ".txt").exists():
         return output_name
 
-    ploidy = pd.read_csv(ploidy_name + ".csv", index_col=0)
-    sample_ploidy = ploidy[input_name.template_args[0]]
+    ploidy = pd.read_csv(ploidy_name.format(id) + ".csv", index_col=0)
+    sample_ploidy = ploidy[id]
     print(sample_ploidy)
 
     for gene, ploidy in sample_ploidy.iteritems():
@@ -239,7 +217,6 @@ def ploidyExploded(input_name, ploidy_name):
     return output_name
 
 
-@nt
 def haplotypeCaller(input_name, index):
     output_name = input_name + ".hc"
     ploidy = int(open(input_name + ".txt").read())
@@ -263,7 +240,6 @@ def haplotypeCaller(input_name, index):
     return output_name
 
 
-@nt
 def jointGenotype(input_name, index):
     output_name = input_name.replace_wildcard("_jg")
 
@@ -283,7 +259,6 @@ def jointGenotype(input_name, index):
     return output_name
 
 
-@nt
 def separteVCFSample(input_name, genotype):
     output_name = input_name + ".from_" + genotype.split('/')[-1].replace('.', "_")
     if Path(output_name + ".g.vcf.gz").exists():
@@ -295,7 +270,6 @@ def separteVCFSample(input_name, genotype):
     return output_name
 
 
-@nt
 def deepVariant(input_name, index):
     output_name = input_name + ".dv"
     if Path(output_name + ".g.vcf.gz").exists():
@@ -312,7 +286,6 @@ def deepVariant(input_name, index):
     return output_name
 
 
-@nt
 def vcfNorm(input_name, index):
     output_name = input_name + ".norm"
     if Path(output_name + ".g.vcf.gz").exists():
@@ -326,7 +299,6 @@ def vcfNorm(input_name, index):
     return output_name
 
 
-@nt
 def calling(input_name, index):
     output_name = input_name + ".call"
     if Path(output_name + ".KIR3DL3.alleles.tsv").exists():
@@ -359,7 +331,6 @@ def calling(input_name, index):
     return output_name + ".{}"
 
 
-@nt
 def mergeCall(input_name):
     files = [i + ".alleles.tsv" for i in input_name.get_input_names()]
     output_name = input_name.replace_wildcard("_merge")
@@ -390,8 +361,7 @@ def readGatkirAlleles(filename, select_all=False):
     return alleles
 
 
-@nt
-def mergeAlleles(input_name, answer, select_all=False):
+def mergeAlleles(input_name, sample_name, select_all=False):
     if select_all:
         output_name = input_name.replace_wildcard("_merge_called_full")
     else:
@@ -415,18 +385,17 @@ def mergeAlleles(input_name, answer, select_all=False):
     df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
     print(df)
 
-    ans = readAnswerAllele(f"{answer}/{answer}.summary.csv")
+    ans = readAnswerAllele(getAnswerFile(sample_name))
     compareCohort(ans, called_alleles_dict)
     return output_name
 
 
-@nt
-def answerPloidy(folder_name, answer):
-    output_name = f"{folder_name}/{answer}_answer_cn"
+def createAnswerPloidy(input_name, sample_name):
+    output_name = input_name + ".answer_cn"
     if Path(output_name + ".csv").exists():
         return output_name
 
-    ans = readAnswerAllele(f"{answer}/{answer}.summary.csv")
+    ans = readAnswerAllele(getAnswerFile(sample_name))
     ids = []
     dfs = []
     def renameGene(i):
@@ -536,30 +505,47 @@ if __name__ == "__main__":
     # testThreshold()
     # testShowIdea()
     # exit()
-    data_folder = "data3"
-    answer = "linnil1_syn_30x_seed87"
-    Path(data_folder).mkdir(exist_ok=True)
-    index = None >> setupGATKIR
-    samples = answer + "/" + answer + ".{}.read" >> linkSamples.set_args(data_folder)
-    mapping = samples >> bwa.set_args(index=index) \
-                      >> addGroup \
-                      >> markDupliate
-    # switch this
-    ploidy = mapping >> analysisTK.set_args(index=index) \
-                     >> getCoverage \
-                     >> ploidyEstimate.set_depended(-1)
-    ploidy = data_folder >> answerPloidy.set_args(answer=answer)
+    samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
+    data_folder = "data6"
+    index = compose([None, setupGATKIR])
+    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
+    mapping = compose([
+        samples,
+        partial(linkSamples, data_folder=data_folder),
+        partial(bwa, index=index),
+        addGroup,
+        markDupliate,
+    ])
 
-    genotype_joint = mapping >> ploidyExploded.set_args(ploidy_name=str(ploidy)) >> \
-                                haplotypeCaller.set_args(index=index) >> \
-                                jointGenotype.set_args(index=index).set_depended([0, 1])
-    gatk = mapping >> separteVCFSample.set_args(genotype=str(genotype_joint)) \
-                   >> vcfNorm.set_args(index=index)
-    gatk >> calling.set_args(index=index) \
-         >> mergeCall.set_depended(-1) \
-         >> mergeAlleles.set_args(answer=answer, select_all=True).set_depended(-1)
+    # switch this
+    ploidy = compose([
+        mapping,
+        partial(analysisTK, index=index),
+        getCoverage,
+        NameTask(ploidyEstimate, depended_pos=[-1]),
+    ])
+    ploidy = compose([
+        mapping,
+        partial(createAnswerPloidy, sample_name=samples),
+    ])
+
+    genotype_joint = compose([
+        mapping,
+        partial(ploidyExploded, ploidy_name=str(ploidy)),
+        partial(haplotypeCaller, index=index),
+        NameTask(partial(jointGenotype, index=index), depended_pos=[-1, -2]),
+    ])
+    gatk = compose([
+        mapping,
+        partial(separteVCFSample, genotype=str(genotype_joint)),
+        partial(vcfNorm, index=index),
+        partial(calling, index=index),
+        NameTask(mergeCall, depended_pos=[-1]),
+        NameTask(partial(mergeAlleles, sample_name=samples, select_all=True), depended_pos=[-1]),
+    ])
 
     # TODO
     # deep_variant = mapping >> deepVariant.set_args(index=index) \
     #                        >> vcfNorm.set_args(index=index)
     # How to use deep_variant in gatkir_call
+    runShell("stty echo opost")
