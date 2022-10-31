@@ -11,9 +11,8 @@ from scipy.signal import argrelextrema
 
 from namepipe import NameTask, compose, ConcurrentTaskExecutor
 from graphkir.utils import runShell, threads, samtobam, getGeneName
-from kg_utils import runDocker
+from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
 from kg_eval import readAnswerAllele, compareCohort
-from kg_main import linkSamples, getAnswerFile
 
 
 def setupGATKIR(input_name):
@@ -361,7 +360,7 @@ def readGatkirAlleles(filename, select_all=False):
     return alleles
 
 
-def mergeAlleles(input_name, sample_name, select_all=False):
+def mergeAlleles(input_name, select_all=False):
     if select_all:
         output_name = input_name.replace_wildcard("_merge_called_full")
     else:
@@ -384,9 +383,6 @@ def mergeAlleles(input_name, sample_name, select_all=False):
     df = pd.DataFrame(predict_list)
     df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
     print(df)
-
-    ans = readAnswerAllele(getAnswerFile(sample_name))
-    compareCohort(ans, called_alleles_dict)
     return output_name
 
 
@@ -541,7 +537,8 @@ if __name__ == "__main__":
         partial(vcfNorm, index=index),
         partial(calling, index=index),
         NameTask(mergeCall, depended_pos=[-1]),
-        NameTask(partial(mergeAlleles, sample_name=samples, select_all=True), depended_pos=[-1]),
+        NameTask(partial(mergeAlleles, select_all=True), depended_pos=[-1]),
+        partial(compareResult, sample_name=samples),
     ])
 
     # TODO

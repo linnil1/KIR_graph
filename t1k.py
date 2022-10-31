@@ -4,9 +4,8 @@ import pandas as pd
 
 from namepipe import compose, NameTask, ConcurrentTaskExecutor
 from graphkir.utils import runShell, threads
-from kg_utils import runDocker
-from kg_eval import compareCohort, readPredictResult, readAnswerAllele
-from kg_main import linkSamples, getAnswerFile
+from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
+from kg_eval import saveCohortAllele
 
 
 def downloadT1k(input_name):
@@ -79,28 +78,8 @@ def mergeT1kResult(input_name):
         id = name.template_args[0]
         called_alleles_dict[id] = alleles
 
-    predict_list = []
-    for id, alleles in called_alleles_dict.items():
-        predict_list.append(
-            {
-                "id": id,
-                "alleles": "_".join(alleles),
-                "name": input_name.format(id),
-            }
-        )
-    df = pd.DataFrame(predict_list)
-    df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-    print(df)
+    saveCohortAllele(called_alleles_dict, f"{output_name}.tsv")
     return output_name
-
-
-def compareT1kResult(input_name, sample_name):
-    answer_file = getAnswerFile(sample_name)
-    answer = readAnswerAllele(answer_file)
-    predit = readPredictResult(input_name + ".tsv")
-    print(input_name + ".tsv")
-    compareCohort(answer, predit, skip_empty=True)
-    return input_name
 
 
 if __name__ == "__main__":
@@ -110,9 +89,9 @@ if __name__ == "__main__":
     data_folder = "data5"
 
     compose([
-            samples,
-            partial(linkSamples, data_folder=data_folder),
-            partial(runT1k, index=str(index_t1k)),
-            NameTask(mergeT1kResult, depended_pos=[-1]),
-            partial(compareT1kResult, sample_name=samples),
+        samples,
+        partial(linkSamples, data_folder=data_folder),
+        partial(runT1k, index=str(index_t1k)),
+        NameTask(mergeT1kResult, depended_pos=[-1]),
+        partial(compareResult, sample_name=samples),
     ])

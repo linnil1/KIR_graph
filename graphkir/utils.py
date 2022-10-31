@@ -74,4 +74,6 @@ def limitAlleleField(allele: str, resolution: int = 7) -> str:
 
 def getAlleleField(allele: str, resolution: int = 7) -> str:
     """ KIR3DP1*0010101 with resolution 5 -> 00101 """
+    if "*" not in allele:
+        return ""
     return allele.split("*")[1][:resolution]

@@ -63,6 +63,21 @@ def readAnswerAllele(summary_tsv: str) -> CohortAlleles:
     return {i.id: sorted(i.alleles.split("_")) for i in data.itertuples()}
 
 
+def saveCohortAllele(data: CohortAlleles, summary_tsv: str) -> None:
+    """ Read answer allele """
+    predict_list = []
+    for id, alleles in data.items():
+        predict_list.append(
+            {
+                "id": id,
+                "alleles": "_".join(alleles),
+                "name": "." + str(id) + ".",
+            }
+        )
+    df = pd.DataFrame(predict_list)
+    df.to_csv(summary_tsv, index=False, sep="\t")
+
+
 def extractID(name: str) -> str:
     """
     Extract the sample id from filename
@@ -78,8 +93,8 @@ def readPredictResult(tsv_file: str,
                       extract_func: Callable[[str], str] = extractID
                       ) -> CohortAlleles:
     """ Read predict alleles (same format as summary.csv) """
-    data = pd.read_csv(tsv_file, sep='\t')
-    return {extract_func(i.name): sorted(i.alleles.split("_"))
+    data = pd.read_csv(tsv_file, sep='\t', dtype=str)
+    return {extract_func(i.name): (sorted(i.alleles.split("_")) if type(i.alleles) is str else [])
                 for i in data.itertuples()}
 
 

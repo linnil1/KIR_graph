@@ -12,11 +12,13 @@ from typing import Callable, Any
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from namepipe import BaseTaskExecutor, NamePath
+from namepipe import BaseTaskExecutor, NamePath, StandaloneTaskExecutor
 from graphkir.utils import (
     runShell,
     runDocker as runDockerGK,
 )
+from kg_eval import compareCohort, readPredictResult, readAnswerAllele
+
 
 images = {
     'samtools': "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
@@ -57,120 +59,14 @@ def runSingularity(
     )
 
 
-class IsolateTaskExecutor(BaseTaskExecutor):
-    """ Run the task in different process """
-
-    def __init__(self, threads: int = 100):
-        super().__init__()
-        self.executor = ('python -c "from kg_utils import IsolateTaskExecutor; '
-                         'IsolateTaskExecutor.runIsolateInCommandLine()" '
-                         f'{__main__.__file__}')
-        self.threads = threads
-
-    @staticmethod
-    def wildcardImportFromFile(path: str) -> None:
-        """ same as from main.py import * """
-        spec = importlib.util.spec_from_file_location("tmp", path)
-        assert spec
-        assert spec.loader
-        module = importlib.util.module_from_spec(spec)
-        assert module
-        spec.loader.exec_module(module)
-        for i in dir(module):
-            if not i.startswith("__"):
-                setattr(__main__, i, getattr(module, i))
-
-    @staticmethod
-    def runIsolateFunc(func: Callable, input_name: str) -> Any:
-        """ run the function """
-        try:
-            return func(input_name)
-        except BaseException as e:
-            print(e)
-            return BaseException(traceback.format_exc())
-
-    @staticmethod
-    def runIsolate(main_file_path: str, name: str) -> None:
-        """ read input, run the function and save the output """
-        IsolateTaskExecutor.wildcardImportFromFile(main_file_path)
-        func, input_name = pickle.load(open(f"{name}.tmp.in", "rb"))
-        out = IsolateTaskExecutor.runIsolateFunc(func, input_name)
-        pickle.dump(out, open(f"{name}.tmp.out", "wb"), pickle.HIGHEST_PROTOCOL)
-
-    @staticmethod
-    def runIsolateInCommandLine() -> None:
-        """ same as runIsolateFunc but read sys.argv """
-        if sys.argv[1] == "-c":
-            main_file_path, name = sys.argv[2], sys.argv[3]
-        else:
-            main_file_path, name = sys.argv[1], sys.argv[2]
-        IsolateTaskExecutor.runIsolate(main_file_path, name)
-
-    def submitIsolateTask(self, name: str) -> subprocess.CompletedProcess:
-        """ Define how to run the task in isolated python """
-        cmd = f"{self.executor} {name}"
-        return runShell(cmd)
-
-    def submit(self, func: Callable, input_name: NamePath) -> str:
-        """
-        Setup the data needed for isolate task.
-        * name
-        * {name}.tmp.in
-        * {name}.tmp.out
-        """
-        name = "job_" + str(input_name).replace("/", "_")
-        self._logger.info(f"Write {name}.tmp.in")
-        # create tmp input parameters
-        pickle.dump(
-            (func, input_name), open(f"{name}.tmp.in", "wb"), pickle.HIGHEST_PROTOCOL
-        )
-        # submit/start each task
-        self.submitIsolateTask(name)
-        return f"{name}.tmp.out"
-
-    def run_tasks(self, names: list[NamePath], func: Callable) -> list[NamePath | str]:
-        """
-        Run the isolated tasks in threads pool to avoid blocking.
-
-        If task preparion or task submittion fail, it'll immediatly fail.
-        Otherwise, it will raise error after all processes are done.
-        """
-        # for name in names:
-        #     output_tmp_files.append(self.submit(func, name))
-        with ThreadPoolExecutor(max_workers=self.threads) as executor:
-            exes = [executor.submit(self.submit, func, name) for name in names]
-            self._logger.info(f"Submit {len(exes)} tasks")
-            output_tmp_files = [exe.result() for exe in exes]
-            self._logger.info(f"{len(exes)} tasks done")
-
-        # use xx.tmp.out to check if the task is done
-        output_name = []
-        for output_tmp_file in output_tmp_files:
-            while not os.path.exists(output_tmp_file):
-                self._logger.info(f"Wait for {output_tmp_file}")
-                time.sleep(3)
-            self._logger.info(f"Load {output_tmp_file}")
-            output_name.append(pickle.load(open(output_tmp_file, "rb")))
-
-        # print and raise error if return Error
-        has_error = False
-        for i in output_name:
-            if isinstance(output_name[-1], BaseException):
-                self._logger.error(f"{output_name[-1]}")
-                has_error = True
-        if has_error:
-            raise ValueError("Some tasks have error")
-        return output_name
-
-
-class SlurmTaskExecutor(IsolateTaskExecutor):
+class SlurmTaskExecutor(StandaloneTaskExecutor):
     """ Run the task in SLURM """
 
     def __init__(self, template_file="taiwania.template"):
         super().__init__(threads=1)
         self.template = open(template_file).read()
 
-    def submitIsolateTask(self, name: str) -> subprocess.CompletedProcess:
+    def submit_standalone_task(self, name: str) -> subprocess.CompletedProcess:
         """
         Save the command into shell script(xx.tmp.sh).
 
@@ -179,6 +75,69 @@ class SlurmTaskExecutor(IsolateTaskExecutor):
         The return process is the process to submit job (<1s),
         so, it will not block when task is not finished.
         """
-        text = self.template.format(cmd=f"{self.executor} {name}", name=name)
-        open(f"{name}.tmp.sh", "w").write(text)
+        cmd = ["python", "-c",
+               "from namepipe import StandaloneTaskExecutor; "
+               "StandaloneTaskExecutor.run_standalone_task("
+               f"{repr(str(__main__.__file__))}, {repr(str(name))})"]
+
+        text = self.template.format(cmd=" ".join(cmd), name=name)
+        with open(f"{name}.tmp.sh", "w") as f:
+            f.write(text)
         return runShell(f"sbatch {name}.tmp.sh")
+
+
+def linkSamples(input_name, data_folder, new_name=None, fastq=True, fasta=False, sam=False):
+    # 1 -> 1
+    # only work for unix relative folder
+    if new_name is None:
+        name = Path(input_name.template).name
+    else:
+        name = new_name
+    Path(data_folder).mkdir(exist_ok=True)
+    output_name = str(Path(data_folder) / name)
+    new_name = output_name.format(input_name.template_args[0])
+    relative = "../" * (len(Path(new_name).parents) - 1)
+    if fastq:
+        if Path(new_name + ".read.1.fq").exists():
+            return output_name
+        runShell(f"ln -s {relative}{input_name}.read.1.fq {new_name}.read.1.fq")  # add .read is for previous naming
+        runShell(f"ln -s {relative}{input_name}.read.2.fq {new_name}.read.2.fq")
+    if fasta:
+        if Path(new_name + ".fa").exists():
+            return output_name
+        runShell(f"ln -s {relative}{input_name}.fa {new_name}.fa")
+    if sam:
+        if Path(new_name + ".sam").exists():
+            return output_name
+        if Path(f"{input_name}.read..sam").exists():
+            runShell(f"ln -s {relative}{input_name}.read..sam {new_name}.sam")
+        else:
+            runShell(f"ln -s {relative}{input_name}.sam {new_name}.sam")
+    return output_name
+
+
+def getAnswerFile(sample_name: str) -> str:
+    """ The answer of cohort xxx.{}.oo is located at xxx_summary.oo.csv """
+    # TODO: tempoary solution
+    sample_name = NamePath(sample_name)
+    return sample_name.replace_wildcard("_summary") + ".csv"
+
+
+def compareResult(input_name, sample_name):
+    print(input_name + ".tsv")
+    print(readPredictResult(input_name + ".tsv"))
+    compareCohort(
+        readAnswerAllele(getAnswerFile(sample_name)),
+        readPredictResult(input_name + ".tsv"),
+        skip_empty=True,
+    )
+    # compareCohort(answer, predit, skip_empty=True, plot=True)
+    return input_name
+
+
+def addSuffix(input_name, suffix):
+    return input_name + suffix
+
+
+def back(input_name):
+    return str(Path(input_name.template).with_suffix(""))

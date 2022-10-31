@@ -24,10 +24,11 @@ from vg import (
     msa2vcf, buildVG, mapVG,
     vgindex2VGTube, writeVGTubeSettings, startVGTube, setupVGTube
 )
-from kg_utils import runDocker
+from kg_utils import (
+    runDocker, compareResult, linkSamples, getAnswerFile, addSuffix, back
+)
 from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_create_novel import addNovelFromMsaWrap, updateNovelAnswer
-from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 from kg_typing_novel import typingNovel
 from kg_extract_exon_seq import (
     extractPairReadsOnceInBed,
@@ -56,36 +57,6 @@ def createSampleFastq(input_name, depth=30):
     if Path(f"{output_base}.sam").exists():
         return output_name
     createSamplesReads(input_name + ".fa", output_base, depth=depth, seed=seed)
-    return output_name
-
-
-def linkSamples(input_name, data_folder, new_name=None, fastq=True, fasta=False, sam=False):
-    # 1 -> 1
-    # only work for unix relative folder
-    if new_name is None:
-        name = Path(input_name.template).name
-    else:
-        name = new_name
-    Path(data_folder).mkdir(exist_ok=True)
-    output_name = str(Path(data_folder) / name)
-    new_name = output_name.format(input_name.template_args[0])
-    relative = "../" * (len(Path(new_name).parents) - 1)
-    if fastq:
-        if Path(new_name + ".read.1.fq").exists():
-            return output_name
-        runShell(f"ln -s {relative}{input_name}.read.1.fq {new_name}.read.1.fq")  # add .read is for previous naming
-        runShell(f"ln -s {relative}{input_name}.read.2.fq {new_name}.read.2.fq")
-    if fasta:
-        if Path(new_name + ".fa").exists():
-            return output_name
-        runShell(f"ln -s {relative}{input_name}.fa {new_name}.fa")
-    if sam:
-        if Path(new_name + ".sam").exists():
-            return output_name
-        if Path(f"{input_name}.read..sam").exists():
-            runShell(f"ln -s {relative}{input_name}.read..sam {new_name}.sam")
-        else:
-            runShell(f"ln -s {relative}{input_name}.sam {new_name}.sam")
     return output_name
 
 
@@ -301,28 +272,12 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     return output_name_template
 
 
-def getAnswerFile(sample_name: str) -> str:
-    # TODO: tempoary solution
-    from namepipe import NamePath
-    sample_name = NamePath(sample_name)
-    print(sample_name)
-    print(sample_name.get_input_names([-1]))
-    return sample_name.get_input_names([-1])[0].replace_wildcard("_summary") + ".csv"
-
-
-def kirResult(input_name, sample_name):
+def mergeKirResult(input_name):
     output_name = input_name.replace_wildcard("_merge")
-    answer_file = getAnswerFile(sample_name)
-
     mergeAllele(
         [name + ".tsv" for name in input_name.get_input_names()],
         output_name + ".tsv"
     )
-    answer = readAnswerAllele(answer_file)
-    predit = readPredictResult(output_name + ".tsv")
-    print(output_name + ".tsv")
-    compareCohort(answer, predit, skip_empty=True)
-    # compareCohort(answer, predit, skip_empty=True, plot=True)
     return output_name
 
 
@@ -377,14 +332,6 @@ def samtobamWrap(input_name, keep=False):
     return input_name
 
 
-def back(input_name):
-    return str(Path(input_name.template).with_suffix(""))
-
-
-def addSuffix(input_name, suffix):
-    return input_name + suffix
-
-
 def getMSABackbone(input_name):
     output_name = input_name + ".backbone"
     if Path(output_name + ".fa").exists():
@@ -423,8 +370,8 @@ def getMSAFullSequence(input_name):
 def linkAnswer(input_name, old_name):
     # input: all to 1
     # return 1 to 1
-    output_path = input_name.replace(".{}", "_summary")
-    answer_path = old_name.get_input_names([-1])[0].replace_wildcard("_summary")
+    output_path = input_name.replace_wildcard("_summary")
+    answer_path = old_name.replace_wildcard("_summary")
     if Path(output_path + ".csv").exists():
         return input_name
     relative = "../" * (len(Path(answer_path).parents) - 1)
@@ -526,7 +473,11 @@ if __name__ == "__main__":
         variant_name=variant.output_name,
     )
 
-    typing >> NameTask(partial(kirResult, sample_name=samples_ori.output_name), depended_pos=[0])
+    compose([
+        typing,
+        NameTask(mergeKirResult, depended_pos=[0]),
+        partial(compareResult, sample_name=samples_ori.output_name),
+    ])
     # cn >> nt(plotCNWrap).set_depended(0)
 
     """

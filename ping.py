@@ -1,4 +1,3 @@
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -9,13 +8,12 @@ import pandas as pd
 
 from namepipe import compose, NameTask
 from graphkir.utils import runShell, threads
-from kg_utils import runDocker
-from kg_main import linkSamples, getAnswerFile
-from kg_eval import readAnswerAllele, compareCohort
+from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
+from kg_eval import readAnswerAllele, saveCohortAllele
 
 
 def extractID(name: str) -> str:
-    return re.findall(r"\.(\w+)\.read", name)[0]
+    return re.findall(r"\.(\d+)\.", name)[0]
 
 
 def readPingLocusCount(locus_csv: str) -> pd.DataFrame:
@@ -157,7 +155,7 @@ def plotPing(input_name, sample_name):
 
 
 def buildPing(input_name, folder):
-    if os.path.exists(folder):
+    if Path(folder).exists():
         return folder
     runShell(f"git clone https://github.com/wesleymarin/PING.git {folder}")
     runShell(f"docker build {folder} -t ping")
@@ -182,7 +180,7 @@ def ping(input_name, index, sample_name):
 
     # first time will fail
     # but we'll get locusRatioFrame.csv
-    if not os.path.exists(folder_out + "/locusRatioFrame.csv"):
+    if not Path(folder_out + "/locusRatioFrame.csv").exists():
         try:
             pingMain(index, folder_in, folder_out)
             # -e SHORTNAME_DELIM={threads}
@@ -190,24 +188,25 @@ def ping(input_name, index, sample_name):
             pass
 
         # Use answer and ratio to cut thresholds
-        assert os.path.exists(folder_out + "/locusRatioFrame.csv")
+        assert Path(folder_out + "/locusRatioFrame.csv").exists()
         # data2_linnil1_syn_30x_seed87/
         # -> linnil1_syn_30x_seed87
         print(f"Set CN threshold for PING", answer_file)
         cutThresholdByAns(answer_file, folder_out)
 
     # This will success
-    if not os.path.exists(folder_out + "/finalAlleleCalls.csv"):
+    if not Path(folder_out + "/finalAlleleCalls.csv").exists():
         pingMain(index, folder_in, folder_out)
     return folder_out + "/finalAlleleCalls"
 
 
-def pingResult(input_name, sample_name):
-    compareCohort(
-        readAnswerAllele(getAnswerFile(sample_name)),
-        readPingResult(f"{input_name}.csv"),
-    )
-    return input_name
+def reorganizeResult(input_name):
+    output_name = input_name + ".merge"
+    if Path(output_name + ".tsv").exists():
+        return output_name
+    data = readPingResult(f"{input_name}.csv")
+    saveCohortAllele(data, f"{output_name}.tsv")
+    return output_name
 
 
 def readPingResult(csv_file: str) -> dict[str, list[str]]:
@@ -233,6 +232,7 @@ def readPingResult(csv_file: str) -> dict[str, list[str]]:
         # alleles = [i for i in alleles if "unresolved" not in i]
         called_alleles[id] = alleles
         # print(id, alleles)
+    # print(called_alleles)
     return called_alleles
 
 
@@ -248,7 +248,8 @@ if __name__ == "__main__":
         samples,
         partial(linkSamples,   data_folder=ping_folder),
         NameTask(partial(ping, index=str(ping_index), sample_name=samples), depended_pos=[-1]),
-        partial(pingResult,    sample_name=samples),
+        reorganizeResult,
+        partial(compareResult, sample_name=samples),
         partial(plotPing,      sample_name=samples),
     ])
     print(ping_predict)
