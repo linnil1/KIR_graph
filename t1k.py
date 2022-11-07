@@ -1,5 +1,6 @@
 from pathlib import Path
 from functools import partial
+from itertools import chain
 import pandas as pd
 
 from namepipe import compose, NameTask, ConcurrentTaskExecutor
@@ -27,10 +28,11 @@ def downloadT1k(input_name):
     return folder
 
 
-def runT1k(input_name, index):
-    output_name = input_name + ".t1k"
+def runT1k(input_name, index, digits="7"):
+    output_name = input_name + f".t1k_{digits}"
     if Path(output_name + "._genotype.tsv").exists():
         return output_name
+    # relax = --relaxIntronAlign
     runDocker(
         "c4lab/t1k",
         f""" \
@@ -38,6 +40,7 @@ def runT1k(input_name, index):
       -1 {input_name}.read.1.fq \
       -2 {input_name}.read.2.fq \
       --preset kir-wgs -f {index}/kiridx/kiridx_dna_seq.fa \
+      --alleleDigitUnits {digits} \
       -t {threads} \
       -o {output_name}. \
     """,
@@ -70,11 +73,22 @@ def readT1kAllele(t1k_tsv: str) -> list[str]:
     return list(df["allele"])
 
 
-def mergeT1kResult(input_name):
+def mergeT1kResult(input_name, select="first"):
     output_name = input_name.replace_wildcard("_mergecall")
+    if select == "all":
+        output_name += "_all"
+    elif select == "first":
+        pass
+    else:
+        raise ValueError
+
     called_alleles_dict = {}
     for name in input_name.list_names():
         alleles = readT1kAllele(name + "._genotype.tsv")
+        if select == "first":
+            alleles = [i.split(",")[0] for i in alleles]
+        elif select == "all":
+            alleles = list(chain.from_iterable(i.split(",") for i in alleles))
         id = name.template_args[0]
         called_alleles_dict[id] = alleles
 
@@ -91,7 +105,8 @@ if __name__ == "__main__":
     compose([
         samples,
         partial(linkSamples, data_folder=data_folder),
-        partial(runT1k, index=str(index_t1k)),
-        NameTask(mergeT1kResult, depended_pos=[-1]),
+        partial(runT1k, index=str(index_t1k), digits=7),
+        NameTask(mergeT1kResult, func_kwargs=dict(select="all"), depended_pos=[-1]),
         partial(compareResult, sample_name=samples),
     ])
+    runShell("stty echo opost")

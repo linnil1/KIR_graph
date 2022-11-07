@@ -37,10 +37,9 @@ from kg_extract_exon_seq import (
 )
 
 
-def createSamplesWithAnswer(input_name, N=10):
+def createSamplesWithAnswer(input_name, N=10, seed=2022):
     # 0 -> 1
     # "linnil1_syn_30x_seed87/linnil1_syn_30x_seed87"
-    seed = 44
     name = input_name + "/" + input_name + f"_s{seed}"
     output_name = name + ".{}"
     if Path(f"{name}_summary.csv").exists():
@@ -49,13 +48,13 @@ def createSamplesWithAnswer(input_name, N=10):
     return output_name
 
 
-def createSampleFastq(input_name, depth=30):
+def createSampleFastq(input_name, depth=30, seed=1031):
     # 1 -> 1
-    seed = 444
     output_base = input_name + f".{depth}x_s{seed}"
     output_name = output_base + ".read"
     if Path(f"{output_base}.sam").exists():
         return output_name
+    seed += int(input_name.template_args[0])
     createSamplesReads(input_name + ".fa", output_base, depth=depth, seed=seed)
     return output_name
 
@@ -208,10 +207,14 @@ def filterDepthWrap(input_name, ref_index, exon=False):
 
 
 def cnPredict(input_name):
+    per_gene = False
     cn_cluster = "CNgroup"
     cn_select = "p75"
     assume_3DL3_diploid = True
     suffix_cn = f".{cn_select}.{cn_cluster}"
+    if per_gene:
+        assert ".{}." in input_name
+        suffix_cn += "_per_gene"
     if ".{}." not in input_name and assume_3DL3_diploid:
         suffix_cn += "_assume3DL3"
     if ".{}." in input_name:
@@ -219,6 +222,7 @@ def cnPredict(input_name):
     output_name = input_name + suffix_cn
 
     if ".{}." not in input_name:
+        # SELECT * FROM depths GROUP BY SAMPLE
         if Path(output_name + ".json").exists():
             return output_name
         predictSamplesCN([input_name  + ".tsv"],
@@ -228,11 +232,13 @@ def cnPredict(input_name):
                          assume_3DL3_diploid=assume_3DL3_diploid,
                          save_cn_model_path=output_name + ".json")
     else:  # cohort
+        # SELECT * FROM depths
         output_name1 = input_name.replace_wildcard("_merge_cn") + suffix_cn
         if Path(output_name1 + ".json").exists():
             return output_name
         predictSamplesCN([name             + ".tsv" for name in input_name.get_input_names()],
                          [name + suffix_cn + ".tsv" for name in input_name.get_input_names()],
+                         per_gene=per_gene,
                          cluster_method=cn_cluster,
                          select_mode=cn_select,
                          assume_3DL3_diploid=False,
@@ -398,12 +404,24 @@ if __name__ == "__main__":
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
     data_folder = "data5"
     index_folder = "index5"
-    Path(index_folder).mkdir(exist_ok=True)
     extract_exon = False
-    add_novel = True
+    add_novel = False
     answer_folder = "linnil1_syn"
-    Path(answer_folder).mkdir(exist_ok=True)
 
+    cohort = "10"
+    if cohort == "10":
+        N = 10
+        seed1 = 44
+        seed2 = 444
+        depth = 30
+    elif cohort == "100":
+        N = 100
+        seed1 = 2022
+        seed2 = 1031
+        depth = 30
+        data_folder = "data6"
+
+    Path(index_folder).mkdir(exist_ok=True)
     msa_index = compose([
         index_folder,
         partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),
@@ -411,9 +429,10 @@ if __name__ == "__main__":
         leftAlignWrap,
     ])
 
+    Path(answer_folder).mkdir(exist_ok=True)
     samples = compose([
         answer_folder,
-        partial(createSamplesWithAnswer, N=10),
+        partial(createSamplesWithAnswer, N=N, seed=seed1),
     ])
 
     # novel
@@ -428,7 +447,7 @@ if __name__ == "__main__":
 
     samples = compose([
         samples,
-        partial(createSampleFastq, depth=30),
+        partial(createSampleFastq, depth=depth, seed=seed2),
         back,
         NameTask(partial(linkAnswer, old_name=samples.output_name), depended_pos=[-1]),
     ])
@@ -461,17 +480,21 @@ if __name__ == "__main__":
         partial(addSuffix, suffix=".no_multi"),
         bam2DepthWrap,
         partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
-        NameTask(cnPredict)  # .set_depended(0),
+        NameTask(cnPredict).set_depended(-1),
     ])
+
     typing = compose([
         variant,
         partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv_exonfirst_1
     ])
 
-    typing >> partial(typingNovelWrap,
-        msa_name=msa_index.output_name,
-        variant_name=variant.output_name,
-    )
+    compose([
+        typing,
+        partial(typingNovelWrap,
+                msa_name=msa_index.output_name,
+                variant_name=variant.output_name,
+        ),
+    ])
 
     compose([
         typing,

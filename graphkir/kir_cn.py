@@ -1,11 +1,12 @@
 """
 Raw depths -> gene depths -> gene's CN
 """
+import json
 from itertools import chain
 import pandas as pd
 
 from .cn_model import CNgroup, KDEcut, Dist
-from .utils import runDocker
+from .utils import runDocker, NumpyEncoder
 
 
 def bam2Depth(file_bam: str, file_depth: str):
@@ -121,6 +122,7 @@ def predictSamplesCN(samples_depth_tsv: list[str],
                      save_cn_model_path: str | None = None,
                      assume_3DL3_diploid: bool = False,
                      select_mode: str = "p75",
+                     per_gene: bool = False,
                      cluster_method: str = "CNgroup",
                      ):
     """
@@ -138,14 +140,47 @@ def predictSamplesCN(samples_depth_tsv: list[str],
         aggrDepths(readSamtoolsDepth(depth_file), select_mode=select_mode)
         for depth_file in samples_depth_tsv
     ]
+    # TODO: If normalized needed, write here.
 
-    # depth per gene -> cn per gene
-    cns, model = depthToCN(sample_gene_depths,
-                           cluster_method=cluster_method,
-                           assume_3DL3_diploid=assume_3DL3_diploid)
+    if not per_gene:
+        # depth per gene -> cn per gene
+        cns, model = depthToCN(sample_gene_depths,
+                               cluster_method=cluster_method,
+                               assume_3DL3_diploid=assume_3DL3_diploid)
 
-    if save_cn_model_path:
-        model.save(save_cn_model_path)
+        if save_cn_model_path:
+            model.save(save_cn_model_path)
+    else:
+        # concat sample with id
+        for i, df in enumerate(sample_gene_depths):
+            df['gene_sampleid'] = df['gene'] + "-" + str(i)
+        depths = pd.concat(sample_gene_depths)
+
+        # save per gene cn
+        cns = [{} for _ in range(len(sample_gene_depths))]
+        cns_model = []
+        for gene in sorted(set(depths["gene"])):
+            # print(gene)
+            # extract same gene and use the fake name
+            # bcz depthToCN use name as key, it'll overwrite
+            gene_depths = depths[depths["gene"] == gene]
+            gene_depths["gene"] = gene_depths["gene_sampleid"]
+            gene_cns, gene_model = depthToCN([gene_depths],
+                                             cluster_method=cluster_method,
+                                             assume_3DL3_diploid=assume_3DL3_diploid)
+            # print(gene_cns)
+            # save back to per sample
+            cns_model.append((gene, gene_model))
+            for gene_and_id in gene_cns[0]:
+                i = int(gene_and_id.split("-")[1])
+                cns[i][gene] = gene_cns[0][gene_and_id]
+
+        if save_cn_model_path:
+            data = []
+            for gene, model in cns_model:
+                data.append(model.getParams())
+                data[-1]["gene"] = gene
+            json.dump(data, open(save_cn_model_path, "w"), cls=NumpyEncoder)
 
     # cn per gene -> save
     for filename, cn in zip(samples_cn, cns):

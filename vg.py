@@ -101,7 +101,7 @@ def writeVGTubeSettings(input_name, index, tube_path):
                 "xgFile": f"{index}.xg",
                 "gamFile": f"{name}.gam",
                 "dataPath": "mounted",
-                "region": "KIR3DL3*BACKBONE:1-1000",
+                "region": "KIR3DL3*BACKBONE:1000-2000",
                 "dataType": "built-in",
             } for name in input_name.get_input_names()],
         "vgPath": "",

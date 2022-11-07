@@ -18,8 +18,8 @@ from dash import Dash, dcc, html, Input, Output
 from pyhlamsa import msaio, Genemsa
 
 from graphkir.kir_msa import readFromMSAs, muscle
-from graphkir.utils import runShell, samtobam, getGeneName
-from kg_utils import threads, runDocker
+from graphkir.utils import runShell, samtobam, getGeneName, threads, getAlleleField
+from kg_utils import runDocker
 
 
 def calculate400bpReadMatchness(a1: str, a2: str) -> pd.DataFrame:
@@ -447,6 +447,8 @@ def plotAllelesLength(index: str) -> list[go.Figure]:
     lengths = []
     for gene, msa in sorted(kir.items()):
         for allele, seq in msa.alleles.items():
+            if "BACKBONE" in allele:
+                continue
             lengths.append({
                 'gene': gene,
                 'allele': allele,
@@ -458,9 +460,37 @@ def plotAllelesLength(index: str) -> list[go.Figure]:
     summary['mean'] = summary['mean'].apply(lambda i: "{:,.0f}".format(i))
     summary['std'] = summary['std'].apply(lambda i: "{:,.0f}".format(i))
     print(summary['mean'] + " ± " + summary['std'])
-    # for row in summary.itertuples():
-    #     print(row.Index, f"{row.mean}", row.std)
     return [px.box(lengths_df, x="gene", y="length", points="all")]
+
+
+def statsAlleleNum(index: str) -> list[go.Figure]:
+    """ plot all the length of allese in the dataset """
+    kir = readFromMSAs(index)
+    alleles = []
+    for gene, msa in sorted(kir.items()):
+        for allele, seq in msa.alleles.items():
+            if "BACKBONE" in allele:
+                continue
+            alleles.append({
+                'gene': gene,
+                'allele': allele,
+                'resolution': len(getAlleleField(allele, resolution=7)),
+            })
+
+    def resolutionCount(df: pd.DataFrame) -> pd.Series:
+        count = {
+            '>=3': sum(df["resolution"] >= 3),
+            '>=5': sum(df["resolution"] >= 5),
+            '>=7': sum(df["resolution"] >= 7),
+        }
+        return pd.Series(count)
+
+    allele_df = pd.DataFrame(alleles)
+    summary = allele_df.groupby("gene").apply(resolutionCount)
+    print(summary)
+    summary_plot = summary.stack().reset_index()
+    summary_plot.columns = ["gene", "resolution", "count"]
+    return [px.bar(summary_plot, x="gene", y="count", color="resolution", barmode="group")]
 
 
 def calcVariationWithoutGap(msa: Genemsa) -> list[int]:
@@ -624,8 +654,10 @@ if __name__ == "__main__":
     # figs.extend(plot400bpMatchness())  # deprecated
     # figs.extend(plotVariantPositions())
     # figs.extend(plotDissimilarity())
+    # figs.extend(plotNumOfVariants())
     # figs.extend(plotAllelesLength("index/kir_2100_ab.save"))
-    figs.extend(plotNumOfVariants())
+    figs.extend(statsAlleleNum("index5/kir_2100_split"))
+    figs.extend(statsAlleleNum("index5/kir_2100_withexon_split"))
 
     # dash
     app = Dash(__name__)

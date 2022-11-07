@@ -3,11 +3,11 @@ from typing import DefaultDict, Callable, Iterable
 from itertools import chain
 from functools import partial
 from collections import defaultdict, Counter
-from pysam import AlignmentFile
-import numpy as np
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+from pysam import AlignmentFile
+import numpy as np
 
 from pyhlamsa import msaio, Genemsa
 from graphkir.utils import samtobam

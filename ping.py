@@ -238,7 +238,8 @@ def readPingResult(csv_file: str) -> dict[str, list[str]]:
 
 if __name__ == "__main__":
     samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
-    ping_folder = f"data5/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
+    samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
+    ping_folder = f"data6/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
     ping_index = compose([
         None,
         # partial(buildPing, folder="PING"),

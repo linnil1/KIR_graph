@@ -75,10 +75,11 @@ class SlurmTaskExecutor(StandaloneTaskExecutor):
         The return process is the process to submit job (<1s),
         so, it will not block when task is not finished.
         """
-        cmd = ["python", "-c",
-               "from namepipe import StandaloneTaskExecutor; "
+        cmd = ["python", "<<", "EOF\n",
+               "from namepipe import StandaloneTaskExecutor\n",
                "StandaloneTaskExecutor.run_standalone_task("
-               f"{repr(str(__main__.__file__))}, {repr(str(name))})"]
+               f"{repr(str(__main__.__file__))}, {repr(str(name))})\n",
+               f"EOF\n"]
 
         text = self.template.format(cmd=" ".join(cmd), name=name)
         with open(f"{name}.tmp.sh", "w") as f:
@@ -130,8 +131,8 @@ def compareResult(input_name, sample_name):
         readAnswerAllele(getAnswerFile(sample_name)),
         readPredictResult(input_name + ".tsv"),
         skip_empty=True,
+        # plot=True,
     )
-    # compareCohort(answer, predit, skip_empty=True, plot=True)
     return input_name
 
 
