@@ -62,8 +62,12 @@ def runSingularity(
 class SlurmTaskExecutor(StandaloneTaskExecutor):
     """ Run the task in SLURM """
 
-    def __init__(self, template_file="taiwania.template"):
-        super().__init__(threads=1)
+    def __init__(
+        self,
+        template_file="taiwania.template",
+        filename_template="slurm_io/job_{time}_{input_name}",
+    ):
+        super().__init__(threads=1, filename_template=filename_template)
         self.template = open(template_file).read()
 
     def submit_standalone_task(self, name: str) -> subprocess.CompletedProcess:
@@ -75,19 +79,27 @@ class SlurmTaskExecutor(StandaloneTaskExecutor):
         The return process is the process to submit job (<1s),
         so, it will not block when task is not finished.
         """
-        cmd = ["python", "<<", "EOF\n",
-               "from namepipe import StandaloneTaskExecutor\n",
+        cmd = ["python << EOF",
+               "from namepipe import StandaloneTaskExecutor",
                "StandaloneTaskExecutor.run_standalone_task("
-               f"{repr(str(__main__.__file__))}, {repr(str(name))})\n",
-               f"EOF\n"]
+               f"{repr(str(__main__.__file__))}, {repr(str(name))})",
+               f"EOF"]
 
-        text = self.template.format(cmd=" ".join(cmd), name=name)
+        text = self.template.format(cmd="\n".join(cmd), name=name)
         with open(f"{name}.tmp.sh", "w") as f:
             f.write(text)
         return runShell(f"sbatch {name}.tmp.sh")
 
+    def cleanup_task(self, name: str):
+        """ remove script and log """
+        super().cleanup_task(name)
+        Path(f"{name}.tmp.sh").unlink()
+        # Path(f"{name}.std.log").unlink()
+        # Path(f"{name}.err.log").unlink()
 
-def linkSamples(input_name, data_folder, new_name=None, fastq=True, fasta=False, sam=False):
+
+def linkSamples(input_name, data_folder, new_name=None,
+                fastq=True, fasta=False, sam=False):
     # 1 -> 1
     # only work for unix relative folder
     if new_name is None:

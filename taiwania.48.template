@@ -1,9 +1,9 @@
 #!/usr/bin/bash
 #SBATCH -A MST109178
 #SBATCH -J {name}
-#SBATCH -p ngs7G
-#SBATCH -n 2
-#SBATCH --mem=7G
+#SBATCH -p ngs48G
+#SBATCH -n 14
+#SBATCH --mem=46G
 #SBATCH -o {name}.std.log
 #SBATCH -e {name}.err.log
 
