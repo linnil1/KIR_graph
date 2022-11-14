@@ -825,7 +825,7 @@ def saveSam(filename: str, header: str,  reads: Iterable[PairRead]):
 def saveReadsToBam(reads_data: ReadsAndVariantsData,
                    filename_prefix: str,
                    bam_file: str,
-                   filter_multi_mapped: bool = True):
+                   filter_multi_mapped: bool = False):
     """
     Save the reads into sam/bamfile (`{filename_prefix}.bam`)
 
@@ -875,7 +875,7 @@ def extractVariantFromBam(index: str, bam_file: str, output_prefix: str, error_c
     # save to another format
     saveReadsToBam(reads_data, output_prefix,               bam_file)
     saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file,
-                   filter_multi_mapped=False)
+                   filter_multi_mapped=True)
 
 
 def removeMultipleMapped(reads_data: ReadsAndVariantsData) -> ReadsAndVariantsData:

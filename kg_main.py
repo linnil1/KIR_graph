@@ -336,12 +336,12 @@ def typingNovelWrap(input_name, msa_name, variant_name):
 
 
 if __name__ == "__main__":
-    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
-    data_folder = "data5"
+    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=10))
     index_folder = "index5"
     extract_exon = False
     add_novel = False
     answer_folder = "linnil1_syn"
+    data_folder = "data6"
 
     cohort = "10"
     if cohort == "10":
@@ -356,7 +356,6 @@ if __name__ == "__main__":
         depth = 30
         data_folder = "data6"
 
-    Path(index_folder).mkdir(exist_ok=True)
     msa_index = compose([
         index_folder,
         partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),

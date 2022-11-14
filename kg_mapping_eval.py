@@ -430,13 +430,15 @@ def plotGenewiseMapping() -> list[go.Figure]:
     # sample_index = "data/linnil1_syn_wide.test10"
     answer = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031.read..sam"
     prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
+    answer = "linnil1_syn/linnil1_syn_s44.{}.30x_s444.read..sam"
+    prefix = "data6/linnil1_syn_s44.{}.30x_s444"
     filename = "tmp"
     # filename = f"{sample_index}.bam_stat_vg"
 
     cohort = [
         {"method": "answer",          "compare_gene": "",          "name": f"{answer}"},
-        {"method": "linear",          "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bowtie2.bam"},
-        {"method": "bwa",             "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bwa.bam"},
+        # {"method": "linear",          "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bowtie2.bam"},
+        # {"method": "bwa",             "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bwa.bam"},
         {"method": "hisat",           "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
         {"method": "hisat_ab",        "compare_gene": "ab",        "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
         {"method": "hisat_ab_2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
