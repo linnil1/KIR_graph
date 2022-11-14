@@ -9,9 +9,12 @@ from .cn_model import CNgroup, KDEcut, Dist
 from .utils import runDocker, NumpyEncoder
 
 
-def bam2Depth(file_bam: str, file_depth: str):
+def bam2Depth(file_bam: str, file_depth: str, get_all=True):
     """ Get read depth of all the position (via samtools depth) """
-    runDocker("samtools", f"samtools depth -a {file_bam} -o {file_depth}")
+    if get_all:
+        runDocker("samtools", f"samtools depth -a {file_bam} -o {file_depth}")
+    else:
+        runDocker("samtools", f"samtools depth    {file_bam} -o {file_depth}")
 
 
 def readSamtoolsDepth(depth_filename: str) -> pd.DataFrame:

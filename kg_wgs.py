@@ -89,7 +89,6 @@ def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
         b3 = f"{output_name.format('bad_pair')}.bam"
         runDocker("samtools", f"samtools view  -@ {threads} {input_name}.bam -F 1024 {main_regions} -o {b1}")
         runDocker("samtools", f"samtools view  -@ {threads} {input_name}.bam -F 1024 {other_region} -o {b2}")
-        # non proper pair but execlude depulicated
         runDocker("samtools", f"samtools view  -@ {threads} {input_name}.bam -F 1024 -F 2 -o {b3}")
         runDocker("samtools", f"samtools merge -@ {threads} -o {output_all_name}.sam {b1} {b2} {b3}")
         samtobam(output_all_name)

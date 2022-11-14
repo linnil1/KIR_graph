@@ -21,7 +21,7 @@ def plotCN(filename_json: str) -> list[go.Figure]:
 
 
 def plotGeneDepths(file_samtools_depths: str, title: str = "") -> list[go.Figure]:
-    """ Plot depth in gene """
+    """ Plot depth of each gene """
     df = readSamtoolsDepth(file_samtools_depths)
     df["gene"] = df["gene"].str.replace("*BACKBONE", "", regex=False)
     fig_line = px.line(df, x="pos", y="depth", color="gene",

@@ -221,16 +221,17 @@ def mergeKirResult(input_name):
     return output_name
 
 
-def plotCNWrap(input_name):
+def plotCNWrap(input_name, per_sample=False, show_depth=True):
     figs = []
 
     output_name = input_name.replace_wildcard("_merge_cn")
-    if Path(output_name + ".json").exists():
+    if not per_sample and Path(output_name + ".json").exists():
         figs.extend(plotCN(output_name + ".json"))
     else:
         for name in input_name.get_input_names():
             # hard-coded
-            figs.extend(plotGeneDepths(name[:name.find(".depth") + 6] + ".tsv", title=name))
+            if show_depth:
+                figs.extend(plotGeneDepths(name[:name.find(".depth") + 6] + ".tsv", title=name))
             figs.extend(plotCN(name + ".json"))
     showPlot(figs)
 
@@ -400,6 +401,20 @@ if __name__ == "__main__":
 
     samples_ori = samples
     samples = samples >> partial(linkSamples, data_folder=data_folder)
+
+    """
+    # check where the simulated reads map on hg19
+    genome_index = compose([
+        index_folder,
+        downloadHg19,
+        bwaIndex,
+    ])
+    compose([
+        samples,
+        partial(bwa, index=str(genome_index)),
+    ])
+    exit()
+    """
 
     ref_index = msa_index >> msa2HisatReferenceWrap
     index = ref_index >> buildHisatIndexWrap

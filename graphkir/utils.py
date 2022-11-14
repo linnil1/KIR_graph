@@ -12,7 +12,7 @@ import dataclasses
 import numpy as np
 
 
-threads = 20
+threads = 14
 docker_path = "podman"
 images = {
     'samtools': "quay.io/biocontainers/samtools:1.15.1--h1170115_0",

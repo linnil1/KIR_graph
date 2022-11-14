@@ -1,27 +1,50 @@
+from glob import glob
+from pathlib import Path
+from collections.abc import Iterable
+from typing import Iterator, DefaultDict, Any
+from collections import defaultdict
+from dataclasses import dataclass
+from itertools import chain
 import os
 import json
-from glob import glob
-from typing import Iterator, Iterable
-from itertools import chain
 
 import pysam
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, html
-from graphkir.plot import showPlot
-from kg_utils import runShell
 from plotly.subplots import make_subplots
 
+from namepipe import NamePath
+from graphkir.plot import showPlot
+from graphkir.utils import runShell
+from graphkir.kir_cn import bam2Depth, readSamtoolsDepth
 
-def extractCurrentAndPreviousPosition(
+
+@dataclass(order=True)
+class PositionInfo:
+    ref: str
+    pos: int
+    depth: int
+
+
+RegionPosition = tuple[str, list[PositionInfo]]
+
+
+def extractCurrentAndPreviousRealPosition(
     bam_file: str,
 ) -> Iterator[tuple[str, int, str, str]]:
-    """yield: reference_mapped_on, pos_mapped_on, previous_reference, previous_position"""
+    """
+    We extract the previous mapping info in read id
+    with the format defined in bam2fastq function.
+
+    The bamfile MUST derive from bam2fastq steps.
+
+    yield: reference_mapped_on, pos_mapped_on, previous_reference, previous_position
+    """
     for record in pysam.AlignmentFile(bam_file, "rb").fetch(until_eof=True):
         if not record.is_proper_pair:
             continue
-        # print(str(record))
         id = str(record.query_name)
         prev_mapped = id.split("|")[1:5]
         ref_name = str(record.reference_name)
@@ -32,131 +55,188 @@ def extractCurrentAndPreviousPosition(
             yield (ref_name, ref_pos, prev_mapped[2], prev_mapped[3])
 
 
+def extractCurrentAndPreviousSimuPosition(
+    bam_file: str,
+) -> Iterator[tuple[str, int, str, int]]:
+    """
+    We extract the previous mapping info in read id.
+    The read id will save the allele where the read generated from.
+    (by art_illumina).
+
+    previous_position is always 0 becuase the mapping position is stored in samfile not in id.
+
+    yield: previous_reference, previous_position, reference_mapped_on, pos_mapped_on
+    """
+    for record in pysam.AlignmentFile(bam_file, "rb").fetch(until_eof=True):
+        if not record.is_proper_pair:
+            continue
+        id = str(record.query_name)
+        prev_ref = str(record.query_name).split("*")[0]
+        ref_name = str(record.reference_name)
+        ref_pos = record.reference_start
+        yield (prev_ref, 0, ref_name, ref_pos)
+
+
 def removePrevUnmapped(df: pd.DataFrame) -> pd.DataFrame:
     """Print and Remove previous unmapped reads"""
     print("Total")
-    print(df)
+    print(len(df))
     print("Unmapped")
     print(df[df["prev_pos"] == "*"])
     df = df[df["prev_pos"] != "*"]
     return df
 
 
-def extractSignificantRegion(
-    df_gene: pd.DataFrame, significant_count: int = 20
-) -> Iterator[tuple[str, list[int]]]:
-    """
-    Remove outlier and split positions if they are too far away
+def positionsSummary(
+    positions: list[PositionInfo], depth_multiply: float = 1
+) -> dict[str, Any]:
+    """Summarize a list of depths and positions"""
+    left = min(map(lambda i: i.pos, positions))
+    right = max(map(lambda i: i.pos, positions))
+    total_depth = sum(map(lambda i: i.depth, positions))
+    length = right - left
+    return {
+        "ref": positions[0].ref,
+        "left": left,
+        "right": right,
+        "length": length,
+        "avg_depth": total_depth / length * depth_multiply,
+    }
 
-    Yield: reference_name, positions
-    """
-    max_span_size = 5000
-    for ref in sorted(set(df_gene["prev_ref"])):
-        df_gene_ref = df_gene[df_gene["prev_ref"] == ref]
-        x = sorted(list(df_gene_ref["prev_pos"]))
-        current: list[int] = []
-        for i in x:
+
+def extractSignificantRegion(
+    positions: Iterable[PositionInfo],
+    min_depth: float = 20,
+    min_length: int = 20,
+    max_gap: int = 5000,
+) -> Iterator[list[PositionInfo]]:
+    """ Find the continuous positions if the read depth is significant enough.  """
+    ref_pos_dict = defaultdict(list)
+    for pos_item in positions:
+        ref_pos_dict[pos_item.ref].append(pos_item)
+
+    for ref in ref_pos_dict:
+        pos_depths = sorted(ref_pos_dict[ref])
+        acc_positions: list[PositionInfo] = []
+        total_depth = 0
+        for pos_item in pos_depths:
             # extend
-            if not current or i - current[-1] < max_span_size:
-                current.append(i)
+            if not acc_positions or pos_item.pos - acc_positions[-1].pos < max_gap:
+                acc_positions.append(pos_item)
+                total_depth += pos_item.depth
                 continue
             # discard insignificant
-            if len(current) < significant_count:
+            left = min(map(lambda i: i.pos, acc_positions))
+            right = max(map(lambda i: i.pos, acc_positions))
+            if (
+                left == right
+                or right - left < min_length
+                or total_depth / (right - left) < min_depth
+            ):
+                acc_positions = []
+                total_depth = 0
                 continue
             # return
-            yield ref, current
-            current = []
-    # the last one
-    if len(current) >= significant_count:
-        yield ref, current
+            yield acc_positions
+            acc_positions = []
+            total_depth = 0
+
+        # the last one
+        if len(acc_positions):
+            left = min(map(lambda i: i.pos, acc_positions))
+            right = max(map(lambda i: i.pos, acc_positions))
+            if (
+                left == right
+                or right - left < min_length
+                or total_depth / (right - left) < min_depth
+            ):
+                acc_positions = []
+                total_depth = 0
+                continue
+            # return
+            yield acc_positions
 
 
-def plotAllHistogram(rps: Iterable[tuple[str, list[int]]]) -> go.Figure | None:
-    """Plot all mapping positions into one histogram"""
-    # generate histogram
-    figs_gene = []
-    for reference, positions in rps:
-        fig = go.Histogram(x=positions)
-        fig.xbins.size = 150
-        figs_gene.append((fig, reference))
-
-    # check
-    if not len(figs_gene):
-        return None
-
-    # plot on same row
-    fig_all = make_subplots(
-        rows=1, cols=len(figs_gene), shared_yaxes=True, horizontal_spacing=0.00
-    )
-    for i, (fig, ref) in enumerate(figs_gene):
-        fig_all.add_trace(fig, row=1, col=i + 1)
-        fig_all.update_xaxes(title_text=ref, row=1, col=i + 1)
-    return fig_all
+def extractPerReadMapping(cohort: str) -> Iterator[pd.DataFrame]:
+    """Extract mapping infomation in bam to dataframe"""
+    for input_name in NamePath(cohort).get_input_names():
+        reads = extractCurrentAndPreviousRealPosition(input_name + ".bam")
+        df = pd.DataFrame(reads, columns=["ref", "pos", "prev_ref", "prev_pos"])  # type: ignore
+        df = removePrevUnmapped(df)
+        df["prev_pos"] = df["prev_pos"].astype(int)
+        yield df
 
 
-def getPrevMappingSummary(df: pd.DataFrame) -> pd.DataFrame:
-    """print the previous mapping positions with current mapping positions"""
-    significant_count = 30
-    mapping_info = []
-    for gene in sorted(set(df["ref"])):
-        df_gene = df[df["ref"] == gene]
-        for reference, positions in extractSignificantRegion(
-            df_gene, significant_count=significant_count
-        ):
-            mapping_info.append(
-                {
-                    "gene": gene.split("*")[0],  # remove *BACKBONE
-                    "reference": reference,
-                    "pos_left": min(positions),
-                    "pos_right": max(positions),
-                    "pos_num": len(positions),
-                }
+def extractSignificantMappingRegion(
+    df_reads: Iterable[pd.DataFrame],
+) -> Iterator[RegionPosition]:
+    """ Group mapping infomation by gene and yield the significant regions from them """
+    # remove these three line to run individually
+    df_reads_list = list(df_reads)
+    df_reads = [pd.concat(df_reads_list)]  # merge all samples in cohort
+    N = len(df_reads_list)
+    for df in df_reads:
+        # N = 1
+        for gene in sorted(set(df["ref"])):
+            df_gene = df[df["ref"] == gene]
+            reads = map(
+                lambda i: PositionInfo(ref=i.prev_ref, pos=i.prev_pos, depth=1),
+                df_gene.itertuples(),
             )
-    df_mapping_info = pd.DataFrame(mapping_info)
-    print("Our mapping data")
-    print(df_mapping_info)
-    return df_mapping_info
+            region_pos_item = extractSignificantRegion(reads, min_depth=N * 5 / 150)
+            for pos_items in region_pos_item:
+                yield gene.split("*")[0], pos_items
 
 
-def extractMappingPosition(ref: str = "hg19"):
-    """Extract all position from all the bamfiles"""
-    if ref == "hg19":
-        bam_files = glob(
-            "data_twbb/hg19.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
+def printSignigicantRegion(
+    regions: Iterable[RegionPosition], depth_multiply: float = 1
+) -> pd.DataFrame:
+    """Print the summary of the significant region"""
+    mapping_info: list[dict[str, Any]] = []
+    for gene_mapped_on, positions in regions:
+        mapping_info.append(
+            {
+                **positionsSummary(positions, depth_multiply=depth_multiply),
+                "gene": gene_mapped_on,
+            }
         )
-    elif ref == "hg38":
-        bam_files = glob(
-            # "data_twbb/hg38.twbb.*.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
-            "data_twbb/twbb.*.index_hg38.ucsc.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.bam"
-        )
-    print(bam_files)
-    datas = []
-    for bam_file in bam_files:
-        datas.append(extractCurrentAndPreviousPosition(bam_file))
-    data = chain.from_iterable(datas)
-
-    # data part
-    df = pd.DataFrame(data, columns=["ref", "pos", "prev_ref", "prev_pos"])  # type: ignore
-    df = removePrevUnmapped(df)
-    df["prev_pos"] = df["prev_pos"].astype(int)
+    df = pd.DataFrame(mapping_info)
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
+        print(df)
+        if len(df[df["gene"] == "KIR3DL2"]) > 10:  # some reads always mapped on KIR3DL2
+            print(df[df["gene"] != "KIR3DL2"])
     return df
 
 
-def plotPrevMapping(df: pd.DataFrame) -> list[go.Figure]:
-    """Plot the previous mapping positions with current mapping positions"""
-    # plot part
-    significant_count = 30
-    figs = []
-    for gene in sorted(set(df["ref"])):
-        print(gene)
-        df_gene = df[df["ref"] == gene]
-        fig = plotAllHistogram(
-            extractSignificantRegion(df_gene, significant_count=significant_count)
-        )
-        if fig is None:
+def plotSignigicantRegion(regions: Iterable[RegionPosition]) -> list[go.Figure]:
+    """Plot the significant region"""
+    gene_regions = defaultdict(list)
+    for gene_mapped_on, positions in regions:
+        gene_regions[gene_mapped_on].append(positions)
+
+    figs: list[go.Figure] = []
+    for gene_mapped_on, gene_positions in gene_regions.items():
+        figs_gene = []
+        for positions in gene_positions:
+            fig = go.Histogram(x=list(map(lambda i: i.pos, positions)))
+            fig.xbins.size = 150
+            figs_gene.append((fig, positions[0].ref))
+
+        if not len(figs_gene):
             continue
-        fig.update_layout(title=gene)
-        figs.append(fig)
+        fig_merge = make_subplots(
+            rows=1, cols=len(figs_gene), shared_yaxes=True, horizontal_spacing=0.00
+        )
+        for i, (fig, ref) in enumerate(figs_gene):
+            fig_merge.add_trace(fig, row=1, col=i + 1)
+            fig_merge.update_xaxes(title_text=ref, row=1, col=i + 1)
+        fig_merge.update_layout(
+            title=gene_mapped_on,
+            showlegend=False,
+        )
+        figs.append(fig_merge)
+
+    # plot on same row
     return figs
 
 
@@ -265,18 +345,99 @@ def getUCSCKirGene(ref: str = "hg19") -> pd.DataFrame:
     df_gene_regions = (
         df[["gene", "seqname", "start", "end"]].sort_values("gene").drop_duplicates()
     )
-    df_gene_regions.columns = ["gene", "reference", "pos_left", "pos_right"]
+    df_gene_regions.columns = ["gene", "reference", "pos_left", "pos_right"]  # type: ignore
     print("UCSC KIR gene")
     print(df_gene_regions)
     return df_gene_regions
 
 
+def extractReadDepth(cohort: str) -> Iterator[pd.DataFrame]:
+    """Read depth of bam file from samtools depth"""
+    for input_name in NamePath(cohort).get_input_names():
+        output_name = input_name + ".depth"
+        if not Path(output_name + ".tsv").exists():
+            bam2Depth(input_name + ".bam", output_name + ".tsv", get_all=False)
+        df = readSamtoolsDepth(output_name + ".tsv")
+        yield df
+
+
+def extractSignificantDepthRegion(
+    df_depths: Iterable[pd.DataFrame],
+) -> Iterator[RegionPosition]:
+    """Find the significant region from depth file"""
+    df_depths = [pd.concat(df_depths)]
+    for df in df_depths:
+        df = df[df["depth"] > 5]
+        print(df)
+        depths = map(
+            lambda i: PositionInfo(ref=str(i.gene), pos=i.pos, depth=i.depth),
+            df.itertuples(),
+        )
+        for positions in extractSignificantRegion(depths):
+            yield "KIR", positions
+
+
+def extractSimulateMapping(cohort: str) -> Iterator[pd.DataFrame]:
+    """Transform simulated bamfile to dataframe"""
+    for input_name in NamePath(cohort).get_input_names():
+        reads = extractCurrentAndPreviousSimuPosition(input_name + ".bam")
+        df = pd.DataFrame(reads, columns=["ref", "pos", "prev_ref", "prev_pos"])  # type: ignore
+        yield df
+
+
+def evaluateSimulationReadMappingOnGenome(cohort: str) -> list[go.Figure]:
+    figs = []
+    # SELECT regions FROM ALL
+    dfs_depth = extractReadDepth(cohort)
+    regions = list(extractSignificantDepthRegion(dfs_depth))
+    printSignigicantRegion(regions)
+    figs.extend(plotSignigicantRegion(regions))
+
+    # SELECT regions FROM ALL GROUP BY GENE
+    dfs_read = extractSimulateMapping(cohort)
+    regions = list(extractSignificantMappingRegion(dfs_read))
+    printSignigicantRegion(regions, 150)
+    figs.extend(plotSignigicantRegion(regions))
+    return figs
+
+
+def evaluateRealMappingOnKIR(cohort: str) -> list[go.Figure]:
+    figs = []
+    # SELECT regions FROM ALL GROUP BY GENE
+    dfs_read = extractPerReadMapping(cohort)
+    regions = list(extractSignificantMappingRegion(dfs_read))
+    printSignigicantRegion(regions, 150)
+    figs.extend(plotSignigicantRegion(regions))
+    return figs
+
+
 if __name__ == "__main__":
+    figs: list[go.Figure] = []
+    # simulate dataset
+    cohort = "data6/linnil1_syn_s44.{}.30x_s444.index5_hs37d5.bwa"
+    # figs.extend(evaluateSimulationReadMappingOnGenome(cohort))
+
+    # real dataset
     ref = "hg19"
+    # data in dataset
     # getNCBIKirGene(ref)
-    # work with twbb1 bam2fastq data
-    df = extractMappingPosition(ref)
-    # print
-    getUCSCKirGene(ref)
-    getPrevMappingSummary(df)
-    showPlot(plotPrevMapping(df))
+    # getUCSCKirGene(ref)
+
+    # twbb 14 samples hg19 bam2fastq data
+    cohort = "data_real/hg19.twbb.{}.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # figs.extend(evaluateRealMappingOnKIR(cohort))
+
+    # twbb 14 samples hs37d5 bam2fastq data
+    cohort = "data_real/twbb.{}.index_hs37d5.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # figs.extend(evaluateRealMappingOnKIR(cohort))
+
+    # hprc 28 samples hs37d5 bam2fastq data
+    cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # figs.extend(evaluateRealMappingOnKIR(cohort))
+
+    # hprc 28 samples hs37d5 with very limited extracted reads
+    cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # figs.extend(evaluateRealMappingOnKIR(cohort))
+
+    # plot all figure
+    showPlot(figs)

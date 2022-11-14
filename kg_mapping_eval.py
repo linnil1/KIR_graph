@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+from pprint import pprint
 from typing import Iterator, Any, TypedDict, Callable, Iterable
 from itertools import chain
 from dataclasses import dataclass
@@ -13,8 +14,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
+from namepipe import NamePath
+from graphkir.kir_cn import readSamtoolsDepth
 from graphkir.hisat2 import loadReadsAndVariantsData
-from graphkir.utils import samtobam, getGeneName, getAlleleField
+from graphkir.utils import samtobam, getGeneName, getAlleleField, runShell
 from kg_utils import runDocker
 
 
@@ -77,8 +80,9 @@ def plotStat(df: pd.DataFrame) -> list[go.Figure]:
     df["ans_total"] = df.apply(lambda i: ans[i.id], axis=1)
     df["pair_perc"] = df["pair"] / df["ans_total"]
     df["secd_perc"] = df["secd"] / df["ans_total"]
-    display_columns = ["linear", "linear_ab", "linear_ab_2dl1s1", "linear_full",
-                       "hisat", "hisat_ab", "hisat_ab_2dl1s1", "hisat_merge"]
+    display_columns = sorted(set(df["method"]))
+    # display_columns = ["linear", "linear_ab", "linear_ab_2dl1s1", "linear_full",
+    #                    "hisat", "hisat_ab", "hisat_ab_2dl1s1", "hisat_merge"]
     df = df[df["method"].isin(display_columns)]
     fig0 = px.box(df, x="method",  y="pair_perc", title="Proper Paired Ratio",
                   labels={"pair_perc": "Primary paired reads / Total reads"},
@@ -91,59 +95,66 @@ def plotStat(df: pd.DataFrame) -> list[go.Figure]:
 
 def plotBamStat() -> list[go.Figure]:
     # sample_index = "data/linnil1_syn_wide.test10"
-    answer = "linnil1_syn_30x_seed87"
-    filename = f"data/{answer}.bam_stat"
+    answer = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031.read..sam"
+    prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
+    filename = "tmp"
     # filename = f"{sample_index}.bam_stat_vg"
+
+    cohort = [
+        {"method": "answer",           "name": f"{answer}"},
+        {"method": "linear",           "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bowtie2.bam"},
+        {"method": "bwa",              "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bwa.bam"},
+        {"method": "hisat",            "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
+        {"method": "hisat_ab",         "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
+        {"method": "hisat_ab_2dl1s1",  "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
+        # {"method": "linear_ab",                    "file": f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
+        # {"method": "linear_ab_2dl1s1",             "file": f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
+        # {"method": "linear_full",                  "file": f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
+        # {"method": "bwa_ab",                       "file": f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
+        # {"method": "bwa_ab_2dl1s1",                "file": f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
+        # {"method": "bwa_merge",                    "file": f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
+        # {"method": "hisat_merge",                  "file": f"{name}.index_kir_2100_merge.mut01.bam"},
+        # {"method": "hisat_merge_type",             "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_merge_type_nomulti",     "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_ab_type",                "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_ab_type_nomulti",        "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_ab_2dl1s1_type",         "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_ab_2dl1s1_type_nomulti", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_type",                   "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_type_nomulti",           "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
+        # {"method": "hisat_290-ab-2dl1s1",          "file": f"{name}.index_kir_290_2dl1s1.mut01.bam"},
+        # {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
+        # {"method": "vg_merge",                     "file": f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
+        # {"method": "ping_allele_setup",            "file": f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
+    ]
 
     if not os.path.exists(filename + ".json"):
         # Figure: Proper Paired Perecetage
         id = 0
         data: list[DfDict] = []
-        for id in range(10):
-            name = f"data/{answer}.{id:02d}"
-            dat: list[DfDict] = [
-                {"method": "answer",                       "file": f"{answer}/{answer}.{id:02d}.read..sam"},
-                {"method": "linear_ab",                    "file": f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
-                {"method": "linear",                       "file": f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
-                {"method": "linear_ab_2dl1s1",             "file": f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
-                {"method": "linear_full",                  "file": f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
-                {"method": "bwa_ab",                       "file": f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
-                {"method": "bwa_ab_2dl1s1",                "file": f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
-                {"method": "bwa",                          "file": f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
-                {"method": "bwa_merge",                    "file": f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
-                {"method": "hisat_merge",                  "file": f"{name}.index_kir_2100_merge.mut01.bam"},
-                {"method": "hisat_merge_type",             "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.bam"},
-                {"method": "hisat_merge_type_nomulti",     "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                {"method": "hisat_ab",                     "file": f"{name}.index_kir_2100_raw.mut01.bam"},
-                {"method": "hisat_ab_type",                "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
-                {"method": "hisat_ab_type_nomulti",        "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                {"method": "hisat_ab_2dl1s1",              "file": f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
-                {"method": "hisat_ab_2dl1s1_type",         "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
-                {"method": "hisat_ab_2dl1s1_type_nomulti", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                {"method": "hisat",                        "file": f"{name}.index_kir_2100_ab.mut01.bam"},
-                {"method": "hisat_type",                   "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
-                {"method": "hisat_type_nomulti",           "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
-                {"method": "hisat_290-ab-2dl1s1",          "file": f"{name}.index_kir_290_2dl1s1.mut01.bam"},
-                {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
-                {"method": "vg_merge",                     "file": f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
-                {"method": "ping_allele_setup",            "file": f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
-            ]
-            for i in dat:
-                i["id"] = id
-            data.extend(dat)
-        print(data)
+        for info in cohort:
+            for name in NamePath(info["name"]).get_input_names()[:10]:
+                data.append({
+                    "method": info["method"],
+                    "file": name,
+                    "id": name.template_args[0],
+                })
+        pprint(data)
 
         # for i in data:
         #     i.update(getStat(i["file"]))
         with ProcessPoolExecutor() as executor:
             for d, result in zip(data, executor.map(getStat, map(lambda i: i["file"], data))):
                 d.update(result)
-        json.dump(data, open(filename + ".json", "w"))
+        # json.dump(data, open(filename + ".json", "w"))
     else:
         data = json.load(open(filename + ".json"))
 
     df = pd.DataFrame(data)
+    runShell("stty echo opost")
+    runShell("stty echo opost")
+    print(df)
     return plotStat(df)
 
 
@@ -182,6 +193,8 @@ def customMissingCalc(total: dict[str, int],
     print(sorted(reads.keys()))
     for read_name, mapping_info in reads.items():
         data[getGeneName(read_name)]["count"] += 1
+        # don't include secondary, but it's find
+        # because secondary occur only when multiple mapping.
         if len(list(filter(lambda i: i.ref != "*" and not (i.flag & 256), mapping_info))) < 2:
             data[getGeneName(read_name)]["miss"] += 1
 
@@ -279,20 +292,29 @@ def customGeneAccCalc(total: dict[str, int],
                       getRenamedGeneName: Callable[[str], str],
                       **kwargs: Any) -> Iterator[DfDict]:
     """ The pair reads are mapped on reference """
-    data = {gene: {"total": num, "count": 0, "primary": 0, "secondary": 0} for gene, num in total.items()}
+    data = {gene: {"total": num, "count": 0, "unique": 0, "primary": 0, "secondary": 0} for gene, num in total.items()}
 
     for read_name, mapping_info in reads.items():
         data[getGeneName(read_name)]["count"] += 1
         # remove non-pair
         mapping_info = list(filter(lambda i: (i.flag & 2), mapping_info))
 
-        primary = list(filter(lambda i: i.ref != "*" and not (i.flag & 256), mapping_info))
+        primary = list(filter(lambda i: i.ref != "*" and not (i.flag & (256 | 2048)), mapping_info))
+        # assert primary is 2
+        if len(primary) not in [0, 2]:
+            print(read_name, mapping_info)
+            assert False
         if primary and getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
             data[getGeneName(read_name)]["primary"] += 1
 
         second = list(filter(lambda i: i.ref != "*", mapping_info))
         if second and any(getRenamedGeneName(read.ref) == getRenamedGeneName(read_name) for read in second):
             data[getGeneName(read_name)]["secondary"] += 1
+
+        # unique mapping
+        unique_pair = list(filter(lambda i: i.ref != "*", mapping_info))
+        if len(unique_pair) == 2 and getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
+            data[getGeneName(read_name)]["unique"] += 1
 
     for gene, d in data.items():
         yield {
@@ -308,6 +330,13 @@ def customGeneAccCalc(total: dict[str, int],
             "correct": d["secondary"],
             "acc": d["secondary"] / d["count"],
             "type": "primary+secondary",
+        }
+        yield {
+            "gene": gene,
+            "total": d["total"],
+            "correct": d["unique"],
+            "acc": d["unique"] / d["count"],
+            "type": "unique",
         }
 
 
@@ -339,11 +368,11 @@ def reColor(arr1: Iterable[str], arr2: Iterable[str]) -> tuple[list[str], dict[s
       name_to_color: key=arr1_i-arr2_j value=color
     """
     group_name = list(map(lambda i: i[0] + " - " + i[1], zip(arr1, arr2)))
-    colors = (px.colors.qualitative.Dark2, px.colors.qualitative.Set2)
+    colors = (px.colors.qualitative.Dark2, px.colors.qualitative.Set2, px.colors.qualitative.Pastel2)
 
     group_color = {}
-    for i, m in enumerate(set(arr1)):
-        for j, t in enumerate(set(arr2)):
+    for i, m in enumerate(sorted(set(arr1))):
+        for j, t in enumerate(sorted(set(arr2))):
             group_color[m + " - " + t] = colors[j % len(colors[0])][i % len(colors[1])]
     return group_name, group_color
 
@@ -399,43 +428,54 @@ def applyStatFuncToBam(stat_func: Callable[..., Iterator[DfDict]],
 
 def plotGenewiseMapping() -> list[go.Figure]:
     # sample_index = "data/linnil1_syn_wide.test10"
-    answer = "linnil1_syn_30x_seed87"
-    sample_index = f"data5/{answer}"
-    # filename = f"{sample_index}.bam_gene_data_30x"
-    filename = "123"
+    answer = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031.read..sam"
+    prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
+    filename = "tmp"
+    # filename = f"{sample_index}.bam_stat_vg"
+
+    cohort = [
+        {"method": "answer",          "compare_gene": "",          "name": f"{answer}"},
+        {"method": "linear",          "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bowtie2.bam"},
+        {"method": "bwa",             "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bwa.bam"},
+        {"method": "hisat",           "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
+        {"method": "hisat_ab",        "compare_gene": "ab",        "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
+        {"method": "hisat_ab_2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
+        # {"method": "linear_ab",                    "file": f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
+        # {"method": "linear_ab_2dl1s1",             "file": f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
+        # {"method": "linear_full",                  "file": f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
+        # {"method": "bwa_ab",                       "file": f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
+        # {"method": "bwa_ab_2dl1s1",                "file": f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
+        # {"method": "bwa_merge",                    "file": f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
+        # {"method": "hisat_merge",                  "file": f"{name}.index_kir_2100_merge.mut01.bam"},
+        # {"method": "hisat_merge_type",             "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_merge_type_nomulti",     "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_ab_type",                "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_ab_type_nomulti",        "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_ab_2dl1s1_type",         "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_ab_2dl1s1_type_nomulti", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_type",                   "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
+        # {"method": "hisat_type_nomulti",           "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        # {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
+        # {"method": "hisat_290-ab-2dl1s1",          "file": f"{name}.index_kir_290_2dl1s1.mut01.bam"},
+        # {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
+        # {"method": "vg_merge",                     "file": f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
+        # {"method": "ping_allele_setup",            "file": f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
+    ]
 
     if not os.path.exists(filename + ".json"):
         # Figure: Proper Paired Perecetage
-        data = []
-        for id in range(10):
-            name = f"{sample_index}.{id:02d}"
-            dat: list[BamFile] = [
-                {"method": "answer",        "gene_compare_type": "",
-                 "file": f"{answer}/{answer}.{id:02d}.read..sam"},
-                # {"method": "hisat_ab",                     "gene_compare_type": "ab",        "file": f"{name}.index_kir_2100_raw.mut01.bam"},
-                # {"method": "hisat_ab_type",                "gene_compare_type": "ab",        "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
-                # {"method": "hisat_ab_type_nomulti",        "gene_compare_type": "ab",        "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                # {"method": "hisat",                        "gene_compare_type": "",          "file": f"{name}.index_kir_2100_ab.mut01.bam"},
-                # {"method": "hisat_type",                   "gene_compare_type": "",          "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
-                # {"method": "hisat_type_nomulti",           "gene_compare_type": "",          "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                # {"method": "hisat_ab_2dl1s1",              "gene_compare_type": "ab_2dl1s1", "file": f"{name}.index_kir_2100_2dl1s1.mut01.bam"},
-                # {"method": "hisat_ab_2dl1s1_type",         "gene_compare_type": "ab_2dl1s1", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
-                # {"method": "hisat_ab_2dl1s1_type_nomulti", "gene_compare_type": "ab_2dl1s1", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
-                # {"method": "linear_ab",                    "gene_compare_type": "ab",         "file": f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
-                # {"method": "linear",                       "gene_compare_type": "",           "file": f"{name}.index_kir_2100_ab_cons.bowtie2.bam"},
-                # {"method": "linear_ab_2dl1s1",             "gene_compare_type": "ab_2dl1s1",  "file": f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
-                # {"method": "bwa_ab",                       "gene_compare_type": "ab",         "file": f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
-                # {"method": "bwa",                          "gene_compare_type": "",           "file": f"{name}.index_kir_2100_ab_cons_bwa.bwa.bam"},
-                # {"method": "bwa_ab_2dl1s1",                "gene_compare_type": "ab_2dl1s1",  "file": f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
-                {"method": "hisat_ab_2dl1s1_leftalign",    "gene_compare_type": "ab_2dl1s1", "file": f"{name}.index5_kir_2100_ab_2dl1s1.leftalign.mut01.graph.bam"},
-                {"method": "hisat_ab_2dl1s1_leftalign_type", "gene_compare_type": "ab_2dl1s1", "file": f"{name}.index5_kir_2100_ab_2dl1s1.leftalign.mut01.graph.variant.bam"},
-            ]
-            for i in dat:
-                i["id"] = id
-            data.extend(dat)
+        id = 0
+        data: list[DfDict] = []
+        for info in cohort:
+            for name in NamePath(info["name"]).get_input_names()[:1]:
+                data.append({
+                    "gene_compare_type": info["compare_gene"],
+                    "method": info["method"],
+                    "file": name,
+                    "id": name.template_args[0],
+                })
+        pprint(data)
 
-        # for i in data:
-        #     i.update(getEachReadMappedOn(i["file"]))
         with ProcessPoolExecutor() as executor:
             bam_files = map(lambda i: i["file"], data)
             for d, result in zip(data, executor.map(getEachReadMappedOn, bam_files)):
@@ -564,44 +604,86 @@ def plotFromToStat(df: pd.DataFrame) -> list[go.Figure]:
                color=group,
                color_discrete_map=color,
                category_orders=order)
-          .update_layout(yaxis_title="Gene-level correct reads / all reads on the gene")
+          .update_layout(
+              yaxis_title="Gene-level correct reads / all reads on the gene",
+              title="Specificity",
+          ),
+        px.box(df, x="method", y="acc", color="multi",
+               category_orders=order)
+          .update_layout(
+              yaxis_title="Specificity over all genes",
+              title="Specificity",
+          ),
     ]
 
 
 def plotMappingFromTo() -> list[go.Figure]:
     """ The status of where the read mapped on and generated from """
-    # sample_index = "data/linnil1_syn_wide.test10"
-    answer = "linnil1_syn_30x_seed87"
-    sample_index = f"data5/{answer}"
-    # filename = f"{sample_index}.bam_gene_data_30x"
-
-    # Figure: Proper Paired Perecetage
-    data = []
-    # for id in [2]:
-    for id in range(10):
-        name = f"{sample_index}.{id:02d}"
-        dat: list[BamFile] = [
-            # {"method": "hisat",           "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.id_only.json"},
-            # {"method": "hisat_ab_2dl1s1", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.id_only.json"},
-            # {"method": "hisat_ab",        "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.id_only.json"},
-            {"method": "hisat_ab_2dl1s1_leftalign", "file": f"{name}.index5_kir_2100_ab_2dl1s1.leftalign.mut01.graph.variant.json"},
-        ]
-        for i in dat:
-            i["id"] = id
-        data.extend(dat)
-
+    # prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
+    prefix = "data6/linnil1_syn_s44.{}.30x_s444"
+    cohort = [
+        {"method": "hisat",           "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.json"},
+        {"method": "hisat_ab",        "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.json"},
+        {"method": "hisat_ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.json"},
+    ]
     figs = []
     df_acc = []
-    for i in data:
-        print(i)
-        df_from_to = calcFromToPerSample(i["file"])
-        figs.extend(plotFromToPerSampleWithLevel(df_from_to, title=i["file"]))
-        df_acc.append(calcFromToStat(df_from_to, allow_multi=True,  method=i["method"]))
-        df_acc.append(calcFromToStat(df_from_to, allow_multi=False, method=i["method"]))
+    for dat in cohort:
+        for filename in NamePath(dat['name']).get_input_names()[:3]:
+            df_from_to = calcFromToPerSample(filename)
+            figs.extend(plotFromToPerSampleWithLevel(df_from_to, title=filename))
+            df_acc.append(calcFromToStat(df_from_to, allow_multi=True,  method=dat["method"]))
+            df_acc.append(calcFromToStat(df_from_to, allow_multi=False, method=dat["method"]))
 
     df = pd.concat(df_acc)
     figs.extend(plotFromToStat(df))
     return figs
+
+
+def plotGeneDepth() -> list[go.Figure]:
+    cohort = [{
+        "method": "all",
+        "name":   "data_real/hprc.{}"
+                  ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.tsv",
+    }, {
+        "method": "bwa_loose_filter",
+        "name":   "data_real/hprc.{}.index_hs37d5.bwa.part_merge.annot_read"
+                  ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.tsv",
+    }, {
+        "method": "bwa_strict_filter",
+        "name":   "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
+                  ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.tsv",
+    }]
+    # for info in cohort:
+    #     info['name'] = info['name'].replace("hprc.", "twbb.")
+
+    data = []
+    for info in cohort:
+        for name in NamePath(info["name"]).get_input_names()[:3]:
+            data.append(readSamtoolsDepth(name))
+            data[-1]["method"] = info["method"]
+            data[-1]["id"] = name.template_args[0]
+
+    df = pd.concat(data)
+    df["gene"] = df["gene"].str.replace("*BACKBONE", "", regex=False)
+
+    # customze here
+    df_select = df[df["gene"].isin(["KIR3DL2", "KIR3DL3"])]
+    df_select = df_select.groupby(["gene", "pos", "method"], as_index=False)["depth"].median()
+    print(df_select)
+
+    group, color = reColor(df_select["method"], df_select["gene"])
+    fig = px.scatter(df_select, x="pos", y="depth", color=group,
+                     color_discrete_map=color, log_y=True)
+    fig.update_traces(marker_size=4)
+    fig.update_layout(
+        legend_title_text="method - gene",
+        legend_itemsizing='constant',
+        xaxis_title="Positions",
+        yaxis_title="Median Depth across samples",
+        xaxis_type="linear",
+    )
+    return [fig]
 
 
 if __name__ == "__main__":
@@ -614,9 +696,11 @@ if __name__ == "__main__":
                              wanted_gene="KIR2DS1")
     """
     figs = []
-    figs.extend(plotBamStat())
+    # figs.extend(plotBamStat())
     # figs.extend(plotGenewiseMapping())
     # figs.extend(plotMappingFromTo())
+    figs.extend(plotDepth())
+    print("Plot")
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
     app.run_server(debug=True, port=8052)

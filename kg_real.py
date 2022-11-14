@@ -84,6 +84,7 @@ if __name__ == "__main__":
     index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
     search_other_region = True
 
+    """
     if cohort == "twbb_bam":
         sample = compose([
             data_folder,
@@ -134,3 +135,32 @@ if __name__ == "__main__":
         NameTask(partial(hisatMapWrap, index=str(index)), executor=exe_large),
         partial(trimBam, remove=True),
     ])
+    """
+    from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap
+    """
+    samples = "data_real/twbb.{}"
+    samples = "data_real/hprc.{}"
+    samples = "data_real/hg19.twbb.{}.part_merge.annot_read"
+    samples = "data_real/hg19.twbb.{}.part_strict"
+    samples = "data_real/hprc.{}.index_hs37d5.bwa.part_merge.annot_read"
+    samples = "data_real/twbb.{}.index_hs37d5.bwa.part_merge.annot_read"
+    samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
+    samples = "data_real/twbb.{}.index_hs37d5.bwa.part_strict"
+    """
+    samples = "data_real/twbb.{}.index_hs37d5.bwa.part_strict"
+    samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
+    variant = compose([
+        samples,
+        partial(extractVariant, ref_index=str(ref_index)),
+    ])
+
+    cn = compose([
+        variant,
+        partial(addSuffix, suffix=".no_multi"),
+        bam2DepthWrap,
+        partial(filterDepthWrap, ref_index=str(ref_index)),
+        NameTask(cnPredict)  # .set_depended(-1),
+    ])
+    cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=True), depended_pos=[-1])
+    runShell("stty echo opost")
