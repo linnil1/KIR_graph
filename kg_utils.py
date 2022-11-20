@@ -10,8 +10,8 @@ import importlib.util
 from glob import glob
 from typing import Callable, Any
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
+from Bio import SeqIO
 from namepipe import BaseTaskExecutor, NamePath, StandaloneTaskExecutor
 from graphkir.utils import (
     runShell,
@@ -136,13 +136,34 @@ def getAnswerFile(sample_name: str) -> str:
     return sample_name.replace_wildcard("_summary") + ".csv"
 
 
-def compareResult(input_name, sample_name):
+def compareResult(input_name, sample_name, input_fasta_name=None):
     print(input_name + ".tsv")
-    print(readPredictResult(input_name + ".tsv"))
+    answer_seq = {}
+    # back is back from read suffix (30x)
+    for name in NamePath(back(NamePath(sample_name))).get_input_names():
+        allele_seq = SeqIO.to_dict(SeqIO.parse(name + ".fa", "fasta"))
+
+        # brute-force to rewrite "xxx-1" -> "xxx"
+        for i in list(allele_seq):
+            if i.endswith("-1") or i.endswith("-2") or i.endswith("-3"):
+                allele_seq[i[:-2]] = allele_seq[i]
+
+        answer_seq[name.template_args[-1]] = allele_seq
+
+    predit_seq = {}
+    if input_fasta_name:
+        for name in NamePath(input_fasta_name).get_input_names():
+            if Path(name + ".fa").exists():
+                print("HI", name + ".fa")
+                predit_seq[name.template_args[-1]] = SeqIO.to_dict(SeqIO.parse(name + ".fa", "fasta"))
+
     compareCohort(
         readAnswerAllele(getAnswerFile(sample_name)),
         readPredictResult(input_name + ".tsv"),
+        cohort_answer_seqs=answer_seq,
+        cohort_predit_seqs=predit_seq,
         skip_empty=True,
+        # base_compare=True,
         # plot=True,
     )
     return input_name

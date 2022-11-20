@@ -437,7 +437,7 @@ if __name__ == "__main__":
 
     # hprc 28 samples hs37d5 with very limited extracted reads
     cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    # figs.extend(evaluateRealMappingOnKIR(cohort))
+    figs.extend(evaluateRealMappingOnKIR(cohort))
 
     # plot all figure
     showPlot(figs)

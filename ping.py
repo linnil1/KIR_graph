@@ -151,7 +151,7 @@ def plotPing(input_name, sample_name):
     # start dash
     app = Dash(__name__)
     app.layout = html.Div(children=[dcc.Graph(figure=fig) for fig in figs])
-    app.run_server(debug=True)
+    app.run_server(debug=True, port=8051)
 
 
 def buildPing(input_name, folder):

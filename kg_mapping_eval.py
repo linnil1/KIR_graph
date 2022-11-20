@@ -320,23 +320,24 @@ def customGeneAccCalc(total: dict[str, int],
         yield {
             "gene": gene,
             "total": d["total"],
-            "correct": d["primary"],
-            "acc": d["primary"] / d["count"],
-            "type": "primary",
-        }
-        yield {
-            "gene": gene,
-            "total": d["total"],
             "correct": d["secondary"],
             "acc": d["secondary"] / d["count"],
-            "type": "primary+secondary",
+            "type": "all",
         }
         yield {
             "gene": gene,
             "total": d["total"],
             "correct": d["unique"],
             "acc": d["unique"] / d["count"],
-            "type": "unique",
+            "type": "unique-only",
+        }
+        continue
+        yield {
+            "gene": gene,
+            "total": d["total"],
+            "correct": d["primary"],
+            "acc": d["primary"] / d["count"],
+            "type": "primary-only",
         }
 
 
@@ -357,6 +358,92 @@ def customGeneAccPlot(df: pd.DataFrame) -> list[go.Figure]:
           .update_layout(title="Gene-level accuracy Per Method (Proportion)",
                          yaxis_title="Correct read / total read (%)"),
     ]
+
+
+def customGeneSpecificCalc(total: dict[str, int],
+                           reads: dict[str, list[ReadRecord]],
+                           getRenamedGeneName: Callable[[str], str],
+                           **kwargs: Any) -> Iterator[DfDict]:
+    data = defaultdict(lambda: {
+        "total": 0,         "correct": 0,
+        "total_unique": 0,  "correct_unique": 0,
+        "total_primary": 0, "correct_primary": 0,
+    })
+
+    for read_name, mapping_info in reads.items():
+        # remove non-pair
+        mapping_info = list(filter(lambda i: (i.flag & 2) and i.ref != "*", mapping_info))
+
+        for read in mapping_info:
+            data[getRenamedGeneName(read.ref)]['total'] += 1
+            if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
+                data[getRenamedGeneName(read.ref)]['correct'] += 1
+
+        # unique mapped only
+        if len(mapping_info) == 2:
+            for read in mapping_info:
+                data[getRenamedGeneName(read.ref)]['total_unique'] += 1
+                if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
+                    data[getRenamedGeneName(read.ref)]['correct_unique'] += 1
+
+        primary = list(filter(lambda i: not (i.flag & (256 | 2048)), mapping_info))
+        if len(primary) > 0:
+            read = primary[0]
+            data[getRenamedGeneName(read.ref)]['total_primary'] += 1
+            if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
+                data[getRenamedGeneName(read.ref)]['correct_primary'] += 1
+
+    answer_gene_name = set(getRenamedGeneName(i) for i in total)
+    for gene, d in data.items():
+        if gene not in answer_gene_name:
+            continue
+        if d['total']:
+            yield {
+                "gene": gene,
+                "total": d["total"],
+                "correct": d["correct"],
+                "specificity": d["correct"] / d["total"],
+                "type": "all",
+            }
+        if d['total_unique']:
+            yield {
+                "gene": gene,
+                "total": d["total_unique"],
+                "correct": d["correct_unique"],
+                "specificity": d["correct_unique"] / d["total_unique"],
+                "type": "unique-only",
+            }
+        continue
+        if d['total_primary']:
+            yield {
+                "gene": gene,
+                "total": d["total_primary"],
+                "correct": d["correct_primary"],
+                "specificity": d["correct_primary"] / d["total_primary"],
+                "type": "primary-only",
+            }
+
+
+def customGeneSpecificPlot(df: pd.DataFrame) -> list[go.Figure]:
+    gene_order = {"gene": sorted(set(df["gene"]))}
+    group, color = reColor(df["method"], df["type"])
+    return [
+        px.box(df, x="gene", y="specificity",
+               color=group,
+               color_discrete_map=color,
+               category_orders=gene_order,
+           )
+           .update_layout(
+               title="Specificity of read mapped on gene",
+               yaxis_title="Correct read / total read mapped on(%)",
+           ),
+        px.box(df, x="method", y="specificity", color="type", category_orders=gene_order)
+          .update_layout(
+              title="Specificity of read mapped on gene",
+              yaxis_title="Correct read / total read mapped on(%)",
+          ),
+    ]
+
 
 
 def reColor(arr1: Iterable[str], arr2: Iterable[str]) -> tuple[list[str], dict[str, str]]:
@@ -395,34 +482,58 @@ def renameAb2dl1s1(name: str) -> str:
     }.get(name, name)
 
 
+def renameAb(name: str) -> str:
+    return name[:7]
+
+
+def generatorToList(func: Callable[..., Iterator[DfDict]], *arg, **kwargs) -> list[DfDict]:
+    return list(func(*arg, **kwargs))
+
+
 def applyStatFuncToBam(stat_func: Callable[..., Iterator[DfDict]],
                        data: list[BamFile]) -> pd.DataFrame:
     """ Calculate the stat by stat_func for each sample(data) """
     custom_stats: list[DfDict] = []
+
+    answer = {}
     for sample in data:
-        if sample["method"] == "answer":
+        if sample["method"] != "answer":
             continue
         print(sample["method"], sample["id"])
-        records_ans = findAnswerSample(data, sample["id"])["records"]
         records = sample["records"]
-        gene_ans_total = Counter(map(lambda name: getGeneName(name), records_ans.keys()))
+        answer[sample["id"]] = Counter(map(lambda name: getGeneName(name), records.keys()))
 
-        if sample["gene_compare_type"] == "":
-            getRenamedGeneName: Callable[[str], str] = getGeneName
-        elif sample["gene_compare_type"] == "ab":  # KIR2DL5A and KIR2DL5B
-            getRenamedGeneName = lambda i: i[:7]
-        elif sample["gene_compare_type"] == "ab_2dl1s1":
-            getRenamedGeneName = renameAb2dl1s1
+    with ProcessPoolExecutor() as executor:
+        exes = []
+        for sample in data:
+            if sample["method"] == "answer":
+                continue
+            print(sample["method"], sample["id"])
+            records = sample["records"]
+            gene_ans_total = answer[sample["id"]]
 
-        stats = stat_func(gene_ans_total, records, getRenamedGeneName=getRenamedGeneName)
-        custom_stats.extend([{
-            "method": sample["method"],
-            "id": sample["id"],
-            **stat,
-        } for stat in stats])
+            if sample["gene_compare_type"] == "":
+                getRenamedGeneName: Callable[[str], str] = getGeneName
+            elif sample["gene_compare_type"] == "ab":  # KIR2DL5A and KIR2DL5B
+                getRenamedGeneName = renameAb
+            elif sample["gene_compare_type"] == "ab_2dl1s1":
+                getRenamedGeneName = renameAb2dl1s1
+            # stats = stat_func(gene_ans_total, records, getRenamedGeneName=getRenamedGeneName)
+            # custom_stats.extend([{
+            #     "method": sample["method"],
+            #     "id": sample["id"],
+            #     **stat,
+            # } for stat in stats])
+            exes.append((sample, executor.submit(generatorToList, stat_func, gene_ans_total, records, getRenamedGeneName=getRenamedGeneName)))
+
+        for sample, exe in exes:
+            custom_stats.extend([{
+                "method": sample["method"],
+                "id": sample["id"],
+                **stat,
+            } for stat in exe.result()])
 
     df = pd.DataFrame(custom_stats)
-    print(df)
     return df
 
 
@@ -437,8 +548,8 @@ def plotGenewiseMapping() -> list[go.Figure]:
 
     cohort = [
         {"method": "answer",          "compare_gene": "",          "name": f"{answer}"},
-        # {"method": "linear",          "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bowtie2.bam"},
-        # {"method": "bwa",             "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bwa.bam"},
+        {"method": "bowtie",          "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_ab_2dl1s1.leftalign.backbone.bowtie2.bam"},
+        {"method": "bwa",             "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_ab_2dl1s1.leftalign.backbone.bwa.bam"},
         {"method": "hisat",           "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
         {"method": "hisat_ab",        "compare_gene": "ab",        "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
         {"method": "hisat_ab_2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
@@ -469,7 +580,7 @@ def plotGenewiseMapping() -> list[go.Figure]:
         id = 0
         data: list[DfDict] = []
         for info in cohort:
-            for name in NamePath(info["name"]).get_input_names()[:1]:
+            for name in NamePath(info["name"]).get_input_names()[:10]:
                 data.append({
                     "gene_compare_type": info["compare_gene"],
                     "method": info["method"],
@@ -503,6 +614,9 @@ def plotGenewiseMapping() -> list[go.Figure]:
     # gene-acc
     df = applyStatFuncToBam(customGeneAccCalc, data)
     figs.extend(customGeneAccPlot(df))
+    # gene specificity
+    df = applyStatFuncToBam(customGeneSpecificCalc, data)
+    figs.extend(customGeneSpecificPlot(df))
     return figs
 
 
@@ -671,6 +785,7 @@ def plotGeneDepth() -> list[go.Figure]:
 
     # customze here
     df_select = df[df["gene"].isin(["KIR3DL2", "KIR3DL3"])]
+    # df_select = df[df["gene"].isin(["KIR2DL1S1", "KIR3DL3"])]
     df_select = df_select.groupby(["gene", "pos", "method"], as_index=False)["depth"].median()
     print(df_select)
 
@@ -699,9 +814,9 @@ if __name__ == "__main__":
     """
     figs = []
     # figs.extend(plotBamStat())
-    # figs.extend(plotGenewiseMapping())
+    figs.extend(plotGenewiseMapping())
     # figs.extend(plotMappingFromTo())
-    figs.extend(plotDepth())
+    # figs.extend(plotGeneDepth())
     print("Plot")
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])

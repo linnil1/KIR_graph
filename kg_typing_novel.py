@@ -3,11 +3,13 @@ from typing import DefaultDict, Callable, Iterable
 from itertools import chain
 from functools import partial
 from collections import defaultdict, Counter
+
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from pysam import AlignmentFile
 import numpy as np
+import pandas as pd
 
 from pyhlamsa import msaio, Genemsa
 from graphkir.utils import samtobam
@@ -256,6 +258,7 @@ def typingNovel(
 
     assign_reads_all = {}
     allele_seqs = []
+    allele_called = []
     for gene, reads in data._gene_reads.items():
         # msa
         msa_gene_name = msa_name + "." + gene.split("*")[0]
@@ -290,13 +293,18 @@ def typingNovel(
                 partial(queryPileup, bamfile=bamfile, ref=gene),
             )
             # save seq
-            allele_name = allele
+            allele_name = allele + "".join(f"-{pos}{base_alt}" for pos, base_ref, base_alt in novel_variants_apply)
+            allele_called.append(allele_name)
             allele_seqs.append(SeqRecord(
                 Seq(seq),
-                id=allele_name + "".join(f"_{pos}{base_alt}" for pos, base_ref, base_alt in novel_variants_apply),
+                id=allele_name,
                 description=",".join(f"{allele_name}:{pos}{base_ref}>{base_alt}" for pos, base_ref, base_alt in novel_variants_apply),
             ))
 
+    pd.DataFrame([{
+        'name': output_name,
+        'alleles': "_".join(allele_called),
+    }]).to_csv(output_name + ".tsv", sep="\t", index=False)
     groupReadToBam(
         variant_name + suffix_bam + ".bam", output_name + ".bam", assign_reads_all
     )

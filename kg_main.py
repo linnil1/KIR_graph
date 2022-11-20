@@ -428,28 +428,29 @@ if __name__ == "__main__":
         partial(addSuffix, suffix=".no_multi"),
         bam2DepthWrap,
         partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
-        NameTask(cnPredict).set_depended(-1),
+        NameTask(cnPredict)  # .set_depended(-1),
     ])
+    # cn >> NameTask(plotCNWrap).set_depended(0)
 
     typing = compose([
         variant,
-        partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv_exonfirst_1
+        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1.2"),  # pv_exonfirst_1
     ])
 
-    compose([
-        typing,
-        partial(typingNovelWrap,
-                msa_name=msa_index.output_name,
-                variant_name=variant.output_name,
-        ),
-    ])
+    novel_funcs = [typing]
+    if False:
+        novel_funcs.append(
+            partial(typingNovelWrap,
+                    msa_name=msa_index.output_name,
+                    variant_name=variant.output_name)
+        )
+    novel = compose(novel_funcs)
 
     compose([
-        typing,
+        novel,
         NameTask(mergeKirResult, depended_pos=[0]),
-        partial(compareResult, sample_name=samples_ori.output_name),
+        partial(compareResult, sample_name=samples_ori.output_name, input_fasta_name=novel.output_name),
     ])
-    # cn >> nt(plotCNWrap).set_depended(0)
 
     """
     # vg

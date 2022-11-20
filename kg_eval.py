@@ -1,18 +1,25 @@
-import re
 from enum import Enum
 from typing import Iterator, Callable, Iterable, Any
+from itertools import chain, repeat
 from dataclasses import dataclass
 from collections import defaultdict
-import pandas as pd
+from concurrent.futures import ProcessPoolExecutor
+import re
+
+from Bio import pairwise2, SeqIO, SeqRecord
+from Bio.Seq import Seq
 from plotly.subplots import make_subplots
+import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
 from graphkir.plot import showPlot
-from graphkir.utils import getGeneName, getAlleleField
+from graphkir.utils import getGeneName, getAlleleField,  limitAlleleField
 
 
 CohortAlleles = dict[str, list[str]]  # it's ordered dict too
+CohortSequences = dict[str, dict[str, SeqRecord]]  # it's ordered dict too
 
 
 class MatchType(Enum):
@@ -40,13 +47,25 @@ class MatchType(Enum):
 @dataclass
 class MatchResult:
     """ The pair of alleles from answer and predict alleles """
-    answer_allele: str = ""  # order is important
-    predit_allele: str = ""
+    answer_allele: str  # order is important
+    predit_allele: str
+    answer_allele_full: str  # novel name
+    predit_allele_full: str  # novel name
     match_type: MatchType = MatchType.NONE
+
+    # other info
+    answer_seq: str = ""
+    predit_seq: str = ""
+    answer_allele_length: int = 0
+    predit_allele_length: int = 0
+    base_diff: int = 0
 
     def __lt__(self, other: 'MatchResult') -> bool:
         return (self.answer_allele or self.predit_allele) \
                < (other.answer_allele or other.predit_allele)
+
+
+CohortMatchResult = dict[str, list[MatchResult]]  # it's ordered dict too
 
 
 def groupByGene(alleles: list[str]) -> dict[str, list[str]]:
@@ -94,13 +113,47 @@ def readPredictResult(tsv_file: str,
                       ) -> CohortAlleles:
     """ Read predict alleles (same format as summary.csv) """
     data = pd.read_csv(tsv_file, sep='\t', dtype=str)
+    print(data)
     return {extract_func(i.name): (sorted(i.alleles.split("_")) if type(i.alleles) is str else [])
                 for i in data.itertuples()}
 
 
-def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
+def addSequence(cohort_results: CohortMatchResult,
+                cohort_answer_seqs: CohortSequences,
+                cohort_predit_seqs: CohortSequences) -> None:
+    allele_sequence = SeqIO.to_dict(SeqIO.parse("index5/kir_2100_withexon_ab.leftalign.mut01_sequences.fa", "fasta"))
+    for allele_name in list(allele_sequence):
+        new_allele_name = allele_name
+        if new_allele_name[-1].isdigit():
+            continue
+        if new_allele_name[-1] in ["e", "N"]:
+            new_allele_name = new_allele_name[:-1]
+        print(allele_name, new_allele_name)
+        if new_allele_name not in allele_sequence:
+            allele_sequence[new_allele_name] = allele_sequence[allele_name]
+
+    for id, results in cohort_results.items():
+        for result in results:
+            if result.answer_allele_full:
+                result.answer_seq = cohort_answer_seqs[id][result.answer_allele_full].seq
+            # if result.answer_allele:
+            #     result.answer_seq = allele_sequence[result.answer_allele].seq
+            if not result.predit_allele:
+                continue
+
+            if id in cohort_predit_seqs and result.predit_allele_full:
+                result.predit_seq = cohort_predit_seqs[id][result.predit_allele_full].seq
+            else:
+                result.predit_seq = allele_sequence[result.predit_allele].seq
+
+
+def compareCohort(cohort_answer: CohortAlleles,
+                  cohort_predit: CohortAlleles,
+                  cohort_answer_seqs: CohortSequences = {},
+                  cohort_predit_seqs: CohortSequences = {},
                   skip_empty: bool = True,
                   verbose_sample: bool = True,
+                  base_compare: bool = False,
                   plot: bool = False) -> None:
     """
     Compare answer and called alleles from all samples
@@ -114,18 +167,27 @@ def compareCohort(cohort_answer: CohortAlleles, cohort_predit: CohortAlleles,
     samples_id = set(cohort_answer.keys())
     if skip_empty:
         samples_id = samples_id & set(cohort_predit.keys())
+    samples_id = sorted(samples_id)
 
-    results = []
+    results = {
+        sample_id: compareSample(cohort_answer[sample_id],
+                                 cohort_predit.get(sample_id, []),
+        ) for sample_id in samples_id
+    }
+
+    if base_compare:
+        addSequence(results, cohort_answer_seqs, cohort_predit_seqs)
+        addBaseMatchness(results)
+
     if verbose_sample:
         print(" === Per sample comparison === ")
-    for sample_id in sorted(samples_id):
-        results.append(compareSample(
-            cohort_answer[sample_id],
-            cohort_predit.get(sample_id, []),
-        ))
-        if verbose_sample:
+        for sample_id, result in results.items():
             print(f"Sample {sample_id}")
-            printSummarySample(results[-1])
+            printSummarySample(result)
+
+    if base_compare:
+        print(" === Per base comparison === ")
+        printSummaryBaseLevel(results)
 
     print(" === Per gene comparison === ")
     df_gene_acc = printSummaryGeneLevel(results)
@@ -181,16 +243,17 @@ def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
         * a_allele
         * b_allele
     """
-    # remove novel suffix ...
-    a_list = list(map(lambda i: i.split('-')[0], a_list))
-    b_list = list(map(lambda i: i.split('-')[0], b_list))
-
     # Find perfect match
-    for allele in list(b_list):
-        if allele in a_list:
-            a_list.remove(allele)
-            b_list.remove(allele)
-            yield MatchResult(allele, allele, MatchType.MATCH7)
+    for allele_b in list(b_list):
+        for allele_a in a_list:
+            if getAlleleField(allele_a, 7) == getAlleleField(allele_b, 7):
+                a_list.remove(allele_a)
+                b_list.remove(allele_b)
+                yield MatchResult(limitAlleleField(allele_a, 7),  # allele name (remove novel suffix)
+                                  limitAlleleField(allele_b, 7),
+                                  allele_a, allele_b,
+                                  MatchType.MATCH7)
+                break
 
     # Find match 5 digits
     for allele_b in list(b_list):
@@ -198,7 +261,10 @@ def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
             if getAlleleField(allele_a, 5) == getAlleleField(allele_b, 5):
                 a_list.remove(allele_a)
                 b_list.remove(allele_b)
-                yield MatchResult(allele_a, allele_b, MatchType.MATCH5)
+                yield MatchResult(limitAlleleField(allele_a, 7),
+                                  limitAlleleField(allele_b, 7),
+                                  allele_a, allele_b,
+                                  MatchType.MATCH5)
                 break
 
     # Find match 3 digits
@@ -207,40 +273,85 @@ def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
             if getAlleleField(allele_a, 3) == getAlleleField(allele_b, 3):
                 a_list.remove(allele_a)
                 b_list.remove(allele_b)
-                yield MatchResult(allele_a, allele_b, MatchType.MATCH3)
+                yield MatchResult(limitAlleleField(allele_a, 7),
+                                  limitAlleleField(allele_b, 7),
+                                  allele_a, allele_b,
+                                  MatchType.MATCH3)
                 break
 
     # Find match < 3 digits
     for allele_a, allele_b in zip(list(a_list), list(b_list)):
         a_list.remove(allele_a)
         b_list.remove(allele_b)
-        yield MatchResult(allele_a, allele_b, MatchType.MATCHGENE)
+        yield MatchResult(limitAlleleField(allele_a, 7),
+                          limitAlleleField(allele_b, 7),
+                          allele_a, allele_b,
+                          MatchType.MATCH3)
 
     # copy number error
     for allele in a_list:
-        yield MatchResult(allele, "", MatchType.FN)
+        yield MatchResult(limitAlleleField(allele, 7), "",
+                          allele, "", MatchType.FN)
     for allele in b_list:
-        yield MatchResult("", allele, MatchType.FP)
+        yield MatchResult("", limitAlleleField(allele, 7),
+                          "", allele, MatchType.FP)
 
 
 def printSummarySample(results: list[MatchResult]) -> None:
     """ Print match result """
     for result in results:
+        base_compare_str = ""
+        if result.answer_allele_length and result.predit_allele_length:
+            base_compare_str = f"DIFF {result.base_diff:5.0f} / {result.answer_allele_length:5.0f}"
+
         if result.match_type == MatchType.MATCH7:
-            print(f"{result.answer_allele:18} OK {result.predit_allele:18}")
+            print(f"{result.answer_allele:18} OK {result.predit_allele:18}", base_compare_str)
         elif result.match_type == MatchType.MATCH5:
-            print(f"{result.answer_allele:18} <5 {result.predit_allele:18}")
+            print(f"{result.answer_allele:18} <5 {result.predit_allele:18}", base_compare_str)
         elif result.match_type == MatchType.MATCH3:
-            print(f"{result.answer_allele:18} <3 {result.predit_allele:18}")
+            print(f"{result.answer_allele:18} <3 {result.predit_allele:18}", base_compare_str)
         elif result.match_type == MatchType.MATCHGENE:
-            print(f"{result.answer_allele:18} <0 {result.predit_allele:18}")
+            print(f"{result.answer_allele:18} <0 {result.predit_allele:18}", base_compare_str)
         elif result.match_type == MatchType.FN:
             print(f"{result.answer_allele:18} <-")
         elif result.match_type == MatchType.FP:
             print(f"{''                  :18} -> {result.predit_allele:18}")
 
 
-def printSummary(cohort_result: list[list[MatchResult]]) -> dict[str, int]:
+def getBaseMatchness(result: MatchResult) -> dict[str, int]:
+    """ subfunction of addBaseMatchness """
+    if result.match_type in [
+            MatchType.MATCH7,
+            MatchType.MATCH5,
+            MatchType.MATCH3,
+            MatchType.MATCHGENE,
+    ]:
+        # score = pairwise2.align.globalxx(seq1, seq2, score_only=True)
+        score = pairwise2.align.localxx(result.answer_seq, result.predit_seq, score_only=True)
+
+        return {
+            'length1': len(result.answer_seq),
+            'length2': len(result.predit_seq),
+            'score': score,
+            'diff': len(result.answer_seq) - score,
+        }
+    else:
+        return {}
+
+
+def addBaseMatchness(results: CohortMatchResult) -> None:
+    """ Concurrently calculate the base difference between alleles """
+    with ProcessPoolExecutor() as executor:
+        base_results = executor.map(getBaseMatchness, chain.from_iterable(results.values()))
+        for result, base_result in zip(chain.from_iterable(results.values()), base_results):
+            if not base_result:
+                continue
+            result.answer_allele_length = base_result["length1"]
+            result.predit_allele_length = base_result["length2"]
+            result.base_diff            = base_result["diff"]
+
+
+def printSummary(cohort_result: CohortMatchResult) -> dict[str, int]:
     """
     Summarize the match results in the cohort
 
@@ -248,7 +359,7 @@ def printSummary(cohort_result: list[list[MatchResult]]) -> dict[str, int]:
       summary: The value of each metrics
     """
     summary: dict[str, int] = defaultdict(int)
-    for results in cohort_result:
+    for results in cohort_result.values():
         summary['total'] += len([i for i in results if i.match_type != MatchType.FP])
         summary['total_sample'] += 1
 
@@ -311,14 +422,14 @@ def calcSummaryByResolution(cohort_results: Iterable[MatchResult]) -> dict[str, 
     return summary
 
 
-def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[str, int]:
+def printSummaryByResolution(cohort_results: CohortMatchResult) -> dict[str, int]:
     """
     Summarize the match results in the cohort but normalized by answer's resolution
 
     Return:
       summary: The value of each metrics
     """
-    summary = calcSummaryByResolution(result for results in cohort_results for result in results)
+    summary = calcSummaryByResolution(result for results in cohort_results.values() for result in results)
 
     def precisionStr(a: int, b: int) -> str:
         return f"{a:5d} / {b:5d} = {a / b:.3f}"
@@ -329,6 +440,43 @@ def printSummaryByResolution(cohort_results: list[list[MatchResult]]) -> dict[st
     print(f"Gene:     {precisionStr(summary['gene_correct'],    summary['gene_total'])}")
     print(f"CN:       FP={summary['FP']} FN={summary['gene_total'] - summary['gene_correct']}")
     return summary
+
+
+def printSummaryBaseLevel(cohort_results: CohortMatchResult) -> pd.DataFrame:
+    """
+    Summarize the match results in the cohort but normalized by answer's resolution
+
+    Return:
+      summary: The value of each metrics
+    """
+    data = []
+    for id, results in cohort_results.items():
+        for result in results:
+            if not result.answer_allele_length:
+                continue
+            data.append({
+                'diff': result.base_diff,
+                'length_ans': result.answer_allele_length,
+                'length_pred': result.predit_allele_length,
+                'id': id,
+            })
+            if result.match_type == MatchType.MATCH7:
+                data[-1]['match'] = 7
+            elif result.match_type == MatchType.MATCH5:
+                data[-1]['match'] = 5
+            elif result.match_type == MatchType.MATCH3:
+                data[-1]['match'] = 3
+            else:
+                data[-1]['match'] = 0
+
+    df = pd.DataFrame(data)
+    print(df.groupby("id").agg({'diff': ["count", "sum", "mean", np.std],
+                                'length_ans': ["mean"],
+                                'length_pred': ["mean"]}))
+    print(df.groupby("match").agg({'diff': ["count", "sum", "mean", np.std],
+                                   'length_ans': ["mean"],
+                                   'length_pred': ["mean"]}))
+    return df
 
 
 def plotGeneLevelSummary(df: pd.DataFrame,
@@ -378,7 +526,7 @@ def plotGeneLevelSummary(df: pd.DataFrame,
     return [fig]
 
 
-def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> pd.DataFrame:
+def printSummaryGeneLevel(cohort_results: CohortMatchResult) -> pd.DataFrame:
     """
     printSummaryByResolution but in gene-level mode
 
@@ -387,7 +535,7 @@ def printSummaryGeneLevel(cohort_results: list[list[MatchResult]]) -> pd.DataFra
     """
     # collect result by gene
     result_by_gene = defaultdict(list)
-    for results in cohort_results:
+    for results in cohort_results.values():
         for result in results:
             gene = getGeneName(result.answer_allele or result.predit_allele)
             result_by_gene[gene].append(result)

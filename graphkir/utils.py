@@ -5,6 +5,7 @@ Utilities
 * sam to bam
 * numpy to json
 """
+import re
 import json
 import uuid
 import subprocess
@@ -73,7 +74,20 @@ def limitAlleleField(allele: str, resolution: int = 7) -> str:
 
 
 def getAlleleField(allele: str, resolution: int = 7) -> str:
-    """ KIR3DP1*0010101 with resolution 5 -> 00101 """
+    """
+    KIR3DP1*0010101 with resolution 5 -> 00101
+    KIR2DL1*0320102N with resolution 5 -> 003201
+    KIR2DL1*0320102N with resolution 7 -> 00320102N
+    """
     if "*" not in allele:
         return ""
-    return allele.split("*")[1][:resolution]
+    patterns = re.findall(r"^\w+\*(\d+\w*)", allele)
+    if patterns:
+        num = patterns[0]
+    else:
+        num = "new"
+    if resolution == 7:
+        return num
+    else:
+        return num[:resolution]
+    # return allele.split("*")[1][0][:resolution]

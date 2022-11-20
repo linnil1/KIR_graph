@@ -100,8 +100,9 @@ if __name__ == "__main__":
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
     index_t1k = downloadT1k("")
     samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
-    data_folder = "data5"
-
+    data_folder = "data6"
+    # samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
+    # data_folder = "data6"
     compose([
         samples,
         partial(linkSamples, data_folder=data_folder),
