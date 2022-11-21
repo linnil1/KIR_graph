@@ -12,25 +12,72 @@ import subprocess
 import dataclasses
 import numpy as np
 
-
-threads = 14
-docker_path = "podman"
+resources = {  # per sample
+    'threads': 2,
+    'memory': "7G",
+}
+docker_config = {
+    "podman": {
+        "path": "podman",
+        "run": "run -it --rm -u root -w /app -v $PWD:/app",
+        "name": "--name",  # short name has collision when submit the jobs concurrently
+        "image_prefix": "",
+    },
+    "docker": {
+        "path": "/usr/bin/docker",
+        "run": "run -it --rm -u root -w /app -v $PWD:/app",
+        "name": "--name",
+        "image_prefix": "",
+    },
+    "singularity": {
+        "path": "singularity",
+        "run": "run -B ${pwd -P} ",
+        "image_prefix": "docker://",
+    },
+}
+docker_type = "podman"
+# linnil1's configuration in Taiwania HPC
+# download every image into image file
+# singularity build quay.io/biocontainers/bwa:0.7.17--hed695b0_7 singur_image/quay.io/biocontainers/bwa:0.7.17--hed695b0_7
+# docker_type = "singularity"
+# docker_config[docker_type]["image_prefix"] = "singur_image/"
+# docker_config[docker_type]["run"] = (
+#     "run "
+#     "--bind /home/linnil1tw "
+#     "--bind /work/linnil1tw "
+#     "--bind /staging/biology/linnil1tw "
+#     "--bind /staging/biology/zxc898977 "
+#     "--bind /staging/biodata/lions/twbk "
+# )
+# lions: twbb data
+# zxc898977: hprc data 
 images = {
-    'samtools': "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
-    'clustalo': "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
-    'hisat':    "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
+    "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
+    "clustalo": "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
+    "hisat":    "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
     "muscle":   "quay.io/biocontainers/muscle:5.1--h9f5acd7_1",
 }
+
+
+def getThreads() -> int:
+    return resources['threads']
+
+
+def setThreads(threads: int) -> None:
+    global resources
+    resources['threads'] = threads
 
 
 def runDocker(image: str, cmd: str, capture_output=False, cwd=None, opts="") -> subprocess.CompletedProcess:
     """ run docker container """
     image = images.get(image, image)
-    name = str(uuid.uuid4()).split("-", 1)[0]
-    # docker_path = "docker"
-    proc = runShell(f"{docker_path} run -it --rm -u root --name {name} "
-                    f"-w /app -v $PWD:/app {opts} {image} {cmd}",
-                    capture_output=capture_output, cwd=cwd)
+    random_name = str(uuid.uuid4()).split("-", 1)[0]
+
+    conf = docker_config[docker_type]
+    cmd_all = f"{conf['path']} {conf['run']} " + \
+              (f"{conf['name']} {random_name} " if conf.get('name') else "") + \
+              f"{opts} {conf['image_prefix']}{image} {cmd}"
+    proc = runShell(cmd_all, capture_output=capture_output, cwd=cwd)
     return proc
 
 
@@ -47,7 +94,7 @@ def runShell(cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedPr
 
 def samtobam(name: str, keep=False) -> None:
     """ samfile -> sorted bamfile and index (This is so useful) """
-    runDocker("samtools", f"samtools sort -@{threads} {name}.sam -o {name}.bam")
+    runDocker("samtools", f"samtools sort -@{getThreads()} {name}.sam -o {name}.bam")
     runDocker("samtools", f"samtools index            {name}.bam")
     if not keep:
         runShell(f"rm {name}.sam")

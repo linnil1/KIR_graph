@@ -51,7 +51,7 @@ def addNovelOnSeq(seq: str, want_novel_position: dict[str, int], exon_regions: l
     return seq, apply_variants
 
 
-def addNovel(sequences: list[tuple[str, str]], exon_regions=dict[str, list[tuple[int, int]]], seed=123) -> list[SeqRecord]:
+def addNovel(sequences: list[tuple[str, str]], exon_regions=dict[str, list[tuple[int, int]]], seed: int = 123) -> list[SeqRecord]:
     # read regions
     np.random.seed(seed)
     want_novel_position = {
@@ -71,7 +71,7 @@ def addNovel(sequences: list[tuple[str, str]], exon_regions=dict[str, list[tuple
     return new_sequences
 
 
-def addNovelFromFasta(input_fasta, input_bed, output_fasta, seed=123):
+def addNovelFromFasta(input_fasta, input_bed, output_fasta, seed: int = 123):
     exon_regions = defaultdict(list)
     for line in open(input_bed):
         ref, pos1, pos2 = line.split("\t")
@@ -139,4 +139,4 @@ def updateNovelAnswer(input_name, old_name):
 
 
 if __name__ == "__main__":
-    addNovel("linnil1_syn/linnil1_syn_s44.00.fa", "linnil1_syn/linnil1_syn_s44.00.exon_region.bed", "test/add_novel.fasta")
+    addNovelFromFasta("linnil1_syn/linnil1_syn_s44.00.fa", "linnil1_syn/linnil1_syn_s44.00.exon_region.bed", "test/add_novel.fasta")

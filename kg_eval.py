@@ -164,10 +164,10 @@ def compareCohort(cohort_answer: CohortAlleles,
       skip_empty: ignore when there is not such sample id in the predicted cohort
       verbose_sample: Print sample comparison
     """
-    samples_id = set(cohort_answer.keys())
+    samples_id_set = set(cohort_answer.keys())
     if skip_empty:
-        samples_id = samples_id & set(cohort_predit.keys())
-    samples_id = sorted(samples_id)
+        samples_id_set = samples_id_set & set(cohort_predit.keys())
+    samples_id = sorted(samples_id_set)
 
     results = {
         sample_id: compareSample(cohort_answer[sample_id],

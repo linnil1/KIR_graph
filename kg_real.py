@@ -53,13 +53,13 @@ twbb_samples = list(map(lambda i: i.strip(), twbb_samples_str.split()))
 
 def linkTWBBBamSample(input_folder):
     samples = twbb_samples[0:14]
-    twbk_path = "/staging/biodata/lions/twbk/TWBR10811-02/WGS/hg19/BAM/GATK/{}/{}.hg19.sorted.realigned.maskDuplicates.recal.bam"
+    twbk_path = "/staging/biodata/lions/twbk/TWBR10811-02/WGS/hg19/BAM/GATK/{name}/{name}.hg19.sorted.realigned.maskDuplicates.recal.bam"
     for name in samples:
         if Path(f"{input_folder}/hg19.twbb.{name}.bam").exists():
             continue
-        assert Path(twbk_path.format(name)).exists()
-        runShell(f"ln -s {twbk_path.format(name)}     {input_folder}/hg19.twbb.{name}.bam")
-        runShell(f"ln -s {twbk_path.format(name)}.bai {input_folder}/hg19.twbb.{name}.bam.bai")
+        assert Path(twbk_path.format(name=name)).exists()
+        runShell(f"ln -s {twbk_path.format(name=name)}     {input_folder}/hg19.twbb.{name}.bam")
+        runShell(f"ln -s {twbk_path.format(name=name)}.bai {input_folder}/hg19.twbb.{name}.bam.bai")
     return input_folder + "/hg19.twbb.{}"
 
 
@@ -110,8 +110,8 @@ if __name__ == "__main__":
             bwaIndex,
         ])
 
-    exe = SlurmTaskExecutor()
-    exe_large = SlurmTaskExecutor(template_file="taiwania.48.template")
+    exe = SlurmTaskExecutor(threads_per_sample=2, template_file="taiwania.template")
+    exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
     NameTask.set_default_executor(exe)
     # NameTask.set_default_executor()
     if not direct_on_kir:

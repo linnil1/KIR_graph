@@ -321,7 +321,7 @@ def msa2HisatReference(msa_prefix: str, index_prefix: str):
         writeHaplo  (index_prefix, variants_per_allele, msa=msa)
 
 
-def buildHisatIndex(name: str, output_name: str, threads=4):
+def buildHisatIndex(name: str, output_name: str, threads: int = 1):
     """ Run hisat2-build, input and output are prefix of filenames """
     runDocker("hisat", f"""\
               hisat2-build {name}_backbone.fa \

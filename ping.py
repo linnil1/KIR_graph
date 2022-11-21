@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from namepipe import compose, NameTask
-from graphkir.utils import runShell, threads
+from graphkir.utils import runShell, getThreads
 from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
 from kg_eval import readAnswerAllele, saveCohortAllele
 
@@ -167,7 +167,7 @@ def pingMain(index, folder_in, folder_out):
         -e INDEX={index} \
         -e RAW_FASTQ_DIR=../{folder_in} \
         -e FASTQ_PATTERN=fq \
-        -e THREADS={threads} \
+        -e THREADS={getThreads()} \
         -e RESULTS_DIR=../{folder_out} \
     """)
 

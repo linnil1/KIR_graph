@@ -43,32 +43,18 @@ def runDocker(image: str, cmd: str, *arg, **kwargs):
     return runDockerGK(image, cmd, *arg, **kwargs)
 
 
-def runSingularity(
-    image: str, cmd: str, capture_output=False, cwd=None
-) -> subprocess.CompletedProcess:
-    """ run siguarity which image is downloaded as file """
-    image = images.get(image, image)
-    return runShell(
-        "singularity run "
-        "--bind /staging/biology "
-        "--bind /staging/biodata/lions/twbk/ "
-        "--bind /work/linnil1tw/ "
-        f"{image.split('/')[-1]}.sif "
-        f"{cmd}",
-        capture_output=capture_output,
-    )
-
-
 class SlurmTaskExecutor(StandaloneTaskExecutor):
     """ Run the task in SLURM """
 
     def __init__(
         self,
-        template_file="taiwania.template",
-        filename_template="slurm_io/job_{time}_{input_name}",
+        template_file: str = "taiwania.template",
+        threads_per_sample: int = 2,
+        filename_template: str ="slurm_io/job_{time}_{input_name}",
     ):
         super().__init__(threads=1, filename_template=filename_template)
         self.template = open(template_file).read()
+        self.threads_per_sample = threads_per_sample
 
     def submit_standalone_task(self, name: str) -> subprocess.CompletedProcess:
         """
@@ -81,6 +67,8 @@ class SlurmTaskExecutor(StandaloneTaskExecutor):
         """
         cmd = ["python << EOF",
                "from namepipe import StandaloneTaskExecutor",
+               "from graphkir.utils import setThreads",
+               f"setThreads({self.threads_per_sample})",
                "StandaloneTaskExecutor.run_standalone_task("
                f"{repr(str(__main__.__file__))}, {repr(str(name))})",
                f"EOF"]

@@ -61,7 +61,7 @@ class ReadsAndVariantsData(TypedDict):
     reads: list[PairRead]
 
 
-def hisatMap(index: str, f1: str, f2: str, output_file: str, threads=4):
+def hisatMap(index: str, f1: str, f2: str, output_file: str, threads: int = 1):
     """ run hisat2 """
     assert output_file.endswith(".bam")
     output_name = output_file.rsplit(".", 1)[0]

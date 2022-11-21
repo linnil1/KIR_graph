@@ -10,7 +10,7 @@ from sklearn.neighbors import KernelDensity
 from scipy.signal import argrelextrema
 
 from namepipe import NameTask, compose, ConcurrentTaskExecutor
-from graphkir.utils import runShell, threads, samtobam, getGeneName
+from graphkir.utils import runShell, getThreads, samtobam, getGeneName
 from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
 from kg_eval import readAnswerAllele, compareCohort
 
@@ -33,7 +33,7 @@ def bwa(input_name, index):
 
     rg = "@RG\\tID:" + id + "\\tSM: " + id
     runDocker("bwa", f""" \
-        bwa mem -t {threads} \
+        bwa mem -t {getThreshold()} \
             {index}/REF/KIR_seq_ref \
             -R "{rg}" \
             {input_name}.read.1.fq \

@@ -129,7 +129,7 @@ def blockToFile(blocks: BlockMsa, tmp_prefix="tmp") -> BlockFile:
     return files
 
 
-def realignBlock(files: BlockFile, method="clustalo") -> BlockFile:
+def realignBlock(files: BlockFile, method: str = "clustalo", threads: int = 1) -> BlockFile:
     """
     Run MSA tools for the files in `files`
 
@@ -141,9 +141,9 @@ def realignBlock(files: BlockFile, method="clustalo") -> BlockFile:
     files_aligned = {}
     for block_name, f in files.items():
         if method == "clustalo":
-            result = clustalo(f)
+            result = clustalo(f, threads)
         elif method == "muscle":
-            result = muscle(f)
+            result = muscle(f, threads)
         else:
             raise NotImplementedError
         files_aligned[block_name] = result
@@ -222,7 +222,8 @@ def isEqualMsa(msas: GenesMsa, msa: Genemsa) -> bool:
 
 def mergeMSA(genes: GenesMsa,
              method: str = "clustalo",
-             tmp_prefix: str = "tmp") -> Genemsa:
+             tmp_prefix: str = "tmp",
+             threads: int = 1) -> Genemsa:
     """
     Merge multiple MSA into one single MSA
 
@@ -235,14 +236,14 @@ def mergeMSA(genes: GenesMsa,
     """
     blocks = splitMsaToBlocks(genes)
     files = blockToFile(blocks, tmp_prefix=tmp_prefix)
-    files = realignBlock(files, method)
+    files = realignBlock(files, method, threads=threads)
     blocks = fileToBlock(files)
     msa = mergeBlockToMsa(blocks)
     isEqualMsa(genes, msa)
     return msa
 
 
-def muscle(name: str, threads: int = 16) -> str:
+def muscle(name: str, threads: int = 1) -> str:
     """
     Construct MSA with muscle
     (Input and output are filename without suffix)
@@ -253,7 +254,7 @@ def muscle(name: str, threads: int = 16) -> str:
     return name + ".muscle"
 
 
-def clustalo(name: str, threads: int = 16) -> str:
+def clustalo(name: str, threads: int = 1) -> str:
     """
     Construct MSA with clustalo
     (Input and output are filename without suffix)
@@ -267,7 +268,8 @@ def clustalo(name: str, threads: int = 16) -> str:
 def buildKirMsa(mode: str, prefix: str, version: str = "2100",
                 input_msa_prefix: str = "",
                 full_length_only: bool = True,
-                mergeMSA: Callable = mergeMSA):
+                mergeMSA: Callable = mergeMSA,
+                threads: int = 1):
     """
     Read KIR from database and save MSA into files with prefix
 
@@ -302,7 +304,8 @@ def buildKirMsa(mode: str, prefix: str, version: str = "2100",
     elif mode == "merge":
         genes = {"KIR": mergeMSA(genes,
                                  method="clustalo",
-                                 tmp_prefix=prefix + ".tmp")}
+                                 tmp_prefix=prefix + ".tmp",
+                                 threads=threads)}
     elif mode == "ab_2dl1s1":
         genes_for_merge = {
             "KIR2DL1": genes.pop("KIR2DL1"),

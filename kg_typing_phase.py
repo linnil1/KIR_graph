@@ -8,7 +8,7 @@ from Bio import SeqIO
 
 from namepipe import nt, NameTask
 from kg_main import hisatKIRRessult, hisatMap, hisatTyping
-from kg_utils import runDocker, threads
+from kg_utils import runDocker, getThreads
 from kg_eval import EvaluateKIR
 from kg_typping import readVariants, Variant, readAlleleLength
 from kg_typping_linnil1 import AlleleTypping, readCNResult
@@ -132,7 +132,7 @@ def whatHaps(input_name, old_input):
     cn = int(open(f"{old_input_name}.txt").read())
     runDocker("quay.io/biocontainers/whatshap:1.4--py37h96cfd12_0", f""" \
         whatshap polyphase \
-        --threads {threads} \
+        --threads {getThreads()} \
         -B 1 \
         {input_name}.g.vcf.gz \
         {old_input_name}.bam \

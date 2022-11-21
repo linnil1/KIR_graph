@@ -18,7 +18,7 @@ from dash import Dash, dcc, html, Input, Output
 from pyhlamsa import msaio, Genemsa
 
 from graphkir.kir_msa import readFromMSAs, muscle
-from graphkir.utils import runShell, samtobam, getGeneName, threads, getAlleleField
+from graphkir.utils import runShell, samtobam, getGeneName, getAlleleField
 from kg_utils import runDocker
 
 
@@ -197,7 +197,7 @@ def calcVariantionsPosition() -> dict[tuple[str, str], set[int]]:
     # get variantion across gene
     exes = {}
     diff_pos = {}
-    with ProcessPoolExecutor(max_workers=threads) as executor:
+    with ProcessPoolExecutor(max_workers=10) as executor:
         # run concurrent
         for gene1 in genes:
             for gene2 in genes:

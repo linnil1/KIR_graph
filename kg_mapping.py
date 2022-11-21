@@ -1,7 +1,7 @@
 from pathlib import Path
 from graphkir.utils import (
     samtobam,
-    threads,
+    getThreads,
 )
 from kg_utils import runDocker
 from graphkir.hisat2 import hisatMap
@@ -15,7 +15,7 @@ def hisatMapWrap(input_name, index):
     f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
     if not Path(f1).exists():
         f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
-    hisatMap(index, f1, f2, output_name + ".bam", threads=threads)
+    hisatMap(index, f1, f2, output_name + ".bam", threads=getThreads())
     return output_name
 
 
@@ -50,7 +50,7 @@ def bwa(input_name, index):
         raise ValueError("fastq not found: " + str(input_name) + ".read.{}.fq")
 
     runDocker("bwa",
-              f"bwa mem -t {threads} {index} -M -K 100000000 -v 3 "
+              f"bwa mem -t {getThreads()} {index} -M -K 100000000 -v 3 "
               f" {f1} {f2} -a -o {output_name}.sam")
     samtobam(output_name)
     return output_name
@@ -61,7 +61,7 @@ def bowtie2Index(input_name):
     if Path(output_name + ".1.bt2").exists():
         return output_name
     runDocker("bowtie",
-              f"bowtie2-build {input_name}.fa {output_name} --threads {threads}")
+              f"bowtie2-build {input_name}.fa {output_name} --threads {getThreads()}")
     return output_name
 
 
@@ -80,7 +80,7 @@ def bowtie2(input_name, index, use_arg="default"):
     # main
     f1, f2 = input_name + ".read.1.fq", input_name + ".read.2.fq"
     runDocker("bowtie",
-              f"bowtie2 {args} --threads {threads} -x {index} "
+              f"bowtie2 {args} --threads {getThreads()} -x {index} "
               f"-1 {f1} -2 {f2} -a -S {output_name}.sam")
     samtobam(output_name)
     return output_name
@@ -91,7 +91,7 @@ def trimBam(input_name, remove=False):
     output_name = input_name + ".trim"
     if Path(f"{output_name}.bam").exists():
         return output_name
-    runDocker("samtools", f"samtools view -h -@ {threads} -F 4 {input_name}.bam -o {output_name}.sam")
+    runDocker("samtools", f"samtools view -h -@ {getThreads()} -F 4 {input_name}.bam -o {output_name}.sam")
     samtobam(output_name)
     if remove:
         Path(f"{input_name}.bam").unlink()

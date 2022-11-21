@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 from pyhlamsa import KIRmsa, msaio
 
-from graphkir.utils import runShell, samtobam, threads
+from graphkir.utils import runShell, samtobam, getThreads
 from kg_utils import runDocker
 
 
@@ -52,7 +52,7 @@ def mapVG(input_name, index, output_type="bam"):
     runVG(f""" \
           vg giraffe -Z {index}.giraffe.gbz \
                      -m {index}.min -d {index}.dist \
-                     -t {threads} --fragment-mean 400 --fragment-stdev 2 \
+                     -t {getThreads()} --fragment-mean 400 --fragment-stdev 2 \
                      -f {input_name}.read.1.fq -f {input_name}.read.2.fq \
           """ + (
                    f" -o SAM > {output_name}.sam        " if output_type == "bam" else
@@ -62,7 +62,7 @@ def mapVG(input_name, index, output_type="bam"):
     if output_type == "bam":
         samtobam(output_name)
     else:
-        runVG(f"vg gamsort -t {threads} {output_name}.unsort.gam "
+        runVG(f"vg gamsort -t {getThreads()} {output_name}.unsort.gam "
               f"-i {output_name}.gam.gai > {output_name}.gam")
     return output_name
 

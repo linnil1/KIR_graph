@@ -2,13 +2,13 @@ import os
 from glob import glob
 from pathlib import Path
 import pandas as pd
-from namepipe import NameTask, compose, ConcurrentTaskExecutor
 from functools import partial
 from Bio import SeqIO
 
+from namepipe import NameTask, compose, ConcurrentTaskExecutor
 from graphkir import kir_msa
 from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
-from graphkir.hisat2 import hisatMap, extractVariantFromBam, readExons
+from graphkir.hisat2 import extractVariantFromBam, readExons
 from graphkir.kir_cn import bam2Depth, filterDepth, loadCN, predictSamplesCN
 from graphkir.kir_typing import selectKirTypingModel
 from graphkir.main import mergeAllele
@@ -17,7 +17,7 @@ from graphkir.msa_leftalign import genemsaLeftAlign
 from graphkir.utils import (
     runShell,
     samtobam,
-    threads,
+    getThreads,
 )
 
 from vg import (
@@ -65,7 +65,7 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     output_name = f"{input_name}/kir_2100_{msa_type}"
     if len(glob(output_name + ".KIR*")):
         return output_name
-    kir_msa.buildKirMsa(msa_type, output_name, mergeMSA=mergeMSA)
+    kir_msa.buildKirMsa(msa_type, output_name, mergeMSA=mergeMSA, threads=getThreads())
     return output_name
 
 
@@ -78,7 +78,7 @@ def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
 
     if len(glob(output_name + ".KIR*")):
         return output_name
-    kir_msa.buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name, mergeMSA=mergeMSA)
+    kir_msa.buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name, mergeMSA=mergeMSA, threads=getThreads())
     return output_name
 
 
@@ -95,7 +95,7 @@ def buildHisatIndexWrap(input_name):
     if Path(output_name + ".8.ht2").exists():
         return output_name
 
-    buildHisatIndex(input_name, output_name)
+    buildHisatIndex(input_name, output_name, threads=getThreads())
     return output_name
 
 
@@ -233,28 +233,31 @@ def plotCNWrap(input_name, per_sample=False, show_depth=True):
             if show_depth:
                 figs.extend(plotGeneDepths(name[:name.find(".depth") + 6] + ".tsv", title=name))
             figs.extend(plotCN(name + ".json"))
+            if len(figs) > 10:
+                break
     showPlot(figs)
 
 
-def realignBlock(file, method):
+def realignBlock(file, method, threads: int = 1):
     """ rewrite realignBlock in graphkir/kir_msa.py """
     if Path(f"{file}.{method}.fa").exists():
         return file + f".{method}"
     if method == "clustalo":
-        return kir_msa.clustalo(file)
+        return kir_msa.clustalo(file, threads)
     elif method == "muscle":
-        return kir_msa.muscle(file)
+        return kir_msa.muscle(file, threads)
     else:
         raise NotImplementedError
 
 
 def mergeMSA(genes: kir_msa.GenesMsa,
              method: str = "clustalo",
-             tmp_prefix: str = "tmp") -> kir_msa.Genemsa:
+             tmp_prefix: str = "tmp",
+             threads: int = 1) -> kir_msa.Genemsa:
     """ Rewrite in graphkir/kir_msa.py """
     blocks = kir_msa.splitMsaToBlocks(genes)
     files = kir_msa.blockToFile(blocks, tmp_prefix=tmp_prefix)
-    task = tmp_prefix + ".{}" >> NameTask(partial(realignBlock, method=method))
+    task = tmp_prefix + ".{}" >> NameTask(partial(realignBlock, method=method, threads=threads))
     files_name = list(task.output_name.get_input_names())
     files = {i.template_args[-1]: i for i in files_name}
     # original method

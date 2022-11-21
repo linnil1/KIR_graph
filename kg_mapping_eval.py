@@ -134,7 +134,7 @@ def plotBamStat() -> list[go.Figure]:
         id = 0
         data: list[DfDict] = []
         for info in cohort:
-            for name in NamePath(info["name"]).get_input_names()[:10]:
+            for name in NamePath(info["name"]).get_input_names():
                 data.append({
                     "method": info["method"],
                     "file": name,
@@ -580,7 +580,7 @@ def plotGenewiseMapping() -> list[go.Figure]:
         id = 0
         data: list[DfDict] = []
         for info in cohort:
-            for name in NamePath(info["name"]).get_input_names()[:10]:
+            for name in NamePath(info["name"]).get_input_names():
                 data.append({
                     "gene_compare_type": info["compare_gene"],
                     "method": info["method"],
@@ -745,7 +745,7 @@ def plotMappingFromTo() -> list[go.Figure]:
     figs = []
     df_acc = []
     for dat in cohort:
-        for filename in NamePath(dat['name']).get_input_names()[:3]:
+        for filename in NamePath(dat['name']).get_input_names():
             df_from_to = calcFromToPerSample(filename)
             figs.extend(plotFromToPerSampleWithLevel(df_from_to, title=filename))
             df_acc.append(calcFromToStat(df_from_to, allow_multi=True,  method=dat["method"]))
@@ -775,7 +775,7 @@ def plotGeneDepth() -> list[go.Figure]:
 
     data = []
     for info in cohort:
-        for name in NamePath(info["name"]).get_input_names()[:3]:
+        for name in NamePath(info["name"]).get_input_names():
             data.append(readSamtoolsDepth(name))
             data[-1]["method"] = info["method"]
             data[-1]["id"] = name.template_args[0]

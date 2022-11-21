@@ -6,7 +6,7 @@ import pysam
 from graphkir.utils import (
     runShell,
     samtobam,
-    threads,
+    getThreads,
 )
 from kg_utils import (
     runDocker
@@ -28,8 +28,8 @@ def bam2fastqViaSamtools(input_name):
     if Path(f"{output_name}.read.2.fq").exists():
         return output_name
     bam = input_name + ".sortn"
-    runDocker("samtools", f"samtools sort  -@ {threads} -n {input_name}.bam -o {bam}.bam")
-    runDocker("samtools", f"samtools fastq -@ {threads} -n {bam}.bam "
+    runDocker("samtools", f"samtools sort  -@ {getThreads()} -n {input_name}.bam -o {bam}.bam")
+    runDocker("samtools", f"samtools fastq -@ {getThreads()} -n {bam}.bam "
                           f"-1 {output_name}.read.1.fq "
                           f"-2 {output_name}.read.2.fq "
                           f"-0 /dev/null -s /dev/null")
@@ -83,6 +83,7 @@ def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
     else:
         raise ValueError("hg19_type doesn't correct")
 
+    threads = getThreads()
     if loose:
         b1 = f"{output_name.format('mapped')}.bam"
         b2 = f"{output_name.format('chrun')  }.bam"
@@ -198,7 +199,7 @@ def bam2fastqWrap(input_name):
     """ bam2fastq with one input """
     output_name = input_name + ".annot_read"
     if Path(output_name + ".read.1.fq").exists():
-        return output_name
+        return output_name + ".read"
     bam2fastq(input_name + ".bam",
               output_name + ".read.1.fq",
               output_name + ".read.2.fq")

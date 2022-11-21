@@ -4,7 +4,7 @@ from itertools import chain
 import pandas as pd
 
 from namepipe import compose, NameTask, ConcurrentTaskExecutor
-from graphkir.utils import runShell, threads
+from graphkir.utils import runShell, getThreads
 from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
 from kg_eval import saveCohortAllele
 
@@ -16,7 +16,7 @@ def downloadT1k(input_name):
     if not Path(folder).exists():
         runShell(f"git clone https://github.com/mourisl/T1K {folder}")
     runShell(f"docker build . -f t1k.dockerfile -t c4lab/t1k")
-    runDocker("c4lab/t1k", f"make -j {threads}", cwd=folder)
+    runDocker("c4lab/t1k", f"make -j {getThreads()}", cwd=folder)
     if not Path(f"{folder}/hlaidx").exists():
         runDocker("c4lab/t1k",
                   "perl t1k-build.pl -o hlaidx --download IPD-IMGT/HLA",
@@ -41,7 +41,7 @@ def runT1k(input_name, index, digits="7"):
       -2 {input_name}.read.2.fq \
       --preset kir-wgs -f {index}/kiridx/kiridx_dna_seq.fa \
       --alleleDigitUnits {digits} \
-      -t {threads} \
+      -t {getThreads()} \
       -o {output_name}. \
     """,
     )
