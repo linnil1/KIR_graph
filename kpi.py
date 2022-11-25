@@ -78,7 +78,7 @@ def collectResult(input_name, kpi_folder):
 
 if __name__ == "__main__":
     samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
-    data_folder = "data5"
+    data_folder = "data6"
     kpi_folder = "kirkpi"
     setup(kpi_folder=kpi_folder)
     NamePath(samples) \

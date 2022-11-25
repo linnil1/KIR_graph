@@ -5,10 +5,23 @@ from collections import Counter, defaultdict
 import numpy as np
 import pandas as pd
 
-from kg_eval import readAnswerAllele, getGeneName, CohortAlleles
+from namepipe import NamePath
+from graphkir.utils import getGeneName
+from kg_eval import readAnswerAllele, CohortAlleles, readPredictResult
 
 
 GeneCN = dict[str, int]
+CohortGeneCN = dict[str, GeneCN]
+
+
+class CNDiff(TypedDict, total=False):
+    """ The dict before insert into Dataframe """
+    gene: str
+    total: int
+    diff: int
+    diff_abs: int
+    method: str
+    sample_id: str
 
 
 def readCNFile(tsv_file: str) -> GeneCN:
@@ -17,7 +30,7 @@ def readCNFile(tsv_file: str) -> GeneCN:
     return dict(zip(map(getGeneName, df['gene']),  df['cn']))
 
 
-def calCN(alleles: list[str]) -> GeneCN:
+def allele2CN(alleles: list[str]) -> GeneCN:
     """ list of alleles -> CN of each gene """
     return Counter(map(getGeneName, alleles))
 
@@ -39,15 +52,6 @@ def mergeGene(gene_cn: GeneCN, gene_to: str, gene_froms: list[str]) -> GeneCN:
     return gene_cn
 
 
-class CNDiff(TypedDict, total=False):
-    """ The dict before insert into Dataframe """
-    gene: str
-    total: int
-    diff: int
-    method: str
-    sample_id: str
-
-
 def compareCN(ans_cn: GeneCN, pred_cn: GeneCN) -> list[CNDiff]:
     """ Compare CN. Return list of {gene, total, diff} in the sample """
     ans_cn = copy.deepcopy(ans_cn)
@@ -56,149 +60,133 @@ def compareCN(ans_cn: GeneCN, pred_cn: GeneCN) -> list[CNDiff]:
     if "KIR2DL1S1" in pred_cn:
         mergeGene(ans_cn, "KIR2DL1S1", ["KIR2DL1", "KIR2DS1"])
     if "KIR2DL5" in pred_cn:
-        mergeGene(ans_cn, "KIR2DL5", ["KIR2DL5A", "KIR2DL5B"])
+        mergeGene(ans_cn, "KIR2DL5",   ["KIR2DL5A", "KIR2DL5B"])
     if "KIR2DL5AB" in pred_cn:
         mergeGene(ans_cn, "KIR2DL5AB", ["KIR2DL5A", "KIR2DL5B"])
     if "KIR2DS35" in pred_cn:
-        mergeGene(ans_cn, "KIR2DS35", ["KIR2DS3", "KIR2DS5"])
+        mergeGene(ans_cn, "KIR2DS35",  ["KIR2DS3", "KIR2DS5"])
 
     comps = []
     for gene in ans_cn.keys() | pred_cn.keys():
-        comp: CNDiff = {'gene': gene, 'total': 0, 'diff': 0}
+        comp: CNDiff = {'gene': gene, 'total': 0, 'diff': 0, 'diff_abs': 0}
         if gene in ans_cn:
             comp['total'] += ans_cn[gene]
-        comp['diff'] += abs(ans_cn.get(gene, 0) - pred_cn.get(gene, 0))
+        diff = ans_cn.get(gene, 0) - pred_cn.get(gene, 0)
+        comp['diff'] += diff
+        comp['diff_abs'] += abs(diff)
 
-        if comp['total'] + comp['diff']:  # filter 0
+        if comp['total'] + comp['diff_abs']:  # filter 0
             comps.append(comp)
 
     return comps
 
 
-def updateDiff(method: str, sample_id: str, diff: list[CNDiff]) -> list[CNDiff]:
-    """ Update method and sample_id after comparison """
-    for i in diff:
-        i.update({"method": method, "sample_id": sample_id})
-    return diff
+def compareCNCohort(cohort_cn_ans: CohortGeneCN,
+                    cohort_cn_pred: CohortGeneCN,
+                    method: str) -> list[CNDiff]:
+    diffs_cohort = []
+    for sample_id, ans_cn in cohort_cn_ans.items():
+        diffs = compareCN(ans_cn, cohort_cn_pred.get(sample_id, {}))
+        for diff in diffs:
+            diff["sample_id"] = sample_id
+            diff["method"] = method
+        diffs_cohort.extend(diffs)
+    return diffs_cohort
 
 
-if __name__ == "__main__":
-    answer = "linnil1_syn_30x_seed87"
-    ans = readAnswerAllele(f"{answer}/{answer}.summary.csv")
-    data = []
-    id_list = list(f"{id:02d}"for id in range(10))
-    # for kpi
-    # id_list = list(filter(lambda i: i not in [4,5], id_list))
-    for id in id_list:
-        base = f"data/{answer}.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
-        data.extend([{
-            'id': id, 'method': "ab2dl1s1_sam_depth",
-            'file': f"{base}.cn_sam_depth.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_depth_p75",
-            'file': f"{base}.cn_sam_depth_p75.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_depth_p75_kde",
-            'file': f"{base}.cn_sam_depth_p75_kde.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_depth_kde_cohert",
-            'file': f"{base}.cn_sam_depth_kde_cohert.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_depth_p75_kde_cohert",
-            'file': f"{base}.cn_sam_depth_p75_kde_cohert.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_depth_cohert",
-            'file': f"{base}.cn_sam_depth_cohert.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_depth_mean",
-            'file': f"{base}.cn_sam_depth_cohert.tsv",
-        }])
 
-        base = f"data/{answer}.{id}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1"
-        data.extend([{
-            'id': id, 'method': "ab_sam_depth",
-            'file': f"{base}.cn_sam_depth.tsv",
-        },{
-            'id': id, 'method': "ab_sam_depth_p75",
-            'file': f"{base}.cn_sam_depth_p75.tsv",
-        },{
-            'id': id, 'method': "ab_sam_depth_cohert",
-            'file': f"{base}.cn_sam_depth_cohert.tsv",
-        },{
-            'id': id, 'method': "ab_sam_depth_kde_cohert",
-            'file': f"{base}.cn_sam_depth_kde_cohert.tsv",
-        },{
-            'id': id, 'method': "ab_sam_depth_p75_kde_cohert",
-            'file': f"{base}.cn_sam_depth_p75_kde_cohert.tsv",
-        }])
-
-        base = f"data/{answer}.{id}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1"
-        data.extend([{
-            'id': id, 'method': "split_sam_depth",
-            'file': f"{base}.cn_sam_depth.tsv",
-        },{
-            'id': id, 'method': "split_sam_depth_p75",
-            'file': f"{base}.cn_sam_depth_p75.tsv",
-        },{
-            'id': id, 'method': "split_sam_depth_cohert",
-            'file': f"{base}.cn_sam_depth_cohert.tsv",
-        }])
-
-        base = f"data/{answer}_exon.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
-        data.extend([{
-            'id': id, 'method': "exon-ab2dl1s1_sam_exon_depth",
-            'file': f"{base}.cn_sam_exon_depth.tsv",
-        },{
-            'id': id, 'method': "exon-ab2dl1s1_sam_exon_depth_p75",
-            'file': f"{base}.cn_sam_exon_depth_p75.tsv",
-        }])
-        base = f"data/{answer}.{id}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1"
-        data.extend([{
-            'id': id, 'method': "ab2dl1s1_sam_exon_depth",
-            'file': f"{base}.cn_sam_exon_depth.tsv",
-        },{
-            'id': id, 'method': "ab2dl1s1_sam_exon_depth_p75",
-            'file': f"{base}.cn_sam_exon_depth_p75.tsv",
-        }])
-
-
-    # print(data)
-    results = []
-    for i in data:
-        comparison = compareCN(calCN(ans[i['id']]), readCNFile(i['file']))
-        results.extend(updateDiff(i["method"], i['id'], comparison))
-
-    # PING
-    df = pd.read_csv(f"data3/ping_{answer}.result/manualCopyNumberFrame.csv", index_col=0)
+def readPingCN(csv_file: str) -> CohortGeneCN:
+    df = pd.read_csv(csv_file, index_col=0)
+    cohort = {}
     for name, data in df.iterrows():
         # "linnil1_syn_30x_seed87.00.read.",2,1,1,1,0,1,2,2,1,1,1,2,1,1,1,1
-        id = name.split('.')[1]
-        comparison = compareCN(calCN(ans[id]), dict(data))
-        results.extend(updateDiff("PING2", id, comparison))
+        id = str(name).split('.')[1]
+        cohort[id] = dict(data)
+    return cohort
 
-    # KPI
-    df = pd.read_csv(f"data3/{answer}_merge_cn.kpi_prediction.csv", index_col=0)
-    for name, data in df.iterrows():
-        id = name.split('.')[1]
-        comparison = compareCN(calCN(ans[id]), dict(data))
-        results.extend(updateDiff("KPI", id, comparison))
 
-    # GATKIR
-    df = pd.read_csv(f"data3/{answer}_merge_depth.bwa.rg.md.coverage.depth_per_gene.ploidy.csv", index_col=0).T
+def readGatkirCN(csv_file: str) -> CohortGeneCN:
+    df = pd.read_csv(csv_file, index_col=0).T
+    cohort = {}
     for name, data in df.iterrows():
-        id = name
-        comparison = compareCN(calCN(ans[id]), dict(data))
-        results.extend(updateDiff("GATKIR", id, comparison))
+        cohort[str(name)] = dict(data)
+    return cohort
+
+
+def readKpiCN(csv_file: str) -> CohortGeneCN:
+    df = pd.read_csv(csv_file, index_col=0)
+    cohort = {}
+    for name, data in df.iterrows():
+        id = str(name).split('.')[1]
+        cohort[id] = dict(data)
+    return cohort
+
+
+def compareCNwithMethods(method_cohort_cn: dict[str, CohortGeneCN]) -> None:
+    # from pprint import pprint
+    # pprint(cohort_data)
+    results = []
+    for method, result in method_cohort_cn.items():
+        results.extend(compareCNCohort(cohort_data["answer"], result, method))
+    # pprint(results)
 
     # summary
     df = pd.DataFrame(results)
-    df = df.loc[df['sample_id'].isin(id_list)]
-    # df = df.loc[np.logical_not(df['gene'].str.contains("KIR3DL2|KIR3DP1"))]
+    # remove samples
+    # df = df.loc[np.logical_not(df['sample_id'].isin(["09"]))]
+    # remove genes  (GATKIR)
+    df = df.loc[np.logical_not(df['gene'].str.contains("KIR3DL2|KIR3DP1"))]
     with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
         df1 = df.groupby(["method", "gene"]).sum()
-        df1['acc'] = 1 - df1['diff'] / df1['total']
+        df1['acc'] = 1 - df1['diff_abs'] / df1['total']
         print(df1)
 
+        df3 = df.groupby(["method", "sample_id"]).sum()
+        print(df3)
+
     df2 = df.groupby(["method"]).sum()
-    df2['acc'] = 1 - df2['diff'] / df2['total']
+    df2['acc'] = 1 - df2['diff_abs'] / df2['total']
     print(df2)
+
+
+if __name__ == "__main__":
+    answer = "linnil1_syn/linnil1_syn_s2022_summary.csv"
+    prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
+    answer = "linnil1_syn/linnil1_syn_s44_summary.csv"
+    prefix = "data6/linnil1_syn_s44.{}.30x_s444"
+    cohort = [
+        {"method": "answer",          "name": f"{answer}"},
+        {"method": "ab2dl1s1",        "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
+        {"method": "ab2dl1s1-call",   "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv.compare_sum.tsv"},
+        {"method": "ab2dl1s1-cohort", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
+        {"method": "ab2dl1s1-median", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_assume3DL3.tsv"},
+        {"method": "ab2dl1s1-kde",    "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.cohort.tsv"},
+        {"method": "ab-cohort",       "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
+        {"method": "ab",              "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
+        {"method": "split-cohort",    "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
+        {"method": "split",           "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
+        {"method": "ping",            "name": f"data6/ping_linnil1_syn_{NamePath(prefix).replace_wildcard('_cohort').split('/')[-1]}.result_PING20220527/manualCopyNumberFrame.csv"},
+        {"method": "ping-call",       "name": f"data6/ping_linnil1_syn_{NamePath(prefix).replace_wildcard('_cohort').split('/')[-1]}.result_PING20220527/finalAlleleCalls.merge.tsv"},
+        {"method": "gatkir",          "name": f"{NamePath(prefix).replace_wildcard('_merge_depth')}.bwa.rg.md.coverage.depth_per_gene.ploidy.csv"},
+        {"method": "kpi",             "name": f"{NamePath(prefix).replace_wildcard('_merge_cn')}.kpi_prediction.csv"},
+        {"method": "t1k-call",        "name": f"{NamePath(prefix).replace_wildcard('_mergecall')}.t1k_7_all.tsv"},
+        # TODO exon-only
+    ]
+
+    cohort_data: dict[str, CohortGeneCN] = defaultdict(dict)
+    for dat in cohort:
+        for filename in NamePath(dat['name']).get_input_names():
+            print(filename)
+            if dat['method'] == "answer":
+                cohort_data[dat['method']].update({i: allele2CN(j) for i, j in readAnswerAllele(filename).items()})
+            elif dat['method'].endswith("-call"):
+                cohort_data[dat['method']].update({i: allele2CN(j) for i, j in readPredictResult(filename).items()})
+            elif dat['method'] == "ping":
+                cohort_data[dat['method']] = readPingCN(filename)
+            elif dat['method'] == "gatkir":
+                cohort_data[dat['method']] = readGatkirCN(filename)
+            elif dat['method'] == "kpi":
+                cohort_data[dat['method']] = readKpiCN(filename)
+            else:
+                cohort_data[dat['method']][filename.template_args[0]] = readCNFile(filename)
+    compareCNwithMethods(cohort_data)

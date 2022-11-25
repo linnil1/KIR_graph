@@ -16,9 +16,10 @@ from kg_mapping import bwa, bwaIndex, hisatMapWrap, trimBam
 def linkHPRCSample(input_folder):
     df = pd.read_csv("hprc.csv")
     fastq_folder = "/staging/biology/zxc898977/rawData/WGS_Ncbi"
+    df = df[df["sample_id"].notna()]
     print(df)
-    df = df[df["t1k"] == 1]
-    assert len(df) == 26
+    # df = df[df["t1k"] == 1]
+    # assert len(df) == 26
     for sample in df.itertuples():
         print(sample.id)
         print(sample.sample_id)
@@ -79,10 +80,10 @@ if __name__ == "__main__":
     index_folder = "index"
     data_folder = "data_tmp"
     cohort = "hprc_fastq"
-    direct_on_kir = True
+    direct_on_kir = False
     ref_index = "index5/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
     index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
-    search_other_region = True
+    search_other_region = False
 
     if cohort == "twbb_bam":
         sample = compose([

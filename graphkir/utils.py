@@ -12,9 +12,9 @@ import subprocess
 import dataclasses
 import numpy as np
 
-resources = {  # per sample
+resources: dict[str, int] = {  # per sample
     'threads': 2,
-    'memory': "7G",
+    'memory': 7,  # unit: G
 }
 docker_config = {
     "podman": {
@@ -31,7 +31,7 @@ docker_config = {
     },
     "singularity": {
         "path": "singularity",
-        "run": "run -B ${pwd -P} ",
+        "run": "run -B $PWD ",
         "image_prefix": "docker://",
     },
 }
@@ -94,8 +94,8 @@ def runShell(cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedPr
 
 def samtobam(name: str, keep=False) -> None:
     """ samfile -> sorted bamfile and index (This is so useful) """
-    runDocker("samtools", f"samtools sort -@{getThreads()} {name}.sam -o {name}.bam")
-    runDocker("samtools", f"samtools index            {name}.bam")
+    runDocker("samtools", f"samtools sort -@{getThreads()}  {name}.sam -o {name}.bam")
+    runDocker("samtools", f"samtools index -@{getThreads()} {name}.bam")
     if not keep:
         runShell(f"rm {name}.sam")
 

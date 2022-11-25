@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from namepipe import NamePath
 from graphkir.plot import showPlot
 from graphkir.utils import getGeneName, getAlleleField,  limitAlleleField
 
@@ -113,7 +114,7 @@ def readPredictResult(tsv_file: str,
                       ) -> CohortAlleles:
     """ Read predict alleles (same format as summary.csv) """
     data = pd.read_csv(tsv_file, sep='\t', dtype=str)
-    print(data)
+    # print(data)
     return {extract_func(i.name): (sorted(i.alleles.split("_")) if type(i.alleles) is str else [])
                 for i in data.itertuples()}
 
@@ -154,7 +155,7 @@ def compareCohort(cohort_answer: CohortAlleles,
                   skip_empty: bool = True,
                   verbose_sample: bool = True,
                   base_compare: bool = False,
-                  plot: bool = False) -> None:
+                  plot: bool = False) -> dict[str, list[MatchResult]]:
     """
     Compare answer and called alleles from all samples
 
@@ -202,6 +203,7 @@ def compareCohort(cohort_answer: CohortAlleles,
             *plotGeneLevelSummary(df_gene_acc),
             *plotGeneLevelSummary(df_gene_acc, order_by_accuracy=True),
         ])
+    return results
 
 
 def compareSample(answer_list: list[str], predict_list: list[str]) -> list[MatchResult]:
@@ -400,7 +402,7 @@ def calcSummaryByResolution(cohort_results: Iterable[MatchResult]) -> dict[str, 
             summary["FP"] += 1
             continue
 
-        if len(getAlleleField(result.answer_allele)) == 7:
+        if len(getAlleleField(result.answer_allele)) >= 7:
             summary["7digits_total"] += 1
             if result.match_type in [MatchType.MATCH7]:
                 summary["7digits_correct"] += 1
@@ -526,7 +528,16 @@ def plotGeneLevelSummary(df: pd.DataFrame,
     return [fig]
 
 
-def printSummaryGeneLevel(cohort_results: CohortMatchResult) -> pd.DataFrame:
+def reCalcDigitAcc(df: pd.DataFrame) -> pd.DataFrame:
+    df["7digits_acc"] = df["7digits_correct"] / df["7digits_total"]
+    df["5digits_acc"] = df["5digits_correct"] / df["5digits_total"]
+    df["3digits_acc"] = df["3digits_correct"] / df["3digits_total"]
+    df["gene_acc"]    = df["gene_correct"]    / df["gene_total"]
+    df["FN"]          = df["gene_total"]      - df["gene_correct"]
+    return df
+
+
+def printSummaryGeneLevel(cohort_results: CohortMatchResult, print_text: bool = True) -> pd.DataFrame:
     """
     printSummaryByResolution but in gene-level mode
 
@@ -548,94 +559,60 @@ def printSummaryGeneLevel(cohort_results: CohortMatchResult) -> pd.DataFrame:
 
     # other matrics
     df = pd.DataFrame(summary_by_gene.values())  # type: ignore
-    df["7digits_acc"] = df["7digits_correct"] / df["7digits_total"]
-    df["5digits_acc"] = df["5digits_correct"] / df["5digits_total"]
-    df["3digits_acc"] = df["3digits_correct"] / df["3digits_total"]
-    df["gene_acc"]    = df["gene_correct"]    / df["gene_total"]
-    df["FN"]          = df["gene_total"]      - df["gene_correct"]
+    df = reCalcDigitAcc(df)
 
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
-        print(df.set_index("gene"))
+    if print_text:
+        with pd.option_context('display.max_rows', None,
+                               'display.max_columns', None,
+                               'display.width', 160):  # type: ignore
+            print(df.set_index("gene"))
     return df
 
 
+def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
+    cohort_results = {}
+    for method, dat in cohort_data.items():
+        cohort_results[method] = compareCohort(cohort_data["answer"], dat, skip_empty=False, verbose_sample=False)
+
+    cohort_summarys = []
+    for method, results in cohort_results.items():
+        summary = printSummaryGeneLevel(results, print_text=False)
+        # summary = calcSummaryByResolution(result for results in results.values() for result in results)
+        summary['method'] = method
+        cohort_summarys.append(summary)
+    summary = pd.concat(cohort_summarys)
+
+    # print accuracy in differnet perspective
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 180):  # type: ignore
+        df = summary.groupby(["gene", "method"]).sum()
+        print(reCalcDigitAcc(df ).drop(columns=["7digits_total", "5digits_total", "3digits_total", "gene_total"]))
+
+        df1 = summary.groupby(["method"]).sum()
+        print(reCalcDigitAcc(df1).drop(columns=["7digits_total", "5digits_total", "3digits_total", "gene_total"]))
+
+        df2 = summary.groupby(["gene"]).sum()
+        print(reCalcDigitAcc(df2).drop(columns=["7digits_total", "5digits_total", "3digits_total", "gene_total"]))
+
+
 if __name__ == "__main__":
-    answer = "linnil1_syn_30x_seed87"
+    answer = "linnil1_syn/linnil1_syn_s44_summary.csv"
+    prefix = "data6/linnil1_syn_s44.{}.30x_s444"
+    cohort = [
+        {"method": "answer",             "name": f"{answer}"},
+        {"method": "ab2dl1s1-pv",        "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv.compare_sum.tsv"},
+        {"method": "ab2dl1s1-exonfirst", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv_exonfirst_1.2.compare_sum.tsv"},
+        {"method": "ping-call",          "name": f"data6/ping_linnil1_syn_{NamePath(prefix).replace_wildcard('_cohort').split('/')[-1]}.result_PING20220527/finalAlleleCalls.merge.tsv"},
+        {"method": "gatkir",             "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}.bwa.rg.md.from_linnil1_syn_s44_jg_30x_s444_bwa_rg_md_ploidy_linnil1_syn_s44_same_30x_s444_bwa_rg_md_answer_cn_jg_hc.norm.call_merge.tsv"},
+        {"method": "t1k",                "name": f"{NamePath(prefix).replace_wildcard('_mergecall')}.t1k_7_all.tsv"},
+        # TODO: exon sequences
+    ]
 
-    data = [{
-        'type': 'ping',
-        'file': f"data3/ping_{answer}.result/finalAlleleCalls.csv",
-    }, {
-        'type': 'ping-20220527',
-        'file': f"data3/ping_{answer}.resultPING20220527/finalAlleleCalls.csv",
-    }, {
-        'type': 'hisat-271-ab',
-        'file': f"data/{answer}_merge.index_kir_271_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-       'type': 'hisat-271-ab-2dl1s1',
-       'file': f"data/{answer}_merge.index_kir_271_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-        'type': 'hisat-290-ab',
-        'file': f"data/{answer}_merge.index_kir_290_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-       'type': 'hisat-290-ab-2dl1s1',
-       'file': f"data/{answer}_merge.index_kir_290_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-       'type': 'GATKIR',
-       'file': f"data3/{answer}_merge_called.bwa.rg.md.from_linnil1_syn_30x_seed87_jg_bwa_rg_md_ploidy_linnil1_syn_30x_seed87_answer_cn_jg_hc.norm.call_merge.tsv",
-    }, {
-       'type': 'GATKIR-all',
-       'file': f"data3/{answer}_merge_called_full.bwa.rg.md.from_linnil1_syn_30x_seed87_jg_bwa_rg_md_ploidy_linnil1_syn_30x_seed87_answer_cn_jg_hc.norm.call_merge.tsv",
-    }]
-
-    data.extend([{
-        'type': 'hisat-ab',
-        'file': f"data/{answer}_merge.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-        'type': 'hisat-ab-2dl1s1',
-        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-        'type': 'hisat',
-        'file': f"data/{answer}_merge.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-        'type': 'hisat-ab-2dl1s1-report',
-        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_hisat.tsv"
-    }, {
-        'type': 'hisat-ab-2dl1s1-multi',
-        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood_multi.tsv"
-    }, {
-        'type': 'hisat-ab-2dl1s1-no-errorcorr',
-        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }, {
-        'type': 'hisat-ab-2dl1s1',
-        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_depth_p75.type_likelihood.tsv"
-    }])
-
-    answer += "_exon"
-    data.extend([{
-        'type': 'ping-exon',
-        'file': f"data3/ping_{answer}.result/finalAlleleCalls.csv",
-    }, {
-        'type': 'ping-20220527-exon',
-        'file': f"data3/ping_{answer}.resultPING20220527/finalAlleleCalls.csv",
-    }, {
-        'type': 'hisat-ab-exon',
-        'file': f"data/{answer}_merge.index_kir_2100_raw.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
-    }, {
-        'type': 'hisat-ab-2dl1s1-exon',
-        'file': f"data/{answer}_merge.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
-    # }, {
-    #     'type': 'hisat-exon',
-    #     'file': f"data/{answer}_merge.index_kir_2100_ab.mut01.hisatgenotype.errcorr.linnil1.cn_sam_exon_depth_p75.type_likelihood.tsv"
-    }])
-
-    from ping import readPingResult
-    cohort = readAnswerAllele(f"{answer}/{answer}.summary.csv")
-
-    for dat in data:
-        print(dat['type'])
-        if "ping" in dat['type']:
-            called = readPingResult(dat['file'])
-        else:
-            called = readPredictResult(dat['file'])
-        compareCohort(cohort, called, skip_empty=False, verbose_sample=False)
+    cohort_data: dict[str, CohortAlleles] = defaultdict(dict)
+    for dat in cohort:
+        for filename in NamePath(dat['name']).get_input_names():
+            print(filename)
+            if dat['method'] == "answer":
+                cohort_data[dat['method']].update(readAnswerAllele(filename))
+            else:
+                cohort_data[dat['method']].update(readPredictResult(filename))
+    compareAlleleWithMethod(cohort_data)

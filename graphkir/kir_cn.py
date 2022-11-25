@@ -88,7 +88,7 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
         # if dist.base / assume_base > 1.7:
         #     dist.base /= 2
 
-    elif cluster_method == "KDEcut":
+    elif cluster_method == "kde":
         dist = KDEcut()  # type: ignore
         dist.fit(values)
     else:

@@ -803,6 +803,88 @@ def plotGeneDepth() -> list[go.Figure]:
     return [fig]
 
 
+def plotContinousErrorRange(df: pd.DataFrame, x: str, y_low: str, y: str, y_high: str) -> go.Figure:
+    return go.Figure([
+        go.Scatter(
+            name='Measurement',
+            x=df[x],
+            y=df[y],
+            mode='lines',
+            line=dict(color='rgb(31, 119, 180)'),
+        ),
+        go.Scatter(
+            name='Upper Bound',
+            x=df[x],
+            y=df[y_high],
+            mode='lines',
+            marker=dict(color="#444"),
+            line=dict(width=0),
+            showlegend=False
+        ),
+        go.Scatter(
+            name='Lower Bound',
+            x=df[x],
+            y=df[y_low],
+            marker=dict(color="#444"),
+            line=dict(width=0),
+            mode='lines',
+            fillcolor='rgba(68, 68, 68, 0.3)',
+            fill='tonexty',
+            showlegend=False
+        )
+    ])
+
+
+def plotGenomeDepth() -> list[go.Figure]:
+    depth_tsvs = NamePath("data_real/hprc.{}.index_hs37d5.bwa.part_strict.depth.tsv").get_input_names()
+    df_list = []
+    specific_sample = False
+    for depth_tsv in depth_tsvs:
+        if specific_sample and not any(i in depth_tsv for i in [
+            "HG00733", "NA19240",         # fail
+            "HG002", "HG00438", "HG005",  # normal
+            "NA21309", "HG02109"          # 50x
+        ]):
+            continue
+        df = readSamtoolsDepth(depth_tsv)
+        df["id"] = depth_tsv.template_args[-1]
+        df_list.append(df)
+
+    from scipy.signal import savgol_filter
+    df = pd.concat(df_list)
+    figs = []
+    k = 301
+    if specific_sample:
+        for chrom in sorted(set(df["gene"])):
+            df_chr = df[df["gene"] == chrom]
+            df_chr["depth"] = savgol_filter(df_chr["depth"], k, 0)
+            fig = px.line(df_chr[::k], x="pos", y="depth", color="id")
+            fig.update_layout(
+                yaxis_range=[0, 80],
+                title=chrom,
+                yaxis_title="Smoothed Depth",
+            )
+            figs.append(fig)
+
+    else:
+        df_agg = df.groupby(["gene", "pos"], as_index=False).agg(depth_mean=("depth", "mean"),
+                                                                 depth_std=("depth", np.std))
+        df_agg["depth_low"] = df_agg["depth_mean"] - 1 * df_agg["depth_std"]
+        df_agg["depth_high"] = df_agg["depth_mean"] + 1 * df_agg["depth_std"]
+        print(df_agg)
+        for chrom in sorted(set(df_agg["gene"])):
+            df_chr = df_agg[df_agg["gene"] == chrom]
+            # print(df_chr)
+            fig = plotContinousErrorRange(df_chr, x="pos", y_low="depth_low", y="depth_mean", y_high="depth_high")
+            fig.update_layout(
+                yaxis_range=[0, 80],
+                title=chrom,
+                yaxis_title="Smoothed Depth",
+            )
+            figs.append(fig)
+    return figs
+
+
 if __name__ == "__main__":
     """
     extractTargetReadFromBam("data/linnil1_syn_wide.test10.00.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.sam",
@@ -814,9 +896,10 @@ if __name__ == "__main__":
     """
     figs = []
     # figs.extend(plotBamStat())
-    figs.extend(plotGenewiseMapping())
+    # figs.extend(plotGenewiseMapping())
     # figs.extend(plotMappingFromTo())
     # figs.extend(plotGeneDepth())
+    figs.extend(plotGenomeDepth())
     print("Plot")
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])
