@@ -26,7 +26,7 @@ kir_block_name = [
     "intron7", "exon8", "intron8", "exon9", "3UTR"]
 
 
-def saveAllMsa(genes: GenesMsa, prefix: str):
+def saveAllMsa(genes: GenesMsa, prefix: str) -> None:
     """
     Save each gene's MSA
 
@@ -111,7 +111,7 @@ def splitMsaToBlocks(genes: GenesMsa) -> BlockMsa:
     return blocks
 
 
-def blockToFile(blocks: BlockMsa, tmp_prefix="tmp") -> BlockFile:
+def blockToFile(blocks: BlockMsa, tmp_prefix: str = "tmp") -> BlockFile:
     """
     Save blocks' sequences into fasta
 
@@ -269,7 +269,7 @@ def buildKirMsa(mode: str, prefix: str, version: str = "2100",
                 input_msa_prefix: str = "",
                 full_length_only: bool = True,
                 mergeMSA: Callable = mergeMSA,
-                threads: int = 1):
+                threads: int = 1) -> None:
     """
     Read KIR from database and save MSA into files with prefix
 

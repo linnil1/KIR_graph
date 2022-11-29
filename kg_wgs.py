@@ -36,6 +36,20 @@ def bam2fastqViaSamtools(input_name):
     return output_name + ".read"
 
 
+def extractHg19Depth(input_name):
+    output_name = input_name + ".part_strict.depth"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+
+    regions = ("19:55200000-55400000 GL000209.1").split()
+    for i, reg in enumerate(regions):
+        runDocker("samtools",
+                  f"samtools depth -@ {getThreads()} -aa -r {reg} "
+                  f"{input_name}.bam -o {output_name}.{i}.tsv")
+    runShell("cat " + " ".join(f"{output_name}.{i}.tsv" for i in range(len(regions))) + f" > {output_name}.tsv")
+    runShell("rm "  + " ".join(f"{output_name}.{i}.tsv" for i in range(len(regions))))
+    return output_name
+
 
 def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
     """ Extract hg19 """

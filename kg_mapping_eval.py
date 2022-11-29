@@ -589,7 +589,7 @@ def plotGenewiseMapping() -> list[go.Figure]:
                 })
         pprint(data)
 
-        with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor(20) as executor:
             bam_files = map(lambda i: i["file"], data)
             for d, result in zip(data, executor.map(getEachReadMappedOn, bam_files)):
                 d["records"] = result  # reocrds by parseing samtools view
@@ -867,15 +867,20 @@ def plotGenomeDepth() -> list[go.Figure]:
             figs.append(fig)
 
     else:
-        df_agg = df.groupby(["gene", "pos"], as_index=False).agg(depth_mean=("depth", "mean"),
-                                                                 depth_std=("depth", np.std))
-        df_agg["depth_low"] = df_agg["depth_mean"] - 1 * df_agg["depth_std"]
+        df_agg = df.groupby(["gene", "pos"], as_index=False).agg(
+            depth_mean=("depth", "mean"),
+            depth_std=("depth", np.std),
+            depth_p25=("depth", lambda i: np.percentile(i, 25)),
+            depth_p75=("depth", lambda i: np.percentile(i, 75)),
+        )
+        df_agg["depth_low"]  = df_agg["depth_mean"] - 1 * df_agg["depth_std"]
         df_agg["depth_high"] = df_agg["depth_mean"] + 1 * df_agg["depth_std"]
         print(df_agg)
         for chrom in sorted(set(df_agg["gene"])):
             df_chr = df_agg[df_agg["gene"] == chrom]
             # print(df_chr)
-            fig = plotContinousErrorRange(df_chr, x="pos", y_low="depth_low", y="depth_mean", y_high="depth_high")
+            fig = plotContinousErrorRange(df_chr, x="pos", y_low="depth_p25", y="depth_mean", y_high="depth_p75")
+            # fig = plotContinousErrorRange(df_chr, x="pos", y_low="depth_low", y="depth_mean", y_high="depth_high")
             fig.update_layout(
                 yaxis_range=[0, 80],
                 title=chrom,

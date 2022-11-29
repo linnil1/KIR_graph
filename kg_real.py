@@ -2,12 +2,13 @@ from pathlib import Path
 from functools import partial
 import pandas as pd
 
-from namepipe import NameTask, compose, ConcurrentTaskExecutor
+from namepipe import NameTask, compose, ConcurrentTaskExecutor, BaseTaskExecutor
 from kg_wgs import (
     downloadHg19,
     extractFromHg19,
     bam2fastqWrap,
     bam2fastqViaSamtools,
+    extractHg19Depth,
 )
 from kg_utils import back, SlurmTaskExecutor, runShell, addSuffix
 from kg_mapping import bwa, bwaIndex, hisatMapWrap, trimBam
@@ -85,6 +86,8 @@ if __name__ == "__main__":
     index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
     search_other_region = False
 
+    # these step in run on Taiwania HPC
+    """
     if cohort == "twbb_bam":
         sample = compose([
             data_folder,
@@ -111,6 +114,7 @@ if __name__ == "__main__":
             bwaIndex,
         ])
 
+    base = BaseTaskExecutor()
     exe = SlurmTaskExecutor(threads_per_sample=2, template_file="taiwania.template")
     exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
     NameTask.set_default_executor(exe)
@@ -121,6 +125,7 @@ if __name__ == "__main__":
                 sample,
                 NameTask(partial(bwa, index=str(genome_index)), executor=exe_large),
             ])
+            compose([sample, extractHg19Depth])
             hg19_type = "hs37d5"
         else:
             hg19_type = "hg19"
@@ -136,6 +141,8 @@ if __name__ == "__main__":
         partial(trimBam, remove=True),
     ])
 
+    """
+    # these step in run on our server
     NameTask.set_default_executor(ConcurrentTaskExecutor(10))
     from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap
     # samples = "data_real/twbb.{}"
@@ -146,6 +153,7 @@ if __name__ == "__main__":
     # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_merge.annot_read"
     # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
     # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_strict"
+    # samples = "data_real/hprc26.{}.index_hs37d5.bwa.part_strict"
     samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
     samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))

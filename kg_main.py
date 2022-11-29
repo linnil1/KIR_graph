@@ -11,13 +11,13 @@ from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
 from graphkir.hisat2 import extractVariantFromBam, readExons
 from graphkir.kir_cn import bam2Depth, filterDepth, loadCN, predictSamplesCN
 from graphkir.kir_typing import selectKirTypingModel
-from graphkir.main import mergeAllele
 from graphkir.plot import showPlot, plotCN, plotGeneDepths
 from graphkir.msa_leftalign import genemsaLeftAlign
 from graphkir.utils import (
     runShell,
     samtobam,
     getThreads,
+    mergeAllele,
 )
 
 from vg import (
@@ -159,12 +159,17 @@ def cnPredict(input_name):
         # SELECT * FROM depths GROUP BY SAMPLE
         if Path(output_name + ".json").exists():
             return output_name
-        predictSamplesCN([input_name  + ".tsv"],
-                         [output_name + ".tsv"],
-                         cluster_method=cn_cluster,
-                         select_mode=cn_select,
-                         assume_3DL3_diploid=assume_3DL3_diploid,
-                         save_cn_model_path=output_name + ".json")
+        try:
+            predictSamplesCN([input_name  + ".tsv"],
+                             [output_name + ".tsv"],
+                             cluster_method=cn_cluster,
+                             select_mode=cn_select,
+                             assume_3DL3_diploid=assume_3DL3_diploid,
+                             save_cn_model_path=output_name + ".json")
+        except AssertionError as e:
+            # SKIP this sample becuase 3DL3 assumption is fail
+            print(e)
+            return None
     else:  # cohort
         # SELECT * FROM depths
         output_name1 = input_name.replace_wildcard("_merge_cn") + suffix_cn
@@ -233,8 +238,8 @@ def plotCNWrap(input_name, per_sample=False, show_depth=True):
             if show_depth:
                 figs.extend(plotGeneDepths(name[:name.find(".depth") + 6] + ".tsv", title=name))
             figs.extend(plotCN(name + ".json"))
-            if len(figs) > 10:
-                break
+            # if len(figs) > 10:
+            #     break
     showPlot(figs)
 
 
@@ -357,12 +362,11 @@ if __name__ == "__main__":
         seed1 = 2022
         seed2 = 1031
         depth = 30
-        data_folder = "data6"
 
     msa_index = compose([
         index_folder,
-        partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),
-        # partial(buildMsaWithCds, msa_type="ab_2dl1s1"),
+        # partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),
+        partial(buildMsaWithCds, msa_type="ab_2dl1s1"),
         leftAlignWrap,
     ])
 

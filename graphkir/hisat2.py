@@ -12,7 +12,7 @@ import bisect
 from typing import Iterator, TypedDict, Iterable
 from dataclasses import dataclass, field, asdict
 
-from .utils import runDocker, samtobam
+from .utils import runDocker, samtobam, getThreads
 from .msa2hisat import Variant
 from .pileup import PileupCount, getPileupBaseRatio
 # TODO
@@ -61,7 +61,7 @@ class ReadsAndVariantsData(TypedDict):
     reads: list[PairRead]
 
 
-def hisatMap(index: str, f1: str, f2: str, output_file: str, threads: int = 1):
+def hisatMap(index: str, f1: str, f2: str, output_file: str, threads: int = 1) -> None:
     """ run hisat2 """
     assert output_file.endswith(".bam")
     output_name = output_file.rsplit(".", 1)[0]
@@ -825,7 +825,7 @@ def saveSam(filename: str, header: str,  reads: Iterable[PairRead]):
 def saveReadsToBam(reads_data: ReadsAndVariantsData,
                    filename_prefix: str,
                    bam_file: str,
-                   filter_multi_mapped: bool = False):
+                   filter_multi_mapped: bool = False) -> None:
     """
     Save the reads into sam/bamfile (`{filename_prefix}.bam`)
 
@@ -842,7 +842,7 @@ def saveReadsToBam(reads_data: ReadsAndVariantsData,
     samtobam(filename_prefix)
 
 
-def extractVariantFromBam(index: str, bam_file: str, output_prefix: str, error_correction: bool = True):
+def extractVariantFromBam(index: str, bam_file: str, output_prefix: str, error_correction: bool = True) -> None:
     """
     Extract reads and variants from bamfile
 

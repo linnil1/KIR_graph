@@ -168,7 +168,7 @@ def msaLeftAlign(msa_ori: Genemsa) -> Genemsa:
     return reduce(lambda i, j: i + j, msa_aligned)
 
 
-def genemsaLeftAlign(input_prefix: str, output_prefix: str):
+def genemsaLeftAlign(input_prefix: str, output_prefix: str) -> None:
     """
     Left align our MSA in `input_prefix.{gene}` and save in `output_prefix.{gene}`
     Also reconstruct our backbone sequence

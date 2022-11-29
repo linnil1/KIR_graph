@@ -5,6 +5,7 @@ Module for clustering depths into CN
 * KDE
 """
 from __future__ import annotations
+from typing import Any
 import json
 import numpy as np
 
@@ -23,7 +24,7 @@ class Dist:
     def __init__(self):
         pass
 
-    def fit(self, values: list[float]):
+    def fit(self, values: list[float]) -> None:
         """ Determine the parameters by data """
         raise NotImplementedError
 
@@ -31,7 +32,7 @@ class Dist:
         """ Assign CN with depth input by parameters """
         raise NotImplementedError
 
-    def save(self, filename: str):
+    def save(self, filename: str) -> None:
         """ Save parameters """
         with open(filename, "w") as f:
             json.dump(self.getParams(), f, cls=NumpyEncoder)
@@ -43,12 +44,12 @@ class Dist:
             data = json.load(f)
         return cls.setParams(data)
 
-    def getParams(self) -> dict:
+    def getParams(self) -> dict[str, Any]:
         """ Get parameters """
         raise NotImplementedError
 
     @classmethod
-    def setParams(cls, data: dict) -> Dist:
+    def setParams(cls, data: dict[str, Any]) -> Dist:
         """ Set parameters """
         raise NotImplementedError
 
@@ -85,7 +86,7 @@ class CNgroup(Dist):
         self.data            = []
         self.likelihood      = []
 
-    def getParams(self) -> dict:
+    def getParams(self) -> dict[str, Any]:
         """ Save parameters """
         return {
             'method'  : "CNgroup",
@@ -100,7 +101,7 @@ class CNgroup(Dist):
         }
 
     @classmethod
-    def setParams(cls, data: dict) -> CNgroup:
+    def setParams(cls, data: dict[str, Any]) -> CNgroup:
         """ Load parameters """
         assert data['method'] == "CNgroup"
         self = cls()
@@ -114,7 +115,7 @@ class CNgroup(Dist):
         self.likelihood = np.array(data['likelihood'])
         return self
 
-    def fit(self, values: list[float]):
+    def fit(self, values: list[float]) -> None:
         """
         Find the maximum CN distributions to fit the values.
 
@@ -125,7 +126,7 @@ class CNgroup(Dist):
         # normalize
         max_depth = max(values) * 1.2
         self.base_dev *= max_depth
-        self.x_max = max_depth
+        self.x_max = max(max_depth, 1e-6)  # to avoid divided by 0
         self.data = values
 
         # discrete (bin_num)
@@ -153,7 +154,7 @@ class CNgroup(Dist):
         space = self.x_max / self.bin_num
         return [cn_max[int(depth / space)] for depth in values]
 
-    def calcCNGroupProb(self, base: float):
+    def calcCNGroupProb(self, base: float) -> np.ndarray:
         """
         Returns:
             ( CN x norm_read_depth(500bin) ) array
@@ -242,7 +243,7 @@ class KDEcut(Dist):
         # for plot
         self.data: list[float]      = []  # normalized data
 
-    def getParams(self) -> dict:
+    def getParams(self) -> dict[str, Any]:
         """ Save parameters """
         return {
             'method'   : "KDEcut",
@@ -255,7 +256,7 @@ class KDEcut(Dist):
         }
 
     @classmethod
-    def setParams(cls, data: dict) -> KDEcut:
+    def setParams(cls, data: dict[str, Any]) -> KDEcut:
         """ Load parameters """
         assert data['method'] == "KDEcut"
         self = cls()
@@ -267,7 +268,7 @@ class KDEcut(Dist):
         self.local_min = data['local_min']
         return self
 
-    def fit(self, values: list[float]):
+    def fit(self, values: list[float]) -> None:
         """
         1. Normalize to 0-1 by (the maximum depth `x_max`)
         2. Fit the data to KDE

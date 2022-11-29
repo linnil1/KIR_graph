@@ -1,6 +1,7 @@
 """
 Plot utility for statistic (Not for accuracy)
 """
+from typing import Iterable
 from concurrent.futures import ProcessPoolExecutor
 
 from Bio import SeqIO
@@ -107,7 +108,7 @@ def plotReadMappingStat(bam_files: list[str],
     return [fig0, fig1]
 
 
-def showPlot(figs: list[go.Figure]):
+def showPlot(figs: Iterable[go.Figure]) -> None:
     """ Show all the figure in website default localhost:8051 """
     from dash import Dash, dcc, html
     app = Dash(__name__)
@@ -115,7 +116,7 @@ def showPlot(figs: list[go.Figure]):
     app.run_server(debug=True, port=8051)
 
 
-def savePlot(html_filename: str, figs: list[go.Figure]):
+def savePlot(html_filename: str, figs: Iterable[go.Figure]) -> None:
     """ Save all the figure in html_filename """
     with open(html_filename, 'w') as f:
         for fig in figs:

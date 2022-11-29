@@ -33,7 +33,7 @@ def bwa(input_name, index):
 
     rg = "@RG\\tID:" + id + "\\tSM: " + id
     runDocker("bwa", f""" \
-        bwa mem -t {getThreshold()} \
+        bwa mem -t {getThreads()} \
             {index}/REF/KIR_seq_ref \
             -R "{rg}" \
             {input_name}.read.1.fq \
@@ -239,23 +239,38 @@ def haplotypeCaller(input_name, index):
     return output_name
 
 
-def jointGenotype(input_name, index):
-    output_name = input_name.replace_wildcard("_jg")
-
-    files = [name + ".g.vcf.gz" for name in input_name.get_input_names()]
-
+def mergeVCF(input_name, index):
+    output_name = input_name.replace_wildcard("_mergevcf")
     if Path(output_name + ".g.vcf.gz").exists():
         return output_name
 
+    files = [name + ".g.vcf.gz" for name in input_name.get_input_names()]
+    runDocker("gatk3", f""" \
+        java -Xmx40g -Xms40g -jar /usr/GenomeAnalysisTK.jar \
+        -T CombineGVCFs \
+        -R {index}/REF/KIR_seq_ref.fasta \
+        -o {output_name}.g.vcf.gz \
+        {" ".join(map(lambda i: "--variant " + i, files))}
+    """)
+    return output_name
+
+
+def jointGenotype(input_name, index):
+    output_name = input_name + ".gt"
+    if Path(output_name + ".g.vcf.gz").exists():
+        return output_name
+
+    files = [name + ".g.vcf.gz" for name in input_name.get_input_names()]
     runDocker("gatk3", f""" \
         java -Xmx40g -Xms40g -jar /usr/GenomeAnalysisTK.jar \
         -T GenotypeGVCFs \
         -R {index}/REF/KIR_seq_ref.fasta \
         -allSites \
         -o {output_name}.g.vcf.gz \
-        {" ".join(map(lambda i: "--variant " + i, files))}
+        --variant {input_name}.g.vcf.gz
     """)
     return output_name
+
 
 
 def separteVCFSample(input_name, genotype):
@@ -502,6 +517,7 @@ if __name__ == "__main__":
     # testShowIdea()
     # exit()
     samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
+    samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
     data_folder = "data6"
     index = compose([None, setupGATKIR])
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
@@ -513,6 +529,7 @@ if __name__ == "__main__":
         markDupliate,
     ])
 
+    """
     # switch this
     ploidy = compose([
         mapping,
@@ -520,6 +537,7 @@ if __name__ == "__main__":
         getCoverage,
         NameTask(ploidyEstimate, depended_pos=[-1]),
     ])
+    """
     ploidy = compose([
         mapping,
         partial(createAnswerPloidy, sample_name=samples),
@@ -529,20 +547,21 @@ if __name__ == "__main__":
         mapping,
         partial(ploidyExploded, ploidy_name=str(ploidy)),
         partial(haplotypeCaller, index=index),
-        NameTask(partial(jointGenotype, index=index), depended_pos=[-1, -2]),
+        # "OSError: [Errno 7] Argument list too long: '/bin/sh'" occurs
+        # NameTask(partial(jointGenotype, index=index), depended_pos=[-1, -2]),
+        NameTask(partial(mergeVCF, index=index), depended_pos=[-2]),  # merge per gene across sample
+        NameTask(partial(mergeVCF, index=index), depended_pos=[-1]),  # merge all genes
+        partial(jointGenotype, index=index),
     ])
-    gatk = compose([
-        mapping,
-        partial(separteVCFSample, genotype=str(genotype_joint)),
+    vcf = mapping >> partial(separteVCFSample, genotype=str(genotype_joint))
+    compose([
+        vcf,
         partial(vcfNorm, index=index),
         partial(calling, index=index),
         NameTask(mergeCall, depended_pos=[-1]),
         NameTask(partial(mergeAlleles, select_all=True), depended_pos=[-1]),
         partial(compareResult, sample_name=samples),
     ])
-
-    # TODO
-    # deep_variant = mapping >> deepVariant.set_args(index=index) \
-    #                        >> vcfNorm.set_args(index=index)
-    # How to use deep_variant in gatkir_call
     runShell("stty echo opost")
+    # TODO: How to use deep_variant in gatkir_call
+    # vcf = mapping >> deepVariant.set_args(index=index)

@@ -35,18 +35,22 @@ class Variant:
     novel_id: ClassVar[int] = 0  # novel allele id (increase when find new variant in in hisat2.py)
 
     # const
-    order_type: ClassVar[dict] = {"insertion": 0, "single": 1, "deletion": 2, "match": 3}
-    order_nuc: ClassVar[dict] = {"A": 0, "C": 1, "G": 2, "T": 3}
+    order_type: ClassVar[dict[str, int]] = {"insertion": 0, "single": 1, "deletion": 2, "match": 3}
+    order_nuc: ClassVar[dict[str, int]] = {"A": 0, "C": 1, "G": 2, "T": 3}
 
-    def __lt__(self, othr):
+    def __lt__(self, othr: object) -> bool:
+        if not isinstance(othr, Variant):
+            return NotImplemented
         return (self.ref, self.pos, self.order_type[self.typ], self.val) \
              < (othr.ref, othr.pos, self.order_type[othr.typ], othr.val)
 
-    def __eq__(self, othr):
+    def __eq__(self, othr: object) -> bool:
+        if not isinstance(othr, Variant):
+            return NotImplemented
         return (self.pos, self.ref, self.typ, self.val) \
             == (self.pos, self.ref, self.typ, self.val)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((self.pos, self.ref, self.typ, self.val))
 
 
@@ -172,12 +176,12 @@ def addFreqInVariant(msa: Genemsa,
     return variants_dict
 
 
-def writeTSV(f: TextIO, data: list[Any]):
+def writeTSV(f: TextIO, data: list[Any]) -> None:
     """ Save list of data separated by tab """
     f.write('\t'.join(map(str, data)) + "\n")
 
 
-def writeMsa(index_prefix: str, msa: Genemsa):
+def writeMsa(index_prefix: str, msa: Genemsa) -> None:
     """
     Write MSA-only information
 
@@ -202,7 +206,7 @@ def writeMsa(index_prefix: str, msa: Genemsa):
     # Allele allele name
     with open(index_prefix + ".allele", 'a') as allele_name_f:
         allele_name_f.writelines(
-            map(lambda i: i + "\n",
+            map(lambda i: i + "\n",  # type: ignore
                 filter(lambda i: i != ref_name, msa.get_sequence_names()))
         )
 
@@ -223,7 +227,7 @@ def writeMsa(index_prefix: str, msa: Genemsa):
         writeTSV(locus_f, [ref_name, ref_name, 0, leng, leng, exon_str, "+"])
 
 
-def writeVariant(index_prefix: str, variants: list[Variant]):
+def writeVariant(index_prefix: str, variants: list[Variant]) -> None:
     """
     Write variant information
 
@@ -250,7 +254,7 @@ def writeVariant(index_prefix: str, variants: list[Variant]):
 
 def writeHaplo(index_prefix: str,
                variants_per_allele: dict[str, list[Variant]],
-               msa: Genemsa):
+               msa: Genemsa) -> None:
     """
     Write star allele information
 
@@ -279,7 +283,7 @@ def writeHaplo(index_prefix: str,
             Variant.haplo_id += 1
 
 
-def clearBeforeWrite(index_prefix: str):
+def clearBeforeWrite(index_prefix: str) -> None:
     """ Clear the output file """
     extension = [".snp", ".index.snp", ".snp.freq", ".link", "_backbone.fa",
                  "_sequences.fa", ".allele", ".partial", ".locus", ".haplotype"]
@@ -288,7 +292,7 @@ def clearBeforeWrite(index_prefix: str):
             pass
 
 
-def msa2HisatReference(msa_prefix: str, index_prefix: str):
+def msa2HisatReference(msa_prefix: str, index_prefix: str) -> None:
     """
     Transfer MSA to hisat2 format
 
@@ -321,7 +325,7 @@ def msa2HisatReference(msa_prefix: str, index_prefix: str):
         writeHaplo  (index_prefix, variants_per_allele, msa=msa)
 
 
-def buildHisatIndex(name: str, output_name: str, threads: int = 1):
+def buildHisatIndex(name: str, output_name: str, threads: int = 1) -> None:
     """ Run hisat2-build, input and output are prefix of filenames """
     runDocker("hisat", f"""\
               hisat2-build {name}_backbone.fa \

@@ -11,6 +11,7 @@ import uuid
 import subprocess
 import dataclasses
 import numpy as np
+import pandas as pd
 
 resources: dict[str, int] = {  # per sample
     'threads': 2,
@@ -21,18 +22,23 @@ docker_config = {
         "path": "podman",
         "run": "run -it --rm -u root -w /app -v $PWD:/app",
         "name": "--name",  # short name has collision when submit the jobs concurrently
-        "image_prefix": "",
+        "image_func": lambda i: i,
     },
     "docker": {
         "path": "/usr/bin/docker",
         "run": "run -it --rm -u root -w /app -v $PWD:/app",
         "name": "--name",
-        "image_prefix": "",
+        "image_func": lambda i: i,
     },
     "singularity": {
         "path": "singularity",
         "run": "run -B $PWD ",
-        "image_prefix": "docker://",
+        "image_func": lambda i: "docker://" + i,
+    },
+    "local": {
+        "path": "",
+        "run": "",
+        "image_func": lambda i: "",
     },
 }
 docker_type = "podman"
@@ -40,7 +46,7 @@ docker_type = "podman"
 # download every image into image file
 # singularity build quay.io/biocontainers/bwa:0.7.17--hed695b0_7 singur_image/quay.io/biocontainers/bwa:0.7.17--hed695b0_7
 # docker_type = "singularity"
-# docker_config[docker_type]["image_prefix"] = "singur_image/"
+# docker_config[docker_type]["image_func"] = lambda i: "singur_image/" + i
 # docker_config[docker_type]["run"] = (
 #     "run "
 #     "--bind /home/linnil1tw "
@@ -76,7 +82,7 @@ def runDocker(image: str, cmd: str, capture_output=False, cwd=None, opts="") -> 
     conf = docker_config[docker_type]
     cmd_all = f"{conf['path']} {conf['run']} " + \
               (f"{conf['name']} {random_name} " if conf.get('name') else "") + \
-              f"{opts} {conf['image_prefix']}{image} {cmd}"
+              f"{opts} {conf['image_func'](image)} {cmd}"  # type: ignore
     proc = runShell(cmd_all, capture_output=capture_output, cwd=cwd)
     return proc
 
@@ -130,11 +136,33 @@ def getAlleleField(allele: str, resolution: int = 7) -> str:
         return ""
     patterns = re.findall(r"^\w+\*(\d+\w*)", allele)
     if patterns:
-        num = patterns[0]
+        num = str(patterns[0])
     else:
         num = "new"
     if resolution == 7:
         return num
     else:
         return num[:resolution]
+    # mostly equvient to this
     # return allele.split("*")[1][0][:resolution]
+
+
+def mergeAllele(allele_result_files: list[str], final_result_file: str) -> pd.DataFrame:
+    """ Merge allele calling result """
+    df = pd.concat(pd.read_csv(f, sep="\t") for f in allele_result_files)
+    df.to_csv(final_result_file, index=False, sep="\t")
+    return df
+
+
+def mergeCN(cn_result_files: list[str], final_result_file: str) -> pd.DataFrame:
+    """ Merge copy number result """
+    dfs = []
+    for f in cn_result_files:
+        df = pd.read_csv(f, sep="\t")
+        df["name"] = f
+        dfs.append(df)
+    df = pd.pivot_table(pd.concat(dfs), values="cn", index="gene", columns=["name"])
+    df = df.fillna(0)
+    df = df.astype(int)
+    df.to_csv(final_result_file, sep="\t")
+    return df

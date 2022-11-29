@@ -9,12 +9,12 @@ from .cn_model import CNgroup, KDEcut, Dist
 from .utils import runDocker, NumpyEncoder
 
 
-def bam2Depth(file_bam: str, file_depth: str, get_all=True):
+def bam2Depth(file_bam: str, file_depth: str, get_all=True) -> None:
     """ Get read depth of all the position (via samtools depth) """
     if get_all:
-        runDocker("samtools", f"samtools depth -a {file_bam} -o {file_depth}")
+        runDocker("samtools", f"samtools depth -aa {file_bam} -o {file_depth}")
     else:
-        runDocker("samtools", f"samtools depth    {file_bam} -o {file_depth}")
+        runDocker("samtools", f"samtools depth     {file_bam} -o {file_depth}")
 
 
 def readSamtoolsDepth(depth_filename: str) -> pd.DataFrame:
@@ -105,7 +105,7 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
 
 def filterDepth(depth_file: str,
                 filtered_depth_file: str,
-                bam_selected_regions: dict[str, list[tuple[int, int]]] = {}):
+                bam_selected_regions: dict[str, list[tuple[int, int]]] = {}) -> None:
     """
     Bam -> tsv of read depth
 
@@ -127,7 +127,7 @@ def predictSamplesCN(samples_depth_tsv: list[str],
                      select_mode: str = "p75",
                      per_gene: bool = False,
                      cluster_method: str = "CNgroup",
-                     ):
+                     ) -> None:
     """
     Read depth tsv and predict CN per gene per sample
 
