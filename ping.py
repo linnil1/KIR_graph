@@ -6,14 +6,17 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from namepipe import compose, NameTask
+from namepipe import compose, NameTask, BaseTaskExecutor
 from graphkir.utils import runShell, getThreads
-from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
+from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult, buildDocker
 from kg_eval import readAnswerAllele, saveCohortAllele
 
 
 def extractID(name: str) -> str:
-    return re.findall(r"\.(\d+)\.", name)[0]
+    if "hprc" in name:  # bad habit but works
+        return re.findall(r"hprc\.(\w+)\.", name)[0]
+    else:
+        return re.findall(r"\.(\d+)\.", name)[0]
 
 
 def readPingLocusCount(locus_csv: str) -> pd.DataFrame:
@@ -81,20 +84,22 @@ def cutThresholdByAns(answer_csv, sample_index):
     df_ping = readPingLocusCount(f"{sample_index}/locusRatioFrame.csv")
     df_ans = readAns(answer_csv)
     """
-       id method  KIR2DL1  KIR2DL2  KIR2DL4  KIR2DL5  
-       0  00    ans      0.5      1.0      1.0      1.5
-       1  01    ans      1.0      0.5      1.0      1.0
-       2  02    ans      1.0      1.0      2.0      1.0
-       3  03    ans      0.5      1.0      1.5      0.5
+    id method  KIR2DL1  KIR2DL2  KIR2DL4  KIR2DL5
+    0  00    ans      0.5      1.0      1.0      1.5
+    1  01    ans      1.0      0.5      1.0      1.0
+    2  02    ans      1.0      1.0      2.0      1.0
+    3  03    ans      0.5      1.0      1.5      0.5
     """
     df = pd.concat([df_ping, df_ans], ignore_index=True)
     df = df.melt(["id", "method"], var_name="gene")
     df = df.sort_values(["method", "value"], ascending=[False, True])  # PING value is ascending
     """
-         id method     gene     value
-         0    00   PING  KIR3DP1  0.343889
-         1    01   PING  KIR3DP1  0.344004
+    id method     gene     value
+    0    00   PING  KIR3DP1  0.343889
+    1    01   PING  KIR3DP1  0.344004
     """
+    id_set = set(df[df["method"] == "PING"]["id"]) & set(df[df["method"] == "ANS"]["id"])
+    df = df[df["id"].isin(id_set)]
 
     # cut threshold and plot
     threshold_list = []
@@ -117,15 +122,20 @@ def plotPing(input_name, sample_name):
     from dash import Dash, dcc, html
     import plotly.express as px
 
-    df_ping = readPingLocusCount(f"{folder}/locusRatioFrame.csv")
-    df_ans = readAns(getAnswerFile(sample_name))
-    threshold_df = pd.read_csv(f"{folder}/manualCopyThresholds.csv")
-    threshold_df.columns = ["gene", *threshold_df.columns[1:]]
-    df = pd.concat([df_ping, df_ans])
+    # read data
+    df_list = []
+    df_list.append(readPingLocusCount(f"{folder}/locusRatioFrame.csv"))
+    df_list.append(readAns(getAnswerFile(sample_name)))
+    df = pd.concat(df_list)
     print(df)
-    print(threshold_df)
     df = df.melt(["id", "method"], var_name="gene")
     df = df.sort_values(["method", "value"], ascending=[False, True])  # PING value is ascending
+
+    # threshold
+    if Path(f"{folder}/manualCopyThresholds.csv").exists():
+        threshold_df = pd.read_csv(f"{folder}/manualCopyThresholds.csv")
+        threshold_df.columns = ["gene", *threshold_df.columns[1:]]
+        print(threshold_df)
 
     # plot
     figs = []
@@ -136,13 +146,14 @@ def plotPing(input_name, sample_name):
         fig.update_layout(yaxis_title=f"{gene}/KIR3DL3 ratio",
                           xaxis_title="Sample ID")
 
-        # plot
-        for i in range(6):
-            id = f"{i}-{i+1}"
-            threshold = threshold_df[threshold_df["gene"] == gene][threshold_df.columns[i + 1]]
-            if not threshold.isnull().sum() and len(threshold):
-                fig.add_hline(y=float(threshold), annotation_text=f"CN{i} - {i+1}",
-                              line_dash="dash", line_color="gray")
+        # plot threshold
+        if Path(f"{folder}/manualCopyThresholds.csv").exists():
+            for i in range(6):
+                id = f"{i}-{i+1}"
+                threshold = threshold_df[threshold_df["gene"] == gene][threshold_df.columns[i + 1]]
+                if not threshold.isnull().sum() and len(threshold):
+                    fig.add_hline(y=float(threshold), annotation_text=f"CN{i} - {i+1}",
+                                  line_dash="dash", line_color="gray")
         figs.append(fig)
 
     # with open(f"{folder}/plots_of_cn_threashold.html", 'w') as f:
@@ -158,7 +169,7 @@ def buildPing(input_name, folder):
     if Path(folder).exists():
         return folder
     runShell(f"git clone https://github.com/wesleymarin/PING.git {folder}")
-    runShell(f"docker build {folder} -t ping")
+    buildDocker("ping", "ping.dockerfile", folder=folder)
     return folder
 
 
@@ -172,15 +183,14 @@ def pingMain(index, folder_in, folder_out):
     """)
 
 
-def ping(input_name, index, sample_name):
-    answer_file = getAnswerFile(sample_name)
+def pingRun(input_name, index, sample_name):
     folder_in = str(Path(input_name).parent)
     folder_out = folder_in + ".result_"
     folder_out += index.replace("/", "_")
 
-    # first time will fail
-    # but we'll get locusRatioFrame.csv
-    if not Path(folder_out + "/locusRatioFrame.csv").exists():
+    if not Path(folder_out + "/manualCopyThresholds.csv").exists():
+        # first time will fail
+        # but we'll get locusRatioFrame.csv
         try:
             pingMain(index, folder_in, folder_out)
             # -e SHORTNAME_DELIM={threads}
@@ -189,8 +199,7 @@ def ping(input_name, index, sample_name):
 
         # Use answer and ratio to cut thresholds
         assert Path(folder_out + "/locusRatioFrame.csv").exists()
-        # data2_linnil1_syn_30x_seed87/
-        # -> linnil1_syn_30x_seed87
+        answer_file = getAnswerFile(sample_name)
         print(f"Set CN threshold for PING", answer_file)
         cutThresholdByAns(answer_file, folder_out)
 
@@ -236,10 +245,37 @@ def readPingResult(csv_file: str) -> dict[str, list[str]]:
     return called_alleles
 
 
+def removeSample(input_name, remove_name: set[str]):
+    if input_name.template_args[-1] in remove_name:
+        runShell(f"rm {input_name}*")
+    return input_name
+
+
+
 if __name__ == "__main__":
     samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
     samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
     ping_folder = f"data6/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
+    samples = "linnil1_syn/linnil1_syn_fakeintron1_s1214.{}.30x_s2022"
+    ping_folder = f"data5/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
+    samples_ans = samples
+    exe = BaseTaskExecutor()
+
+    real = False  # turn on HPRC samples
+    if real == True:
+        # docker save localhost/linnil1/ping -o image.ping.tar.gz
+        # singularity build  localhost/linnil1/ping docker-archive://image.ping.tar.gz
+        exe = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
+        # requrie run kg_real.py first
+        samples = "data_tmp/hprc.{}.index_hs37d5.bwa.part_strict"
+        ping_folder = f"data_tmp/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
+        # sample_possible_ans = "data_real/hprc_merge.index_hs37d5.bwa.part_strict"
+        #                       ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+        #                       ".variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3"
+        #                       ".pv_exonfirst_1.2.compare_sum.top600"  # from data_real.py
+        samples_ans = "hprc_summary"  # from kg_from_kelvin.py
+
+    # main
     ping_index = compose([
         None,
         # partial(buildPing, folder="PING"),
@@ -247,10 +283,13 @@ if __name__ == "__main__":
     ])
     ping_predict = compose([
         samples,
-        partial(linkSamples,   data_folder=ping_folder),
-        NameTask(partial(ping, index=str(ping_index), sample_name=samples), depended_pos=[-1]),
+        partial(linkSamples, data_folder=ping_folder),
+        partial(removeSample, remove_name={"HG00733", "NA19240", "HG02109", "NA21309"}),
+        # "data5/ping_data_tmp_hprc_cohort.index_hs37d5.bwa.part_strict/{}",  # debug use
+        NameTask(partial(pingRun, index=str(ping_index), sample_name=samples_ans), depended_pos=[-1], executor=exe),
+        # partial(plotPing, sample_name=samples_ans),  # debug used
         reorganizeResult,
-        partial(compareResult, sample_name=samples),
-        partial(plotPing,      sample_name=samples),
+        partial(compareResult, sample_name=samples_ans),
+        partial(plotPing,      sample_name=samples_ans),
     ])
     print(ping_predict)

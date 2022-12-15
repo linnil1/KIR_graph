@@ -460,8 +460,8 @@ class AlleleTypingExonFirst(AlleleTyping):
             variantset_to_allele[tuple()] = sorted(other_allele)
         self.allele_group = {alleles[0]: alleles for alleles in variantset_to_allele.values()}
         exon_variants = self.removeDuplicateAllele(variants, self.createInverseMapping(self.allele_group))
-        from pprint import pprint
-        pprint(self.allele_group)
+        # from pprint import pprint
+        # pprint(self.allele_group)
 
         # same as before
         super().__init__(exon_reads, exon_variants, top_n=top_n)
@@ -479,7 +479,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         else:
             self.full_model = None
 
-    def typingIntron(self, exon_candidates: list[list[str]], verbose=True) -> AlleleTyping:
+    def typingIntron(self, exon_candidates: list[list[str]], verbose: bool = True) -> AlleleTyping:
         assert self.full_model
         model = copy.deepcopy(self.full_model)
         for cand in exon_candidates:
@@ -488,7 +488,7 @@ class AlleleTypingExonFirst(AlleleTyping):
                 res.print()
         return model
 
-    def typing(self, cn: int) -> TypingResult:
+    def typing(self, cn: int, verbose: bool = False) -> TypingResult:
         """
         Typing cn alleles.
 
@@ -496,10 +496,11 @@ class AlleleTypingExonFirst(AlleleTyping):
           The top-n allele-set are best fit the reads (with maximum probility).
             Each set has CN alleles.
         """
-        print("Exon:")
         result = super().typing(cn)
         result.fillNameGroup(self.allele_group)
-        result.print()
+        if verbose:
+            print("Exon:")
+            result.print()
 
         # run full typing as before but using selected alleles
         if self.full_model is None:
@@ -516,7 +517,8 @@ class AlleleTypingExonFirst(AlleleTyping):
         max_score = result.value.max()
         mixed_result = []
         for i in range(len(result.value)):
-            print(f"Typing Intron of set {i}")
+            if verbose:
+                print(f"Typing Intron of set {i}")
             if result.value[i] < max_score * self.candidate_set_max_score_ratio:
                 continue
             full_model = self.typingIntron(result.allele_name_group[i], verbose=False)

@@ -79,6 +79,9 @@ def runDocker(image: str, cmd: str, capture_output=False, cwd=None, opts="") -> 
     image = images.get(image, image)
     random_name = str(uuid.uuid4()).split("-", 1)[0]
 
+    # bad but works
+    if docker_type == "singularity":
+        opts = opts.replace(" -e ", " --env ")
     conf = docker_config[docker_type]
     cmd_all = f"{conf['path']} {conf['run']} " + \
               (f"{conf['name']} {random_name} " if conf.get('name') else "") + \

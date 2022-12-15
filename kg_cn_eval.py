@@ -134,8 +134,10 @@ def compareCNwithMethods(method_cohort_cn: dict[str, CohortGeneCN]) -> None:
     df = pd.DataFrame(results)
     # remove samples
     # df = df.loc[np.logical_not(df['sample_id'].isin(["09"]))]
+    # remove samples (for HPRC data)
+    # df = df.loc[np.logical_not(df['sample_id'].isin(["HG00733", "HG01123", "HG02486", "HG02559", "NA19240"]))]
     # remove genes  (GATKIR)
-    df = df.loc[np.logical_not(df['gene'].str.contains("KIR3DL2|KIR3DP1"))]
+    # df = df.loc[np.logical_not(df['gene'].str.contains("KIR3DL2|KIR3DP1"))]
     with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
         df1 = df.groupby(["method", "gene"]).sum()
         df1['acc'] = 1 - df1['diff_abs'] / df1['total']
@@ -170,8 +172,16 @@ if __name__ == "__main__":
         {"method": "gatkir",          "name": f"{NamePath(prefix).replace_wildcard('_merge_depth')}.bwa.rg.md.coverage.depth_per_gene.ploidy.csv"},
         {"method": "kpi",             "name": f"{NamePath(prefix).replace_wildcard('_merge_cn')}.kpi_prediction.csv"},
         {"method": "t1k-call",        "name": f"{NamePath(prefix).replace_wildcard('_mergecall')}.t1k_7_all.tsv"},
-        # TODO exon-only
+        # TODO: exon-only
     ]
+    """
+    answer = "hprc_summary.csv"
+    prefix = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    cohort = [
+        {"method": "answer",  "name": f"{answer}"},
+        {"method": "linnil1", "name": f"{prefix}.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
+    ]
+    """
 
     cohort_data: dict[str, CohortGeneCN] = defaultdict(dict)
     for dat in cohort:

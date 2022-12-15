@@ -113,10 +113,15 @@ def readPredictResult(tsv_file: str,
                       extract_func: Callable[[str], str] = extractID
                       ) -> CohortAlleles:
     """ Read predict alleles (same format as summary.csv) """
-    data = pd.read_csv(tsv_file, sep='\t', dtype=str)
-    # print(data)
-    return {extract_func(i.name): (sorted(i.alleles.split("_")) if type(i.alleles) is str else [])
-                for i in data.itertuples()}
+    df = pd.read_csv(tsv_file, sep='\t', dtype=str)
+    data = {}
+    for i in df.itertuples():
+        if "id" in df.columns:
+            id = i.id
+        else:
+            id = extractID(i.name)
+        data[id] = sorted(i.alleles.split("_")) if type(i.alleles) is str else []
+    return data
 
 
 def addSequence(cohort_results: CohortMatchResult,
@@ -209,6 +214,10 @@ def compareCohort(cohort_answer: CohortAlleles,
 def compareSample(answer_list: list[str], predict_list: list[str]) -> list[MatchResult]:
     """ Compare two alleles set """
     gene_comparison_result: list[MatchResult] = []
+
+    # Remove output e (In GRAPH-KIR indicate exon-only allele)
+    predict_list = [i if not i.endswith("e") else i[:-1] for i in predict_list]
+
     answer_dict = groupByGene(answer_list)
     predit_dict = groupByGene(predict_list)
 
@@ -288,7 +297,7 @@ def compareGene(a_list: list[str], b_list: list[str]) -> Iterator[MatchResult]:
         yield MatchResult(limitAlleleField(allele_a, 7),
                           limitAlleleField(allele_b, 7),
                           allele_a, allele_b,
-                          MatchType.MATCH3)
+                          MatchType.MATCHGENE)
 
     # copy number error
     for allele in a_list:
@@ -434,7 +443,10 @@ def printSummaryByResolution(cohort_results: CohortMatchResult) -> dict[str, int
     summary = calcSummaryByResolution(result for results in cohort_results.values() for result in results)
 
     def precisionStr(a: int, b: int) -> str:
-        return f"{a:5d} / {b:5d} = {a / b:.3f}"
+        if b != 0:
+            return f"{a:5d} / {b:5d} = {a / b:.3f}"
+        else:
+            return f"{a:5d} / {b:5d} = Nan"
 
     print(f"7-digits: {precisionStr(summary['7digits_correct'], summary['7digits_total'])}")
     print(f"5-digits: {precisionStr(summary['5digits_correct'], summary['5digits_total'])}")

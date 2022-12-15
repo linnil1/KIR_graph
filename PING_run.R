@@ -21,7 +21,6 @@ resultsDirectory  <- Sys.getenv("RESULTS_DIR",   unset='test_sequence_output/') 
 shortNameDelim    <- Sys.getenv("SHORTNAME_DELIM", unset='') # can set a delimiter to shorten sample ID's (ID will be characters before delim)
 ping_res_folder   <- Sys.getenv("INDEX", unset='PING')  # set script folder
 setwd(ping_res_folder)
-system("ln -fs /usr/bin/python3 /usr/bin/python")
 
 # minDP <- Sys.getenv("MIN_DP", unset=10)
 # hetRatio <- Sys.getenv("HET_RATIO", unset=0.25)

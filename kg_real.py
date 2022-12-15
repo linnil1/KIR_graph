@@ -144,7 +144,8 @@ if __name__ == "__main__":
     """
     # these step in run on our server
     NameTask.set_default_executor(ConcurrentTaskExecutor(10))
-    from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap
+    from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap, kirTyping, mergeKirResult
+    from kg_utils import compareResult
     # samples = "data_real/twbb.{}"
     # samples = "data_real/hprc.{}"
     # samples = "data_real/hg19.twbb.{}.part_merge.annot_read"
@@ -169,5 +170,14 @@ if __name__ == "__main__":
         partial(filterDepthWrap, ref_index=str(ref_index)),
         NameTask(cnPredict)  # .set_depended(-1),
     ])
-    cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=True), depended_pos=[-1])
+    # cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=False), depended_pos=[-1])
+
+    # allele typing
+    sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
+    typing = compose([
+        variant,
+        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1.2"),  # pv_exonfirst_1
+        NameTask(mergeKirResult, depended_pos=[0]),
+        partial(compareResult, sample_name=sample_possible_ans),
+    ])
     runShell("stty echo opost")

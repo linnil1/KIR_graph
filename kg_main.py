@@ -187,7 +187,7 @@ def cnPredict(input_name):
 
 def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # setup
-    top_n = 300
+    top_n = 600
     assert len(input_name.template_args) == 1
     id = input_name.template_args[0]
     cn_name = cn_input_name.output_name.template.format(id)
@@ -204,6 +204,8 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     #     return output_name_template
 
     t = selectKirTypingModel(allele_method, input_name + ".json", top_n=top_n)
+    if not Path(cn_name + ".tsv").exists():
+        return None
     cn = loadCN(cn_name + ".tsv")
     called_alleles = t.typing(cn)
     t.save(output_name + ".json")
@@ -217,12 +219,17 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     return output_name_template
 
 
-def mergeKirResult(input_name):
+def mergeKirResult(input_name, add_id: bool = True):
     output_name = input_name.replace_wildcard("_merge")
+    names = input_name.get_input_names()
     mergeAllele(
-        [name + ".tsv" for name in input_name.get_input_names()],
+        [name + ".tsv" for name in names],
         output_name + ".tsv"
     )
+    if add_id:
+        df = pd.read_csv(output_name + ".tsv", sep="\t")
+        df["id"] = [name.template_args[-1] for name in names]
+        df.to_csv(output_name + ".tsv", index=False, sep="\t")
     return output_name
 
 

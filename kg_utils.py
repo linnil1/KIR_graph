@@ -34,6 +34,7 @@ images = {
     "kpi":      "docker.io/droeatumn/kpi",
     "bcftools": "quay.io/biocontainers/bcftools:1.13--h3a49de5_0",
     "vg":       "quay.io/vgteam/vg:v1.40.0",
+    "ping":     "localhost/linnil1/ping",
 }
 
 
@@ -41,6 +42,10 @@ def runDocker(image: str, cmd: str, *arg, **kwargs):
     """ run docker container """
     image = images.get(image, image)
     return runDockerGK(image, cmd, *arg, **kwargs)
+
+
+def buildDocker(image: str, dockerfile: str, folder: str = "."):
+    return runShell(f"podman build {folder} -f {dockerfile} -t {images[image]}")
 
 
 class SlurmTaskExecutor(StandaloneTaskExecutor):
@@ -121,17 +126,25 @@ def getAnswerFile(sample_name: str) -> str:
     """ The answer of cohort xxx.{}.oo is located at xxx_summary.oo.csv """
     # TODO: tempoary solution
     sample_name = NamePath(sample_name)
-    return sample_name.replace_wildcard("_summary") + ".csv"
+    name = sample_name.replace_wildcard("_summary")
+    if Path(name + ".csv").exists():
+        return name + ".csv"
+    elif Path(name + ".tsv").exists():
+        return name + ".tsv"
+    else:
+        raise ValueError(f"Not found answer file {name}")
 
 
 def compareResult(input_name, sample_name, input_fasta_name=None):
     print(input_name + ".tsv")
     answer_seq = {}
-    # back is back from read suffix (30x)
+    # back = xx.00.30x.fq -> xx.00.fa
     for name in NamePath(back(NamePath(sample_name))).get_input_names():
-        allele_seq = SeqIO.to_dict(SeqIO.parse(name + ".fa", "fasta"))
-
+        if not Path(name + ".fa").exists():
+            continue
+        # read answer allele
         # brute-force to rewrite "xxx-1" -> "xxx"
+        allele_seq = SeqIO.to_dict(SeqIO.parse(name + ".fa", "fasta"))
         for i in list(allele_seq):
             if i.endswith("-1") or i.endswith("-2") or i.endswith("-3"):
                 allele_seq[i[:-2]] = allele_seq[i]
