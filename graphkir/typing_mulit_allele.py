@@ -242,7 +242,8 @@ class AlleleTyping:
         self.result = []
         for _ in range(cn):
             res = self.addCandidate()
-            res.print()
+            # res.print()
+        self.result[-1].print()
         return self.result[-1]
 
     def mapAlleleIDs(self, list_ids: np.ndarray) -> list[list[str]]:

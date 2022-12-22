@@ -135,7 +135,7 @@ def getAnswerFile(sample_name: str) -> str:
         raise ValueError(f"Not found answer file {name}")
 
 
-def compareResult(input_name, sample_name, input_fasta_name=None):
+def compareResult(input_name, sample_name, input_fasta_name=None, plot=False):
     print(input_name + ".tsv")
     answer_seq = {}
     # back = xx.00.30x.fq -> xx.00.fa
@@ -165,7 +165,7 @@ def compareResult(input_name, sample_name, input_fasta_name=None):
         cohort_predit_seqs=predit_seq,
         skip_empty=True,
         # base_compare=True,
-        # plot=True,
+        plot=plot,
     )
     return input_name
 

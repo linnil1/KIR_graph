@@ -3,6 +3,7 @@ Raw depths -> gene depths -> gene's CN
 """
 import json
 from itertools import chain
+from typing import Any
 import pandas as pd
 
 from .cn_model import CNgroup, KDEcut, Dist
@@ -52,6 +53,7 @@ def aggrDepths(depths: pd.DataFrame, select_mode: str = "p75") -> pd.DataFrame:
 
 def depthToCN(sample_gene_depths: list[pd.DataFrame],
               cluster_method: str = "CNgroup",
+              cluster_method_kwargs: dict[str, Any] = {},
               assume_3DL3_diploid: bool = False
               ) -> tuple[list[dict[str, int]], Dist]:
     """
@@ -72,6 +74,8 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
     # cluster
     if cluster_method == "CNgroup":
         dist = CNgroup()
+        if cluster_method_kwargs:
+            dist = CNgroup.setParams(dist.getParams() | cluster_method_kwargs)
         dist.fit(values)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
@@ -127,6 +131,7 @@ def predictSamplesCN(samples_depth_tsv: list[str],
                      select_mode: str = "p75",
                      per_gene: bool = False,
                      cluster_method: str = "CNgroup",
+                     cluster_method_kwargs: dict[str, Any] = {},
                      ) -> None:
     """
     Read depth tsv and predict CN per gene per sample
@@ -149,6 +154,7 @@ def predictSamplesCN(samples_depth_tsv: list[str],
         # depth per gene -> cn per gene
         cns, model = depthToCN(sample_gene_depths,
                                cluster_method=cluster_method,
+                               cluster_method_kwargs=cluster_method_kwargs,
                                assume_3DL3_diploid=assume_3DL3_diploid)
 
         if save_cn_model_path:

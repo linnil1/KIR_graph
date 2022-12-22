@@ -146,6 +146,13 @@ def cnPredict(input_name):
     cn_select = "p75"
     assume_3DL3_diploid = True
     suffix_cn = f".{cn_select}.{cn_cluster}"
+
+    cluster_dev = "0.06"
+    cluster_method_kwargs = {}
+    if cn_cluster == "CNgroup" and cluster_dev != "0.08":
+        suffix_cn += ".dev" + cluster_dev
+        cluster_method_kwargs = {'base_dev': float(cluster_dev)}
+
     if per_gene:
         assert ".{}." in input_name
         suffix_cn += "_per_gene"
@@ -163,6 +170,7 @@ def cnPredict(input_name):
             predictSamplesCN([input_name  + ".tsv"],
                              [output_name + ".tsv"],
                              cluster_method=cn_cluster,
+                             cluster_method_kwargs=cluster_method_kwargs,
                              select_mode=cn_select,
                              assume_3DL3_diploid=assume_3DL3_diploid,
                              save_cn_model_path=output_name + ".json")
@@ -179,6 +187,7 @@ def cnPredict(input_name):
                          [name + suffix_cn + ".tsv" for name in input_name.get_input_names()],
                          per_gene=per_gene,
                          cluster_method=cn_cluster,
+                         cluster_method_kwargs=cluster_method_kwargs,
                          select_mode=cn_select,
                          assume_3DL3_diploid=False,
                          save_cn_model_path=output_name1 + ".json")
@@ -463,7 +472,7 @@ if __name__ == "__main__":
     compose([
         novel,
         NameTask(mergeKirResult, depended_pos=[0]),
-        partial(compareResult, sample_name=samples_ori.output_name, input_fasta_name=novel.output_name),
+        partial(compareResult, sample_name=samples_ori.output_name, input_fasta_name=novel.output_name, plot=False),
     ])
 
     """

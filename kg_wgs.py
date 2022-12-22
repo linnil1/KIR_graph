@@ -26,7 +26,7 @@ def bam2fastqViaSamtools(input_name):
     """ Bam to fastq """
     output_name = input_name
     if Path(f"{output_name}.read.2.fq").exists():
-        return output_name
+        return output_name + ".read"
     bam = input_name + ".sortn"
     runDocker("samtools", f"samtools sort  -@ {getThreads()} -n {input_name}.bam -o {bam}.bam")
     runDocker("samtools", f"samtools fastq -@ {getThreads()} -n {bam}.bam "

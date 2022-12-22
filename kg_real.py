@@ -85,99 +85,97 @@ if __name__ == "__main__":
     ref_index = "index5/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
     index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
     search_other_region = False
+    TAIWANIA = True
 
     # these step in run on Taiwania HPC
-    """
-    if cohort == "twbb_bam":
-        sample = compose([
-            data_folder,
-            linkTWBBBamSample,
-        ])
-        direct_on_kir = False
-    elif cohort == "twbb_fastq":
-        sample = compose([
-            data_folder,
-            linkTWBBFastqSample,
-            back,
-        ])
-    elif cohort == "hprc_fastq":
-        sample = compose([
-            data_folder,
-            linkHPRCSample,
-            back,
-        ])
+    if TAIWANIA:
+        if cohort == "twbb_bam":
+            sample = compose([
+                data_folder,
+                linkTWBBBamSample,
+            ])
+            direct_on_kir = False
+        elif cohort == "twbb_fastq":
+            sample = compose([
+                data_folder,
+                linkTWBBFastqSample,
+                back,
+            ])
+        elif cohort == "hprc_fastq":
+            sample = compose([
+                data_folder,
+                linkHPRCSample,
+                back,
+            ])
 
-    if not direct_on_kir:
-        genome_index = compose([
-            index_folder,
-            downloadHg19,
-            bwaIndex,
-        ])
+        if not direct_on_kir:
+            genome_index = compose([
+                index_folder,
+                downloadHg19,
+                bwaIndex,
+            ])
 
-    base = BaseTaskExecutor()
-    exe = SlurmTaskExecutor(threads_per_sample=2, template_file="taiwania.template")
-    exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
-    NameTask.set_default_executor(exe)
-    # NameTask.set_default_executor()
-    if not direct_on_kir:
-        if "fastq" in cohort:
+        exe = SlurmTaskExecutor(threads_per_sample=1, template_file="taiwania.template")
+        exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
+        NameTask.set_default_executor(exe)
+        if not direct_on_kir:
+            if "fastq" in cohort:
+                sample = compose([
+                    sample,
+                    NameTask(partial(bwa, index=str(genome_index)), executor=exe_large),
+                ])
+                compose([sample, extractHg19Depth])
+                hg19_type = "hs37d5"
+            else:
+                hg19_type = "hg19"
             sample = compose([
                 sample,
-                NameTask(partial(bwa, index=str(genome_index)), executor=exe_large),
+                partial(extractFromHg19, hg19_type=hg19_type, loose=search_other_region),
+                bam2fastqWrap if search_other_region else bam2fastqViaSamtools,
+                back,
             ])
-            compose([sample, extractHg19Depth])
-            hg19_type = "hs37d5"
-        else:
-            hg19_type = "hg19"
         sample = compose([
             sample,
-            partial(extractFromHg19, hg19_type=hg19_type, loose=search_other_region),
-            bam2fastqWrap if search_other_region else bam2fastqViaSamtools,
-            back,
+            NameTask(partial(hisatMapWrap, index=str(index)), executor=exe_large),
+            partial(trimBam, remove=True),
         ])
-    sample = compose([
-        sample,
-        NameTask(partial(hisatMapWrap, index=str(index)), executor=exe_large),
-        partial(trimBam, remove=True),
-    ])
+    else:
+        # these step in run on our server
+        NameTask.set_default_executor(ConcurrentTaskExecutor(10))
+        from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap, kirTyping, mergeKirResult
+        from kg_utils import compareResult
+        # samples = "data_real/twbb.{}"
+        # samples = "data_real/hprc.{}"
+        # samples = "data_real/hg19.twbb.{}.part_merge.annot_read"
+        # samples = "data_real/hg19.twbb.{}.part_strict"
+        # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_merge.annot_read"
+        # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_merge.annot_read"
+        # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
+        # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_strict"
+        # samples = "data_real/hprc26.{}.index_hs37d5.bwa.part_strict"
+        samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
+        samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+        NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
+        variant = compose([
+            samples,
+            partial(extractVariant, ref_index=str(ref_index)),
+        ])
 
-    """
-    # these step in run on our server
-    NameTask.set_default_executor(ConcurrentTaskExecutor(10))
-    from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap, kirTyping, mergeKirResult
-    from kg_utils import compareResult
-    # samples = "data_real/twbb.{}"
-    # samples = "data_real/hprc.{}"
-    # samples = "data_real/hg19.twbb.{}.part_merge.annot_read"
-    # samples = "data_real/hg19.twbb.{}.part_strict"
-    # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_merge.annot_read"
-    # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_merge.annot_read"
-    # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
-    # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_strict"
-    # samples = "data_real/hprc26.{}.index_hs37d5.bwa.part_strict"
-    samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
-    samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
-    variant = compose([
-        samples,
-        partial(extractVariant, ref_index=str(ref_index)),
-    ])
+        cn = compose([
+            variant,
+            partial(addSuffix, suffix=".no_multi"),
+            bam2DepthWrap,
+            partial(filterDepthWrap, ref_index=str(ref_index)),
+            NameTask(cnPredict)  # .set_depended(-1),
+        ])
+        # cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=False), depended_pos=[-1])
 
-    cn = compose([
-        variant,
-        partial(addSuffix, suffix=".no_multi"),
-        bam2DepthWrap,
-        partial(filterDepthWrap, ref_index=str(ref_index)),
-        NameTask(cnPredict)  # .set_depended(-1),
-    ])
-    # cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=False), depended_pos=[-1])
-
-    # allele typing
-    sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
-    typing = compose([
-        variant,
-        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1.2"),  # pv_exonfirst_1
-        NameTask(mergeKirResult, depended_pos=[0]),
-        partial(compareResult, sample_name=sample_possible_ans),
-    ])
-    runShell("stty echo opost")
+        # allele typing
+        sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
+        typing = compose([
+            variant,
+            partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv_exonfirst_1
+            NameTask(mergeKirResult, depended_pos=[0]),
+            partial(compareResult, sample_name=sample_possible_ans),
+        ])
+        runShell("stty echo opost")

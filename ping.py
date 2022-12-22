@@ -238,6 +238,7 @@ def readPingResult(csv_file: str) -> dict[str, list[str]]:
                 continue
             alleles.extend(alleles_str.split(' ')[0].split('+'))
         alleles = [i for i in alleles if "null" not in i]
+        alleles = [i for i in alleles if "failed" not in i]
         # alleles = [i for i in alleles if "unresolved" not in i]
         called_alleles[id] = alleles
         # print(id, alleles)
@@ -260,12 +261,11 @@ if __name__ == "__main__":
     ping_folder = f"data5/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
     samples_ans = samples
     exe = BaseTaskExecutor()
+    remove_sample_list = set()
 
-    real = False  # turn on HPRC samples
-    if real == True:
-        # docker save localhost/linnil1/ping -o image.ping.tar.gz
-        # singularity build  localhost/linnil1/ping docker-archive://image.ping.tar.gz
-        exe = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
+    HPRC = True      # turn on HPRC samples
+    TAIWANIA = False # run in TAIWANIA-HPC
+    if HPRC == True:
         # requrie run kg_real.py first
         samples = "data_tmp/hprc.{}.index_hs37d5.bwa.part_strict"
         ping_folder = f"data_tmp/ping_{str(samples).replace('/', '_').replace('.{}', '_cohort')}"
@@ -274,6 +274,15 @@ if __name__ == "__main__":
         #                       ".variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3"
         #                       ".pv_exonfirst_1.2.compare_sum.top600"  # from data_real.py
         samples_ans = "hprc_summary"  # from kg_from_kelvin.py
+        # remove_sample_list = {"HG00733", "NA19240", "HG02109", "NA21309"}
+        remove_sample_list = {"HG02109", "NA21309"}  # fail by not enough KIR3DL3
+        if TAIWANIA:
+            # docker save localhost/linnil1/ping -o image.ping.tar.gz
+            # singularity build  localhost/linnil1/ping docker-archive://image.ping.tar.gz
+            exe = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
+        else:
+            samples = "data_real/ping_data_tmp_hprc_cohort.index_hs37d5.bwa.part_strict/{}"
+
 
     # main
     ping_index = compose([
@@ -281,15 +290,18 @@ if __name__ == "__main__":
         # partial(buildPing, folder="PING"),
         partial(buildPing, folder="PING20220527"),
     ])
+    if not(HPRC and not TAIWANIA):
+        samples = compose([
+            samples,
+            partial(linkSamples, data_folder=ping_folder),
+            partial(removeSample, remove_name=remove_sample_list),
+        ])
     ping_predict = compose([
         samples,
-        partial(linkSamples, data_folder=ping_folder),
-        partial(removeSample, remove_name={"HG00733", "NA19240", "HG02109", "NA21309"}),
-        # "data5/ping_data_tmp_hprc_cohort.index_hs37d5.bwa.part_strict/{}",  # debug use
         NameTask(partial(pingRun, index=str(ping_index), sample_name=samples_ans), depended_pos=[-1], executor=exe),
-        # partial(plotPing, sample_name=samples_ans),  # debug used
+        # partial(plotPing, sample_name=samples_ans),  # debug used: plot the gene ratio, useful when tunning the threshold
         reorganizeResult,
-        partial(compareResult, sample_name=samples_ans),
-        partial(plotPing,      sample_name=samples_ans),
+        partial(compareResult, sample_name=samples_ans, plot=False),
+        # partial(plotPing,      sample_name=samples_ans),
     ])
     print(ping_predict)
