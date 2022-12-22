@@ -30,6 +30,7 @@ from kg_utils import (
 from kg_mapping import bowtie2, bowtie2Index, bwa, bwaIndex, hisatMapWrap
 from kg_wgs import downloadHg19
 from kg_create_data import createSamplesAllele, createSamplesReads
+from kg_create_fake_intron import createFakeIntronSample
 from kg_create_novel import addNovelFromMsaWrap, updateNovelAnswer
 from kg_typing_novel import typingNovel
 from kg_extract_exon_seq import (
@@ -47,6 +48,17 @@ def createSamplesWithAnswer(input_name, N=10, seed=2022):
     if Path(f"{name}_summary.csv").exists():
         return output_name
     createSamplesAllele(N, basename=name, seed=seed)
+    return output_name
+
+
+def createFakeSamplesWithAnswer(input_name, N=10, seed=2022, fake_num=1):
+    # 0 -> 1
+    # "linnil1_syn_30x_seed87/linnil1_syn_30x_seed87"
+    name = input_name + "/" + input_name + f"_fakeintron{fake_num}_s{seed}"
+    output_name = name + ".{}"
+    if Path(f"{name}_summary.csv").exists():
+        return output_name
+    createFakeIntronSample(N, basename=name, seed=seed)
     return output_name
 
 
@@ -378,6 +390,17 @@ if __name__ == "__main__":
         seed1 = 2022
         seed2 = 1031
         depth = 30
+    elif cohort == "10fake":
+        data_folder = "data5"
+        N = 10
+        seed1 = 1214
+        seed2 = 2022
+        depth = 30
+    elif cohort == "10_50x":
+        N = 10
+        seed1 = 44
+        seed2 = 444
+        depth = 50
 
     msa_index = compose([
         index_folder,
@@ -387,10 +410,16 @@ if __name__ == "__main__":
     ])
 
     Path(answer_folder).mkdir(exist_ok=True)
-    samples = compose([
-        answer_folder,
-        partial(createSamplesWithAnswer, N=N, seed=seed1),
-    ])
+    if cohort == "10fake":
+        samples = compose([
+            answer_folder,
+            partial(createFakeSamplesWithAnswer, N=N, seed=seed1),
+        ])
+    else:
+        samples = compose([
+            answer_folder,
+            partial(createSamplesWithAnswer, N=N, seed=seed1),
+        ])
 
     # novel
     if add_novel:

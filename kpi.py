@@ -6,14 +6,14 @@ import pandas as pd
 from namepipe import nt, NamePath
 from graphkir.utils import runShell
 from kg_eval import saveCohortAllele
-from kg_utils import runDocker, linkSamples, compareResult
+from kg_utils import runDocker, buildDocker, linkSamples, compareResult
 
 
 def setup(kpi_folder):
     if Path(kpi_folder).exists():
         return kpi_folder
     runShell(f"git clone https://github.com/droeatumn/kpi.git {kpi_folder}")
-    # runShell("docker build . -t kirkpi ", cwd=kpi_folder)
+    buildDocker("kpi", f"{kpi_folder}/Dockerfile", folder=kpi_folder)
     return kpi_folder
 
 

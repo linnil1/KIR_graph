@@ -35,6 +35,9 @@ images = {
     "bcftools": "quay.io/biocontainers/bcftools:1.13--h3a49de5_0",
     "vg":       "quay.io/vgteam/vg:v1.40.0",
     "ping":     "localhost/linnil1/ping",
+    "t1k":      "localhost/linnil1/t1k",
+    "kpi":      "localhost/linnil1/kpi",
+    "node":     "docker.io/library/node:18-alpine",
 }
 
 

@@ -5,7 +5,7 @@ import pandas as pd
 
 from namepipe import compose, NameTask, ConcurrentTaskExecutor
 from graphkir.utils import runShell, getThreads
-from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult
+from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult, buildDocker
 from kg_eval import saveCohortAllele
 
 
@@ -15,14 +15,14 @@ def downloadT1k(input_name):
         return folder
     if not Path(folder).exists():
         runShell(f"git clone https://github.com/mourisl/T1K {folder}")
-    runShell(f"docker build . -f t1k.dockerfile -t c4lab/t1k")
-    runDocker("c4lab/t1k", f"make -j {getThreads()}", cwd=folder)
+    buildDocker("t1k", "t1k.dockerfile")
+    runDocker("t1k", f"make -j {getThreads()}", cwd=folder)
     if not Path(f"{folder}/hlaidx").exists():
-        runDocker("c4lab/t1k",
+        runDocker("t1k",
                   "perl t1k-build.pl -o hlaidx --download IPD-IMGT/HLA",
                   cwd=folder)
     if not Path(f"{folder}/kiridx").exists():
-        runDocker("c4lab/t1k",
+        runDocker("t1k",
                   "perl t1k-build.pl -o kiridx --download IPD-KIR",
                   cwd=folder)
     return folder
@@ -34,7 +34,7 @@ def runT1k(input_name, index, digits="7"):
         return output_name
     # relax = --relaxIntronAlign
     runDocker(
-        "c4lab/t1k",
+        "t1k",
         f""" \
       {index}/run-t1k \
       -1 {input_name}.read.1.fq \

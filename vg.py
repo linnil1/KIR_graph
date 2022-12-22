@@ -82,9 +82,9 @@ def setupVGTube(input_name):
     runShell("wget https://github.com/vgteam/vg/releases/download/v1.42.0/vg")
     runShell("chmod +x vg")
     runShell("mv vg sequenceTubeMap")
-    runDocker("node:18-alpine", "yarn",         cwd="sequenceTubeMap")
-    runDocker("node:18-alpine", "yarn install", cwd="sequenceTubeMap")
-    runDocker("node:18-alpine", "yarn build",   cwd="sequenceTubeMap")
+    runDocker("node", "yarn",         cwd="sequenceTubeMap")
+    runDocker("node", "yarn install", cwd="sequenceTubeMap")
+    runDocker("node", "yarn build",   cwd="sequenceTubeMap")
     return "sequenceTubeMap"
 
 
@@ -111,7 +111,7 @@ def writeVGTubeSettings(input_name, index, tube_path):
     # from pprint import pprint
     # pprint(data)
     json.dump(data, open(f"{tube_path}/src/config.json", "w"))
-    runDocker("node:18-alpine", "yarn build", cwd=tube_path)
+    runDocker("node", "yarn build", cwd=tube_path)
     return input_name
 
 

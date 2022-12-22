@@ -61,6 +61,14 @@ def groupSequences(seqs_dict):
     return gene_dict
 
 
+def randomTwoHaplo(haplo_df):
+    haplos = random.choices(haplo_df.index, k=2)
+    gene_count = haplo_df.loc[haplos, :].sum(axis=0)
+    gene_count = gene_count.to_dict()
+    gene_count = {k: v for k, v in gene_count.items() if k.startswith("KIR")}
+    return haplos, gene_count
+
+
 def randomSelectAlleles(haplo_df, gene_dict):
     """
     Main function, randomly select KIR alleles for sample
@@ -72,10 +80,7 @@ def randomSelectAlleles(haplo_df, gene_dict):
       haplos(list[str]): Name of haplotypes (Must be 2)
       alleles(list[str]): Name of alleles
     """
-    haplos = random.choices(haplo_df.index, k=2)
-    gene_count = haplo_df.loc[haplos, :].sum(axis=0)
-    gene_count = gene_count.to_dict()
-    gene_count = {k: v for k, v in gene_count.items() if k.startswith("KIR")}
+    haplos, gene_count = randomTwoHaplo(haplo_df)
     alleles = []
     for gene, count in gene_count.items():
         alleles.extend(random.choices(gene_dict[gene], k=count))

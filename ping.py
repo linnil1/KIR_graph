@@ -8,7 +8,7 @@ import pandas as pd
 
 from namepipe import compose, NameTask, BaseTaskExecutor
 from graphkir.utils import runShell, getThreads
-from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult, buildDocker
+from kg_utils import runDocker, linkSamples, getAnswerFile, compareResult, buildDocker, SlurmTaskExecutor
 from kg_eval import readAnswerAllele, saveCohortAllele
 
 
