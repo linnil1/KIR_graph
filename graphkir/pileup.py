@@ -4,13 +4,14 @@ Pileup utilies
 import re
 from collections import Counter
 from typing import Iterator
+
 from .utils import runDocker
 
 PileupCount = dict[tuple[str, int], dict[str, float]]
 
 
 def parsePileupBase(bases: str) -> Iterator[str]:
-    """ Extract base from mpileup fields[4] """
+    """Extract base from mpileup fields[4]"""
     # chrM    1       N       10      ^]G^]G^KG^OG^]G^]G^TG^(G^KG^VG  DDDShDDDDD
     # chr1    17344300        N       2       A$^]A   <=
     # strange case: ??
@@ -25,7 +26,7 @@ def parsePileupBase(bases: str) -> Iterator[str]:
             i += 1
             continue
         if bases[i] in "+-":  # insertion
-            a = re.findall(r"(\d+)", bases[i + 1:])
+            a = re.findall(r"(\d+)", bases[i + 1 :])
             assert a
             i += 1 + len(a[0]) + int(a[0])
             continue
@@ -43,13 +44,11 @@ def readPileup(bam_file: str) -> Iterator[tuple[str, int, int, str]]:
     Returns:
       (reference, position, depth, bases)
     """
-    proc = runDocker("samtools",
-                     f"samtools mpileup -a {bam_file}",
-                     capture_output=True)
+    proc = runDocker("samtools", f"samtools mpileup -a {bam_file}", capture_output=True)
     for line in proc.stdout.split("\n"):
         if not line or "[mpileup]" in line:
             continue
-        fields = line.split('\t')
+        fields = line.split("\t")
         yield fields[0], int(fields[1]) - 1, int(fields[3]), fields[4]
 
 
@@ -70,11 +69,11 @@ def getPileupBaseRatio(bam_file: str) -> PileupCount:
         if depth == 0:
             continue
 
-        bases = ''.join(parsePileupBase(pileup_bases))
+        bases = "".join(parsePileupBase(pileup_bases))
         assert depth == len(bases)
 
         count = Counter(bases.upper())
         s = sum(count.values())
         stat[(ref, pos)] = {k: v / s for k, v in count.items()}
-        stat[(ref, pos)]['all'] = s
+        stat[(ref, pos)]["all"] = s
     return stat

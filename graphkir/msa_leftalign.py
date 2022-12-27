@@ -41,7 +41,7 @@ def findDeletePos(seq: str) -> Iterator[Segment]:
 
 
 def diff(ref_seq: str, seq: str) -> list[bool]:
-    """ return two string is identical per base """
+    """return two string is identical per base"""
     return list(map(lambda i: i[0] == i[1], zip(ref_seq, seq)))
 
 
@@ -74,11 +74,13 @@ def findShift(ref_seq: str, seq: str, seg: Segment) -> tuple[Segment, int] | Non
 
 
 def applyShift(seq: str, shift_seg: Segment, shift: int) -> str:
-    """ Apply shift """
-    new_seq = seq[:shift_seg.pos  - shift] \
-              + seq[shift_seg.pos:         shift_seg.pos + shift_seg.leng] \
-              + seq[shift_seg.pos - shift: shift_seg.pos] \
-              + seq[shift_seg.pos                        + shift_seg.leng:]
+    """Apply shift"""
+    new_seq = (
+        seq[: shift_seg.pos - shift]
+        + seq[shift_seg.pos         : shift_seg.pos + shift_seg.leng]
+        + seq[shift_seg.pos - shift : shift_seg.pos]
+        + seq[shift_seg.pos                         + shift_seg.leng :]
+    )
     return new_seq
 
 
@@ -137,24 +139,20 @@ def leftAlign(ref_seq: str, ori_seq: str) -> str:
         # print(    seq[shift_seg.pos - shift - 5: shift_seg.pos + shift_seg.leng + 5])
 
         # after shift -> add into deletion queue
-        heapq.heappush(seg_queue, Segment(
-            shift_seg.pos - shift,
-            shift_seg.leng
-        ))
+        heapq.heappush(seg_queue, Segment(shift_seg.pos - shift, shift_seg.leng))
         # The segment is splited
         if seg.leng == shift_seg.leng:
             continue
-        heapq.heappush(seg_queue, Segment(
-            seg.pos + shift_seg.leng,
-            seg.leng - shift_seg.leng
-        ))
+        heapq.heappush(
+            seg_queue, Segment(seg.pos + shift_seg.leng, seg.leng - shift_seg.leng)
+        )
     # double check
-    assert seq.replace('-', '') == ori_seq.replace('-', '')
+    assert seq.replace("-", "") == ori_seq.replace("-", "")
     return seq
 
 
 def msaLeftAlign(msa_ori: Genemsa) -> Genemsa:
-    """ Left align the MSA (block-wise) """
+    """Left align the MSA (block-wise)"""
     msa_aligned = []
     for msa in msa_ori.split_block():
         for name, seq in list(msa.items()):

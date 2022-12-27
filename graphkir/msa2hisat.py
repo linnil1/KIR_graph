@@ -7,12 +7,14 @@ from dataclasses import dataclass, field
 
 from Bio import SeqIO
 from pyhlamsa import Genemsa
+
 from .utils import runDocker, readFromMSAs
 
 
 @dataclass
 class Variant:
-    """ Save variant's information """
+    """Save variant's information"""
+
     # basic
     pos: int  # position
     typ: str  # type of variant: insertion, deletion, or single(SNP)
@@ -31,23 +33,30 @@ class Variant:
     # graph level
     count: ClassVar[int] = 0  # variant id
     haplo_id: ClassVar[int] = 0  # haplotype id
-    novel_id: ClassVar[int] = 0  # novel allele id (increase when find new variant in in hisat2.py)
+    novel_id: ClassVar[int] = 0  # novel allele id (increase when find new one)
 
     # const
-    order_type: ClassVar[dict[str, int]] = {"insertion": 0, "single": 1, "deletion": 2, "match": 3}
+    order_type: ClassVar[dict[str, int]] = {
+        "insertion": 0,
+        "single": 1,
+        "deletion": 2,
+        "match": 3,
+    }
     order_nuc: ClassVar[dict[str, int]] = {"A": 0, "C": 1, "G": 2, "T": 3}
 
     def __lt__(self, othr: object) -> bool:
         if not isinstance(othr, Variant):
             return NotImplemented
-        return (self.ref, self.pos, self.order_type[self.typ], self.val) \
-             < (othr.ref, othr.pos, self.order_type[othr.typ], othr.val)
+        a = (self.ref, self.pos, self.order_type[self.typ], self.val)
+        b = (othr.ref, othr.pos, self.order_type[othr.typ], othr.val)
+        return a < b
 
     def __eq__(self, othr: object) -> bool:
         if not isinstance(othr, Variant):
             return NotImplemented
-        return (self.pos, self.ref, self.typ, self.val) \
-            == (self.pos, self.ref, self.typ, self.val)
+        a = (self.pos, self.ref, self.typ, self.val)
+        b = (othr.pos, othr.ref, othr.typ, othr.val)
+        return a == b
 
     def __hash__(self) -> int:
         return hash((self.pos, self.ref, self.typ, self.val))
@@ -69,7 +78,7 @@ def count2Freq(base_counts: list[list[int]]) -> list[dict[str, float]]:
 
 
 def getVariantsFromSeqs(ref_seq: str, allele_seq: str, ref_name: str) -> list[Variant]:
-    """ Call the variants of allele_seq from ref_seq """
+    """Call the variants of allele_seq from ref_seq"""
     variants = []
     pre_v = None
     ref_skip_base = 0
@@ -77,15 +86,15 @@ def getVariantsFromSeqs(ref_seq: str, allele_seq: str, ref_name: str) -> list[Va
         a = ref_seq[i]
         b = allele_seq[i]
         now_v = None
-        if a != '-' and b != '-' and a != b:
-            now_v = Variant(typ="single",    pos=i - ref_skip_base, val=b, ref=ref_name)
-        elif a != '-' and b == '-':
-            now_v = Variant(typ="deletion",  pos=i - ref_skip_base, val=1, ref=ref_name)
-        elif a == '-' and b != '-':
+        if a != "-" and b != "-" and a != b:
+            now_v = Variant(typ="single", pos=i - ref_skip_base, val=b, ref=ref_name)
+        elif a != "-" and b == "-":
+            now_v = Variant(typ="deletion", pos=i - ref_skip_base, val=1, ref=ref_name)
+        elif a == "-" and b != "-":
             now_v = Variant(typ="insertion", pos=i - ref_skip_base, val=b, ref=ref_name)
         # a == '-' and b == '-'
 
-        if a == '.':
+        if a == ".":
             ref_skip_base += 1
 
         # merge pre_v and now_v
@@ -119,8 +128,9 @@ def msa2Variant(msa: Genemsa) -> tuple[list[Variant], dict[str, list[Variant]]]:
     for allele_name, allele_seq in msa.items():
         if allele_name == ref_name:
             continue
-        variants_per_allele[allele_name] = \
-            getVariantsFromSeqs(ref_seq, allele_seq, ref_name)
+        variants_per_allele[allele_name] = getVariantsFromSeqs(
+            ref_seq, allele_seq, ref_name
+        )
 
     # sort variantion and change it to dict
     # and add reference
@@ -142,15 +152,16 @@ def msa2Variant(msa: Genemsa) -> tuple[list[Variant], dict[str, list[Variant]]]:
 
     # assign the same pointer for variant object
     for allele_name in variants_per_allele:
-        variants_per_allele[allele_name] = \
-            [variants_dict[v] for v in variants_per_allele[allele_name]]
+        variants_per_allele[allele_name] = [
+            variants_dict[v] for v in variants_per_allele[allele_name]
+        ]
 
     return list(variants_dict.values()), variants_per_allele
 
 
-def addFreqInVariant(msa: Genemsa,
-                     variants_dict: dict[Variant, Variant]
-                     ) -> dict[Variant, Variant]:
+def addFreqInVariant(
+    msa: Genemsa, variants_dict: dict[Variant, Variant]
+) -> dict[Variant, Variant]:
     """
     Add allele frequency in variant (variants_dict).
 
@@ -165,19 +176,21 @@ def addFreqInVariant(msa: Genemsa,
     # Get frequency for each variant
     for v in variants_dict:
         if v.typ == "deletion":
-            base = '-'
+            base = "-"
         else:
             assert isinstance(v.val, (str))
             base = v.val[0]
         freq = base_freq[v.pos][base]
         variants_dict[v].freq = freq
-        variants_dict[v].ignore = v.typ == "single" and freq < Variant.min_freq_threshold
+        variants_dict[v].ignore = (
+            v.typ == "single" and freq < Variant.min_freq_threshold
+        )
     return variants_dict
 
 
 def writeTSV(f: TextIO, data: list[Any]) -> None:
-    """ Save list of data separated by tab """
-    f.write('\t'.join(map(str, data)) + "\n")
+    """Save list of data separated by tab"""
+    f.write("\t".join(map(str, data)) + "\n")
 
 
 def writeMsa(index_prefix: str, msa: Genemsa) -> None:
@@ -193,28 +206,34 @@ def writeMsa(index_prefix: str, msa: Genemsa) -> None:
     ref_name = msa.get_reference()[0]
 
     # Backbone Sequence
-    with open(index_prefix + "_backbone.fa", 'a') as seq_backbone_f:
-        SeqIO.write(msa.select_allele([ref_name]).to_records(gap=False),
-                    seq_backbone_f, "fasta")
+    with open(index_prefix + "_backbone.fa", "a") as seq_backbone_f:
+        SeqIO.write(
+            msa.select_allele([ref_name]).to_records(gap=False), seq_backbone_f, "fasta"
+        )
 
     # All sequence
-    with open(index_prefix + "_sequences.fa", 'a') as seq_f:
-        SeqIO.write(msa.remove_allele([ref_name], inplace=False).to_records(gap=False),
-                    seq_f, "fasta")
+    with open(index_prefix + "_sequences.fa", "a") as seq_f:
+        SeqIO.write(
+            msa.remove_allele([ref_name], inplace=False).to_records(gap=False),
+            seq_f,
+            "fasta",
+        )
 
     # Allele allele name
-    with open(index_prefix + ".allele", 'a') as allele_name_f:
+    with open(index_prefix + ".allele", "a") as allele_name_f:
         allele_name_f.writelines(
-            map(lambda i: i + "\n",
-                filter(lambda i: i != ref_name, msa.get_sequence_names()))
+            map(
+                lambda i: i + "\n",
+                filter(lambda i: i != ref_name, msa.get_sequence_names()),
+            )
         )
 
     # Exon-only allele name
-    with open(index_prefix + ".partial", 'a') as _:
+    with open(index_prefix + ".partial", "a") as _:
         pass
 
     # Every msa has it's own reference
-    with open(index_prefix + ".locus", 'a') as locus_f:
+    with open(index_prefix + ".locus", "a") as locus_f:
         # TODO: bounardy
         exon_pos = []
         for b in msa.list_blocks():
@@ -234,39 +253,44 @@ def writeVariant(index_prefix: str, variants: list[Variant]) -> None:
     * `{index_prefix}.snp.freq`
     * `{index_prefix}.link`
     """
-    with open(index_prefix + ".snp", 'a') as snp_f:
-        with open(index_prefix + ".index.snp", 'a') as snp_index_f:
+    with open(index_prefix + ".snp", "a") as snp_f:
+        with open(index_prefix + ".index.snp", "a") as snp_index_f:
             for v in variants:
                 variant_tsv = [v.id, v.typ, v.ref, v.pos, v.val]
                 if not v.ignore:
                     writeTSV(snp_index_f, variant_tsv)
                 writeTSV(snp_f, variant_tsv)
 
-    with open(index_prefix + ".snp.freq", 'a') as snp_freq_f:
+    with open(index_prefix + ".snp.freq", "a") as snp_freq_f:
         for v in variants:
             writeTSV(snp_freq_f, [v.id, f"{v.freq:.2f}"])
 
-    with open(index_prefix + ".link", 'a') as snp_link_f:
+    with open(index_prefix + ".link", "a") as snp_link_f:
         for v in variants:
-            writeTSV(snp_link_f, [v.id, ' '.join(v.allele)])
+            writeTSV(snp_link_f, [v.id, " ".join(v.allele)])
 
 
-def writeHaplo(index_prefix: str,
-               variants_per_allele: dict[str, list[Variant]],
-               msa: Genemsa) -> None:
+def writeHaplo(
+    index_prefix: str, variants_per_allele: dict[str, list[Variant]], msa: Genemsa
+) -> None:
     """
     Write star allele information
 
     * `{index_prefix}.haplotype`
     """
-    with open(index_prefix + ".haplotype", 'a') as haplo_f:
+    with open(index_prefix + ".haplotype", "a") as haplo_f:
         for variants in variants_per_allele.values():
             variants_index = [v for v in variants if not v.ignore]
             if variants_index:
                 left = min([v.pos for v in variants_index])
-                right = max([v.pos if v.typ != "deletion"
-                             else v.pos + v.val - 1  # type: ignore
-                             for v in variants_index])
+                right = max(
+                    [
+                        v.pos
+                        if v.typ != "deletion"
+                        else v.pos + v.val - 1  # type: ignore
+                        for v in variants_index
+                    ]
+                )
                 ref = variants[0].ref
             else:
                 continue
@@ -276,18 +300,27 @@ def writeHaplo(index_prefix: str,
                 # left = 0
                 # right = msa.get_length() - 1
                 # ref = msa.get_reference()[0]
-            ids = ','.join(str(v.id) for v in variants_index)
-            writeTSV(haplo_f, [f"ht{Variant.haplo_id}",
-                               ref, left, right, ids])
+            ids = ",".join(str(v.id) for v in variants_index)
+            writeTSV(haplo_f, [f"ht{Variant.haplo_id}", ref, left, right, ids])
             Variant.haplo_id += 1
 
 
 def clearBeforeWrite(index_prefix: str) -> None:
-    """ Clear the output file """
-    extension = [".snp", ".index.snp", ".snp.freq", ".link", "_backbone.fa",
-                 "_sequences.fa", ".allele", ".partial", ".locus", ".haplotype"]
+    """Clear the output file"""
+    extension = [
+        ".snp",
+        ".index.snp",
+        ".snp.freq",
+        ".link",
+        "_backbone.fa",
+        "_sequences.fa",
+        ".allele",
+        ".partial",
+        ".locus",
+        ".haplotype",
+    ]
     for ext in extension:
-        with open(index_prefix + ext, 'w') as _:
+        with open(index_prefix + ext, "w") as _:
             pass
 
 
@@ -319,16 +352,20 @@ def msa2HisatReference(msa_prefix: str, index_prefix: str) -> None:
         variants, variants_per_allele = msa2Variant(msa)
 
         # write to hisat format for hisat build
-        writeMsa    (index_prefix, msa)
+        writeMsa(index_prefix, msa)
         writeVariant(index_prefix, variants)
-        writeHaplo  (index_prefix, variants_per_allele, msa=msa)
+        writeHaplo(index_prefix, variants_per_allele, msa=msa)
 
 
 def buildHisatIndex(name: str, output_name: str, threads: int = 1) -> None:
-    """ Run hisat2-build, input and output are prefix of filenames """
-    runDocker("hisat", f"""\
-              hisat2-build {name}_backbone.fa \
-                           --snp {name}.index.snp \
-                           --haplotype {name}.haplotype \
-                           -p {threads} --verbose \
-                           {output_name} """)
+    """Run hisat2-build, input and output are prefix of filenames"""
+    runDocker(
+        "hisat",
+        f"""\
+        hisat2-build {name}_backbone.fa \
+                     --snp {name}.index.snp \
+                     --haplotype {name}.haplotype \
+                     -p {threads} --verbose \
+                     {output_name}
+        """,
+    )

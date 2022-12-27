@@ -1,11 +1,12 @@
 from typing import Iterable
+
 from pyhlamsa import KIRmsa, Genemsa
 
 from .utils import getAlleleField, limitAlleleField
 
 
 def removeExonIncompleteSeq(msa: Genemsa) -> Genemsa:
-    """ Remove the sequence when E in exon (We only expect E in intron) """
+    """Remove the sequence when E in exon (We only expect E in intron)"""
     remove_names = set()
     for msa_part in msa.split_block():
         if msa_part.blocks[0].type == "exon":
@@ -45,7 +46,7 @@ def searchNearestName(full_names: Iterable[str], target_name: str) -> list[str]:
 
 
 def getNearestConsensus(msa: Genemsa, target_names: list[str]) -> str:
-    """ Generate the consensus by the alleles in target_names """
+    """Generate the consensus by the alleles in target_names"""
     if not target_names:
         # all sequence
         return msa.select_complete().get_consensus(include_gap=True)
@@ -54,12 +55,12 @@ def getNearestConsensus(msa: Genemsa, target_names: list[str]) -> str:
 
 
 def fillByConsensus(seq: str, consensus: str) -> str:
-    """ Fill the seq's E by consensus """
+    """Fill the seq's E by consensus"""
     return "".join([seq[i] if seq[i] != "E" else consensus[i] for i in range(len(seq))])
 
 
 def fillByNearestName(msa: Genemsa) -> Genemsa:
-    """ Fill the exon-only sequence by the most similar alleles """
+    """Fill the exon-only sequence by the most similar alleles"""
     new_msa = msa.copy(copy_allele=False)
     full_names = msa.select_complete().alleles.keys()
     exon_names = msa.select_incomplete().alleles.keys()
@@ -78,7 +79,7 @@ def fillByNearestName(msa: Genemsa) -> Genemsa:
 
 
 def fillMissingIntrons(genes: dict[str, Genemsa]) -> dict[str, Genemsa]:
-    """ Fill the exon-only gap by its similar alleles for all genes """
+    """Fill the exon-only gap by its similar alleles for all genes"""
     new_kir = {}
     for gene, msa in genes.items():
         print(gene)
@@ -90,6 +91,7 @@ def fillMissingIntrons(genes: dict[str, Genemsa]) -> dict[str, Genemsa]:
 
 if __name__ == "__main__":
     from graphkir.kir_msa import saveAllMsa
+
     kir = KIRmsa(filetype=["nuc", "gen"], version="2100")
     genes = fillMissingIntrons(kir.genes)
     saveAllMsa(genes, "index5/kir_2100_withexon")

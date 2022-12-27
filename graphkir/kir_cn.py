@@ -1,17 +1,18 @@
 """
 Raw depths -> gene depths -> gene's CN
 """
-import json
-from itertools import chain
 from typing import Any
+from itertools import chain
+import json
+
 import pandas as pd
 
-from .cn_model import CNgroup, KDEcut, Dist
 from .utils import runDocker, NumpyEncoder
+from .cn_model import CNgroup, KDEcut, Dist
 
 
 def bam2Depth(file_bam: str, file_depth: str, get_all: bool = True) -> None:
-    """ Get read depth of all the position (via samtools depth) """
+    """Get read depth of all the position (via samtools depth)"""
     if get_all:
         runDocker("samtools", f"samtools depth -aa {file_bam} -o {file_depth}")
     else:
@@ -19,43 +20,45 @@ def bam2Depth(file_bam: str, file_depth: str, get_all: bool = True) -> None:
 
 
 def readSamtoolsDepth(depth_filename: str) -> pd.DataFrame:
-    """ Read depths from samtools depths command (columns: gene, pos, depth) """
-    df = pd.read_csv(depth_filename, sep="\t",
-                     header=None, names=["gene", "pos", "depth"])
+    """Read depths from samtools depths command (columns: gene, pos, depth)"""
+    df = pd.read_csv(
+        depth_filename, sep="\t", header=None, names=["gene", "pos", "depth"]
+    )
     return df
 
 
-def selectSamtoolsDepth(df: pd.DataFrame,
-                        ref_regions: dict[str, list[tuple[int, int]]]
-                        ) -> pd.DataFrame:
-    """ Depths outside regions are removed (Used for remove intron depth) """
+def selectSamtoolsDepth(
+    df: pd.DataFrame, ref_regions: dict[str, list[tuple[int, int]]]
+) -> pd.DataFrame:
+    """Depths outside regions are removed (Used for remove intron depth)"""
     df_exon = []
     for gene, regions in ref_regions.items():
         for (start, end) in regions:
-            df_exon.append(df[(df["gene"] == gene)
-                           & (start <= df["pos"])
-                           & (df["pos"] <= end)])
+            df_exon.append(
+                df[(df["gene"] == gene) & (start <= df["pos"]) & (df["pos"] <= end)]
+            )
     return pd.concat(df_exon)
 
 
 def aggrDepths(depths: pd.DataFrame, select_mode: str = "p75") -> pd.DataFrame:
-    """ Depths of positions in each gene -> depths of gene """
+    """Depths of positions in each gene -> depths of gene"""
     if select_mode == "median":
-        gene_depths = depths.groupby(by="gene", as_index=False)['depth'].median()
+        gene_depths = depths.groupby(by="gene", as_index=False)["depth"].median()
     elif select_mode == "mean":
-        gene_depths = depths.groupby(by="gene", as_index=False)['depth'].mean()
+        gene_depths = depths.groupby(by="gene", as_index=False)["depth"].mean()
     elif select_mode == "p75":
-        gene_depths = depths.groupby(by="gene", as_index=False)['depth'].quantile(.75)
+        gene_depths = depths.groupby(by="gene", as_index=False)["depth"].quantile(0.75)
     else:
         raise NotImplementedError
     return gene_depths  # type: ignore
 
 
-def depthToCN(sample_gene_depths: list[pd.DataFrame],
-              cluster_method: str = "CNgroup",
-              cluster_method_kwargs: dict[str, Any] = {},
-              assume_3DL3_diploid: bool = False
-              ) -> tuple[list[dict[str, int]], Dist]:
+def depthToCN(
+    sample_gene_depths: list[pd.DataFrame],
+    cluster_method: str = "CNgroup",
+    cluster_method_kwargs: dict[str, Any] = {},
+    assume_3DL3_diploid: bool = False,
+) -> tuple[list[dict[str, int]], Dist]:
     """
     Depths of gene -> CN of gene
 
@@ -69,7 +72,7 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
       CN of gene per sample
       CN model
     """
-    values = list(chain.from_iterable(map(lambda i: i['depth'], sample_gene_depths)))
+    values = list(chain.from_iterable(map(lambda i: i["depth"], sample_gene_depths)))
 
     # cluster
     if cluster_method == "CNgroup":
@@ -79,8 +82,11 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
         dist.fit(values)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
-                float(gene_depths.loc[gene_depths['gene'] == "KIR3DL3*BACKBONE", "depth"])
-                for gene_depths in sample_gene_depths]
+                float(
+                    gene_depths.loc[gene_depths["gene"] == "KIR3DL3*BACKBONE", "depth"]
+                )
+                for gene_depths in sample_gene_depths
+            ]
             cn = dist.assignCN(kir3dl3_depths)
             if all(i == 1 for i in cn):
                 assert isinstance(dist.base, float)
@@ -101,16 +107,17 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
 
     sample_gene_cns = []
     for gene_depths in sample_gene_depths:
-        sample_gene_cns.append(dict(zip(
-            gene_depths['gene'],
-            dist.assignCN(list(gene_depths['depth']))
-        )))
+        sample_gene_cns.append(
+            dict(zip(gene_depths["gene"], dist.assignCN(list(gene_depths["depth"]))))
+        )
     return sample_gene_cns, dist
 
 
-def filterDepth(depth_file: str,
-                filtered_depth_file: str,
-                bam_selected_regions: dict[str, list[tuple[int, int]]] = {}) -> None:
+def filterDepth(
+    depth_file: str,
+    filtered_depth_file: str,
+    bam_selected_regions: dict[str, list[tuple[int, int]]] = {},
+) -> None:
     """
     Bam -> tsv of read depth
 
@@ -125,15 +132,16 @@ def filterDepth(depth_file: str,
     depths.to_csv(filtered_depth_file, header=False, index=False, sep="\t")
 
 
-def predictSamplesCN(samples_depth_tsv: list[str],
-                     samples_cn: list[str],
-                     save_cn_model_path: str | None = None,
-                     assume_3DL3_diploid: bool = False,
-                     select_mode: str = "p75",
-                     per_gene: bool = False,
-                     cluster_method: str = "CNgroup",
-                     cluster_method_kwargs: dict[str, Any] = {},
-                     ) -> None:
+def predictSamplesCN(
+    samples_depth_tsv: list[str],
+    samples_cn: list[str],
+    save_cn_model_path: str | None = None,
+    assume_3DL3_diploid: bool = False,
+    select_mode: str = "p75",
+    per_gene: bool = False,
+    cluster_method: str = "CNgroup",
+    cluster_method_kwargs: dict[str, Any] = {},
+) -> None:
     """
     Read depth tsv and predict CN per gene per sample
 
@@ -153,17 +161,19 @@ def predictSamplesCN(samples_depth_tsv: list[str],
 
     if not per_gene:
         # depth per gene -> cn per gene
-        cns, model = depthToCN(sample_gene_depths,
-                               cluster_method=cluster_method,
-                               cluster_method_kwargs=cluster_method_kwargs,
-                               assume_3DL3_diploid=assume_3DL3_diploid)
+        cns, model = depthToCN(
+            sample_gene_depths,
+            cluster_method=cluster_method,
+            cluster_method_kwargs=cluster_method_kwargs,
+            assume_3DL3_diploid=assume_3DL3_diploid,
+        )
 
         if save_cn_model_path:
             model.save(save_cn_model_path)
     else:
         # concat sample with id
         for i, df in enumerate(sample_gene_depths):
-            df['gene_sampleid'] = df['gene'] + "-" + str(i)
+            df["gene_sampleid"] = df["gene"] + "-" + str(i)
         depths = pd.concat(sample_gene_depths)
 
         # save per gene cn
@@ -175,9 +185,11 @@ def predictSamplesCN(samples_depth_tsv: list[str],
             # bcz depthToCN use name as key, it'll overwrite
             gene_depths = depths[depths["gene"] == gene]
             gene_depths["gene"] = gene_depths["gene_sampleid"]
-            gene_cns, gene_model = depthToCN([gene_depths],
-                                             cluster_method=cluster_method,
-                                             assume_3DL3_diploid=assume_3DL3_diploid)
+            gene_cns, gene_model = depthToCN(
+                [gene_depths],
+                cluster_method=cluster_method,
+                assume_3DL3_diploid=assume_3DL3_diploid,
+            )
             # print(gene_cns)
             # save back to per sample
             cns_model.append((gene, gene_model))
@@ -207,4 +219,4 @@ def loadCN(filename_cn: str) -> dict[str, int]:
       value:  CN on the reference
     """
     data = pd.read_csv(filename_cn, sep="\t", index_col=[0])
-    return dict(data.to_dict()['cn'])
+    return dict(data.to_dict()["cn"])

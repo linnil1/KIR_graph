@@ -9,6 +9,7 @@ from collections import defaultdict
 
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import Genemsa, KIRmsa
+
 from .utils import runDocker, readFromMSAs
 from .msa_cds_intron import fillMissingIntrons
 
@@ -20,9 +21,26 @@ GenesMsa = dict[str, Genemsa]
 BlockMsa = dict[str, list[SeqRecord]]
 BlockFile = dict[str, str]
 kir_block_name = [
-    "5UTR", "exon1", "intron1", "exon2", "intron2", "exon3", "intron3",
-    "exon4", "intron4", "exon5", "intron5", "exon6", "intron6", "exon7",
-    "intron7", "exon8", "intron8", "exon9", "3UTR"]
+    "5UTR",
+    "exon1",
+    "intron1",
+    "exon2",
+    "intron2",
+    "exon3",
+    "intron3",
+    "exon4",
+    "intron4",
+    "exon5",
+    "intron5",
+    "exon6",
+    "intron6",
+    "exon7",
+    "intron7",
+    "exon8",
+    "intron8",
+    "exon9",
+    "3UTR",
+]
 
 
 def saveAllMsa(genes: GenesMsa, prefix: str) -> None:
@@ -35,10 +53,9 @@ def saveAllMsa(genes: GenesMsa, prefix: str) -> None:
     """
     for gene_name, msa in genes.items():
         msa = msa.shrink()
-        msa.append(f"{gene_name}*BACKBONE",
-                   msa.get_consensus(include_gap=False))
+        msa.append(       f"{gene_name}*BACKBONE", msa.get_consensus(include_gap=False))
         msa.set_reference(f"{gene_name}*BACKBONE")
-        msa.to_bam(  f"{prefix}.{gene_name}.bam")  # noqa: E201
+        msa.to_bam(  f"{prefix}.{gene_name}.bam")
         msa.to_gff(  f"{prefix}.{gene_name}.gff")
         msa.save_msa(f"{prefix}.{gene_name}.fa",
                      f"{prefix}.{gene_name}.json")
@@ -61,7 +78,7 @@ def readDB(full_length_only: bool = True, version: str = "latest") -> GenesMsa:
 
 
 def removeBackbone(genes: GenesMsa) -> GenesMsa:
-    """ Remove {gene}*BACKBONE alleles """
+    """Remove {gene}*BACKBONE alleles"""
     for gene, msa in genes.items():
         if f"{gene}*BACKBONE" in msa:
             msa.remove_allele([f"{gene}*BACKBONE"])
@@ -109,7 +126,9 @@ def blockToFile(blocks: BlockMsa, tmp_prefix: str = "tmp") -> BlockFile:
     return files
 
 
-def realignBlock(files: BlockFile, method: str = "clustalo", threads: int = 1) -> BlockFile:
+def realignBlock(
+    files: BlockFile, method: str = "clustalo", threads: int = 1
+) -> BlockFile:
     """
     Run MSA tools for the files in `files`
 
@@ -165,7 +184,8 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
     for block_name in kir_block_name:
         # seqrecord -> Genemsa
         blk = Genemsa.from_MultipleSeqAlignment(
-                Align.MultipleSeqAlignment(blocks[block_name]))
+            Align.MultipleSeqAlignment(blocks[block_name])
+        )
         # first
         if msa is None:
             msa = blk
@@ -174,9 +194,9 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
 
         # fill miss alleles
         for allele in blk.alleles.keys() - current_alleles:
-            msa.append(allele, '-' * msa.get_length())
+            msa.append(allele, "-" * msa.get_length())
         for allele in current_alleles - blk.alleles.keys():
-            blk.append(allele, '-' * blk.get_length())
+            blk.append(allele, "-" * blk.get_length())
 
         # merge
         msa += blk
@@ -188,8 +208,9 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
 
 
 def isEqualMsa(msas: GenesMsa, msa: Genemsa) -> bool:
-    assert set(msa.alleles.keys()) \
-        == set(chain.from_iterable(msa_old.alleles.keys() for msa_old in msas.values()))
+    assert set(msa.alleles.keys()) == set(
+        chain.from_iterable(msa_old.alleles.keys() for msa_old in msas.values())
+    )
     for msa_old in msas.values():
         for name, seq in msa_old.alleles.items():
             if seq.replace("-", "") != msa.get(name).replace("-", ""):
@@ -200,10 +221,9 @@ def isEqualMsa(msas: GenesMsa, msa: Genemsa) -> bool:
     return True
 
 
-def mergeMSA(genes: GenesMsa,
-             method: str = "clustalo",
-             tmp_prefix: str = "tmp",
-             threads: int = 1) -> Genemsa:
+def mergeMSA(
+    genes: GenesMsa, method: str = "clustalo", tmp_prefix: str = "tmp", threads: int = 1
+) -> Genemsa:
     """
     Merge multiple MSA into one single MSA
 
@@ -228,9 +248,11 @@ def muscle(name: str, threads: int = 1) -> str:
     Construct MSA with muscle
     (Input and output are filename without suffix)
     """
-    runDocker("muscle",
-              f"muscle -align {name}.fa -threads {threads}"
-              f"       -output {name}.muscle.fa")
+    runDocker(
+        "muscle",
+        f"muscle -align {name}.fa -threads {threads}"
+        f"       -output {name}.muscle.fa",
+    )
     return name + ".muscle"
 
 
@@ -239,17 +261,23 @@ def clustalo(name: str, threads: int = 1) -> str:
     Construct MSA with clustalo
     (Input and output are filename without suffix)
     """
-    runDocker("clustalo",
-              f"clustalo --infile {name}.fa -o {name}.clustalo.fa"
-              f"         --outfmt fasta --threads {threads} --force")
+    runDocker(
+        "clustalo",
+        f"clustalo --infile {name}.fa -o {name}.clustalo.fa"
+        f"         --outfmt fasta --threads {threads} --force",
+    )
     return name + ".clustalo"
 
 
-def buildKirMsa(mode: str, prefix: str, version: str = "2100",
-                input_msa_prefix: str = "",
-                full_length_only: bool = True,
-                mergeMSA: Callable[..., Genemsa] = mergeMSA,
-                threads: int = 1) -> None:
+def buildKirMsa(
+    mode: str,
+    prefix: str,
+    version: str = "2100",
+    input_msa_prefix: str = "",
+    full_length_only: bool = True,
+    mergeMSA: Callable[..., Genemsa] = mergeMSA,
+    threads: int = 1,
+) -> None:
     """
     Read KIR from database and save MSA into files with prefix
 
@@ -276,24 +304,25 @@ def buildKirMsa(mode: str, prefix: str, version: str = "2100",
             genes = fillMissingIntrons(genes)
 
     if mode == "split":
-        genes['KIR2DL5A'] = genes['KIR2DL5'].select_allele("KIR2DL5A.*")
-        genes['KIR2DL5B'] = genes['KIR2DL5'].select_allele("KIR2DL5B.*")
-        del genes['KIR2DL5']
+        genes["KIR2DL5A"] = genes["KIR2DL5"].select_allele("KIR2DL5A.*")
+        genes["KIR2DL5B"] = genes["KIR2DL5"].select_allele("KIR2DL5B.*")
+        del genes["KIR2DL5"]
     elif mode == "ab":
         pass
     elif mode == "merge":
-        genes = {"KIR": mergeMSA(genes,
-                                 method="clustalo",
-                                 tmp_prefix=prefix + ".tmp",
-                                 threads=threads)}
+        genes = {
+            "KIR": mergeMSA(
+                genes, method="clustalo", tmp_prefix=prefix + ".tmp", threads=threads
+            )
+        }
     elif mode == "ab_2dl1s1":
         genes_for_merge = {
             "KIR2DL1": genes.pop("KIR2DL1"),
             "KIR2DS1": genes.pop("KIR2DS1"),
         }
-        genes["KIR2DL1S1"] = mergeMSA(genes_for_merge,
-                                      method="muscle",
-                                      tmp_prefix=prefix + ".tmp")
+        genes["KIR2DL1S1"] = mergeMSA(
+            genes_for_merge, method="muscle", tmp_prefix=prefix + ".tmp"
+        )
     else:
         raise NotImplementedError
 

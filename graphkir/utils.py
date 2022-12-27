@@ -19,8 +19,8 @@ from pyhlamsa import Genemsa
 
 
 resources: dict[str, int] = {  # per sample
-    'threads': 2,
-    'memory': 7,  # unit: G
+    "threads": 2,
+    "memory": 7,  # unit: G
 }
 docker_config = {
     "podman": {
@@ -49,7 +49,8 @@ docker_config = {
 docker_type = "podman"
 # linnil1's configuration in Taiwania HPC
 # download every image into image file
-# singularity build quay.io/biocontainers/bwa:0.7.17--hed695b0_7 singur_image/quay.io/biocontainers/bwa:0.7.17--hed695b0_7
+# singularity build quay.io/biocontainers/bwa:0.7.17--hed695b0_7 \
+#      singur_image/quay.io/biocontainers/bwa:0.7.17--hed695b0_7
 # docker_type = "singularity"
 # docker_config[docker_type]["image_func"] = lambda i: "singur_image/" + i
 # docker_config[docker_type]["run"] = (
@@ -61,7 +62,7 @@ docker_type = "podman"
 #     "--bind /staging/biodata/lions/twbk "
 # )
 # lions: twbb data
-# zxc898977: hprc data 
+# zxc898977: hprc data
 images = {
     "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
     "clustalo": "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
@@ -71,16 +72,22 @@ images = {
 
 
 def getThreads() -> int:
-    return resources['threads']
+    return resources["threads"]
 
 
 def setThreads(threads: int) -> None:
     global resources
-    resources['threads'] = threads
+    resources["threads"] = threads
 
 
-def runDocker(image: str, cmd: str, capture_output: bool = False, cwd: str | None = None, opts: str = "") -> subprocess.CompletedProcess[str]:
-    """ run docker container """
+def runDocker(
+    image: str,
+    cmd: str,
+    capture_output: bool = False,
+    cwd: str | None = None,
+    opts: str = "",
+) -> subprocess.CompletedProcess[str]:
+    """run docker container"""
     image = images.get(image, image)
     random_name = str(uuid.uuid4()).split("-", 1)[0]
 
@@ -88,26 +95,33 @@ def runDocker(image: str, cmd: str, capture_output: bool = False, cwd: str | Non
     if docker_type == "singularity":
         opts = opts.replace(" -e ", " --env ")
     conf = docker_config[docker_type]
-    cmd_all = f"{conf['path']} {conf['run']} " + \
-              (f"{conf['name']} {random_name} " if conf.get('name') else "") + \
-              f"{opts} {conf['image_func'](image)} {cmd}"  # type: ignore
+    cmd_all = (
+        f"{conf['path']} {conf['run']} "
+        + (f"{conf['name']} {random_name} " if conf.get("name") else "")
+        + f"{opts} {conf['image_func'](image)} {cmd}"  # type: ignore
+    )
     proc = runShell(cmd_all, capture_output=capture_output, cwd=cwd)
     return proc
 
 
-def runShell(cmd: str, capture_output: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    """ wrap os.system """
+def runShell(
+    cmd: str, capture_output: bool = False, cwd: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """wrap os.system"""
     print(cmd)
-    proc = subprocess.run(cmd, shell=True,
-                          capture_output=capture_output,
-                          cwd=cwd,
-                          check=True,
-                          universal_newlines=True)
+    proc = subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=capture_output,
+        cwd=cwd,
+        check=True,
+        universal_newlines=True,
+    )
     return proc
 
 
 def samtobam(name: str, keep: bool = False) -> None:
-    """ samfile -> sorted bamfile and index (This is so useful) """
+    """samfile -> sorted bamfile and index (This is so useful)"""
     runDocker("samtools", f"samtools sort -@{getThreads()}  {name}.sam -o {name}.bam")
     runDocker("samtools", f"samtools index -@{getThreads()} {name}.bam")
     if not keep:
@@ -115,7 +129,8 @@ def samtobam(name: str, keep: bool = False) -> None:
 
 
 class NumpyEncoder(json.JSONEncoder):
-    """ The encoder for saving numpy array to json """
+    """The encoder for saving numpy array to json"""
+
     def default(self, obj: Any) -> Any:  # I don't know the exact format
         if dataclasses.is_dataclass(obj):
             return dataclasses.asdict(obj)
@@ -125,12 +140,12 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 def getGeneName(allele: str) -> str:
-    """ KIR3DP1*BACKBONE -> KIR3DP1 """
+    """KIR3DP1*BACKBONE -> KIR3DP1"""
     return allele.split("*")[0]
 
 
 def limitAlleleField(allele: str, resolution: int = 7) -> str:
-    """ KIR3DP1*0010101 with resolution 5 -> KIR3DP1*00101 """
+    """KIR3DP1*0010101 with resolution 5 -> KIR3DP1*00101"""
     return getGeneName(allele) + "*" + getAlleleField(allele, resolution)
 
 
@@ -156,14 +171,14 @@ def getAlleleField(allele: str, resolution: int = 7) -> str:
 
 
 def mergeAllele(allele_result_files: list[str], final_result_file: str) -> pd.DataFrame:
-    """ Merge allele calling result """
+    """Merge allele calling result"""
     df = pd.concat(pd.read_csv(f, sep="\t") for f in allele_result_files)
     df.to_csv(final_result_file, index=False, sep="\t")
     return df
 
 
 def mergeCN(cn_result_files: list[str], final_result_file: str) -> pd.DataFrame:
-    """ Merge copy number result """
+    """Merge copy number result"""
     dfs = []
     for f in cn_result_files:
         df = pd.read_csv(f, sep="\t")
@@ -185,7 +200,7 @@ def readFromMSAs(prefix: str) -> dict[str, Genemsa]:
     """
     genes = {}
     for filename in glob(prefix + ".*.json"):
-        split_name = filename[len(prefix) + 1:].split('.')
+        split_name = filename[len(prefix) + 1 :].split(".")
         # prefix.anotherprefix.*.json will not included
         if len(split_name) != 2:
             continue

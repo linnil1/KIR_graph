@@ -21,41 +21,42 @@ from .utils import NumpyEncoder
 
 
 class Dist:
-    """ Abstract class of CN prediction model """
+    """Abstract class of CN prediction model"""
+
     def __init__(self) -> None:
         pass
 
     def fit(self, values: list[float]) -> None:
-        """ Determine the parameters by data """
+        """Determine the parameters by data"""
         raise NotImplementedError
 
     def assignCN(self, values: list[float]) -> list[int]:
-        """ Assign CN with depth input by parameters """
+        """Assign CN with depth input by parameters"""
         raise NotImplementedError
 
     def save(self, filename: str) -> None:
-        """ Save parameters """
+        """Save parameters"""
         with open(filename, "w") as f:
             json.dump(self.getParams(), f, cls=NumpyEncoder)
 
     @classmethod
     def load(cls, filename: str) -> Dist:
-        """ Load parameters """
+        """Load parameters"""
         with open(filename) as f:
             data = json.load(f)
         return cls.setParams(data)
 
     def getParams(self) -> dict[str, Any]:
-        """ Get parameters """
+        """Get parameters"""
         raise NotImplementedError
 
     @classmethod
     def setParams(cls, data: dict[str, Any]) -> Dist:
-        """ Set parameters """
+        """Set parameters"""
         raise NotImplementedError
 
     def plot(self, title: str = "") -> list[go.Figure]:
-        """ Plot the model """
+        """Plot the model"""
         raise NotImplementedError
 
 
@@ -71,6 +72,7 @@ class CNgroup(Dist):
       bin_num:  Bins number in [0, x_max]
       max_cn:   CN limits
     """
+
     def __init__(self) -> None:
         # const
         super().__init__()
@@ -88,7 +90,7 @@ class CNgroup(Dist):
         self.likelihood: npt.NDArray[np.float64] = np.array([])
 
     def getParams(self) -> dict[str, Any]:
-        """ Save parameters """
+        """Save parameters"""
         return {
             'method'  : "CNgroup",
             'x_max'   : self.x_max,
@@ -103,8 +105,8 @@ class CNgroup(Dist):
 
     @classmethod
     def setParams(cls, data: dict[str, Any]) -> CNgroup:
-        """ Load parameters """
-        assert data['method'] == "CNgroup"
+        """Load parameters"""
+        assert data["method"] == "CNgroup"
         self = cls()
         self.base     = data['base']
         self.base_dev = data['base_dev']
@@ -141,14 +143,16 @@ class CNgroup(Dist):
             max_prob = cn_group.max(axis=0)
             # log-probility = depth \cdot the log(highest probility)
             likelihood_list.append((base, np.sum(np.log(max_prob + 1e-9) * density)))
-        self.likelihood = np.array(likelihood_list)  # n x 2(base, likelihood of the base)
+        self.likelihood = np.array(
+            likelihood_list
+        )  # n x 2(base, likelihood of the base)
 
         # Find best fit x = base
         max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
         self.base = max_point[0]
 
     def assignCN(self, values: list[float]) -> list[int]:
-        """ Assign CN group for each depths """
+        """Assign CN group for each depths"""
         assert self.base is not None
         cn_group = self.calcCNGroupProb(self.base)
         cn_max = cn_group.argmax(axis=0)
@@ -165,7 +169,9 @@ class CNgroup(Dist):
         x = np.linspace(0, self.x_max, self.bin_num)
         cn = np.arange(1, self.max_cn)
         y0 = norm.pdf(x, loc=0, scale=self.base_dev * self.y0_dev)
-        y = np.stack([y0, *[norm.pdf(x, loc=base*n, scale=self.base_dev*n) for n in cn]])
+        y = np.stack(
+            [y0, *[norm.pdf(x, loc=base * n, scale=self.base_dev * n) for n in cn]]
+        )
         space = self.x_max / self.bin_num  # * space is to make y-sum = 1
         return np.array(y * space)
 
@@ -174,8 +180,12 @@ class CNgroup(Dist):
 
         # loss function of distribution
         fig_loss = px.line(x=self.likelihood[:, 0], y=self.likelihood[:, 1])
-        fig_loss.add_vline(x=self.base, line_dash="dash", line_color="gray",
-                           annotation_text=f"max value={self.base}")
+        fig_loss.add_vline(
+            x=self.base,
+            line_dash="dash",
+            line_color="gray",
+            annotation_text=f"max value={self.base}",
+        )
         fig_loss.update_layout(
             xaxis_title="read-depth",
             yaxis_title="likelihood",
@@ -184,10 +194,10 @@ class CNgroup(Dist):
 
         # histogram of read depth
         fig_dist = make_subplots(specs=[[{"secondary_y": True}]])
-        fig_dist.add_trace(go.Histogram(x=list(self.data),
-                                        name="Observed",
-                                        nbinsx=self.bin_num),
-                           secondary_y=True)
+        fig_dist.add_trace(
+            go.Histogram(x=list(self.data), name="Observed", nbinsx=self.bin_num),
+            secondary_y=True,
+        )
         fig_dist.update_layout(
             title=title,
             xaxis_title="read-depth",
@@ -205,8 +215,12 @@ class CNgroup(Dist):
         prev_y = 0
         for i, yi in enumerate(np.argmax(y, axis=0)):
             if yi != prev_y:
-                fig_dist.add_vline(x=x[i], annotation_text=f"CN {yi-1}-{yi}",
-                                   line_dash="dash", line_color="gray")
+                fig_dist.add_vline(
+                    x=x[i],
+                    annotation_text=f"CN {yi-1}-{yi}",
+                    line_dash="dash",
+                    line_color="gray",
+                )
             prev_y = yi
 
         return [fig_loss, fig_dist]
@@ -245,7 +259,7 @@ class KDEcut(Dist):
         self.data: list[float]      = []  # normalized data
 
     def getParams(self) -> dict[str, Any]:
-        """ Save parameters """
+        """Save parameters"""
         assert self.kde
         return {
             'method'   : "KDEcut",
@@ -259,8 +273,8 @@ class KDEcut(Dist):
 
     @classmethod
     def setParams(cls, data: dict[str, Any]) -> KDEcut:
-        """ Load parameters """
-        assert data['method'] == "KDEcut"
+        """Load parameters"""
+        assert data["method"] == "KDEcut"
         self = cls()
         self.x_max     = data['x_max']
         self.bandwidth = data['bandwidth']
@@ -281,7 +295,7 @@ class KDEcut(Dist):
         # normalize to 0 - 1
         self.x_max = np.max(values)
         data = np.array(values)[:, None] / self.x_max
-        self.kde = KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(data)
+        self.kde = KernelDensity(kernel="gaussian", bandwidth=self.bandwidth).fit(data)
 
         # cut
         x = np.linspace(0, 1.1, self.points)
@@ -293,7 +307,7 @@ class KDEcut(Dist):
         self.data = values
 
     def assignCN(self, values: list[float]) -> list[int]:
-        """ Assign CN for each depths """
+        """Assign CN for each depths"""
         assert self.kde is not None
         x = np.array(values) / self.x_max
         cn = np.searchsorted(self.local_min, x)
@@ -305,24 +319,34 @@ class KDEcut(Dist):
         y = self.kde.score_samples(x[:, None])
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         fig.add_trace(go.Scatter(x=x, y=y, name="KDE"))
-        fig.update_layout(yaxis_title="KDE score",
-                          yaxis2_title="Fraction of samples",
-                          xaxis_title="Normalized Depth")
+        fig.update_layout(
+            yaxis_title="KDE score",
+            yaxis2_title="Fraction of samples",
+            xaxis_title="Normalized Depth",
+        )
         for cn, m in enumerate(self.local_min):
-            fig.add_vline(x=m, line_width=2, line_dash="dash", annotation_text=f"cn={cn}")
+            fig.add_vline(
+                x=m, line_width=2, line_dash="dash", annotation_text=f"cn={cn}"
+            )
 
-        fig.add_trace(go.Histogram(
-            x=np.array(self.data) / self.x_max,
-            name="samples", nbinsx=100, histnorm="probability"), secondary_y=True)
+        fig.add_trace(
+            go.Histogram(
+                x=np.array(self.data) / self.x_max,
+                name="samples",
+                nbinsx=100,
+                histnorm="probability",
+            ),
+            secondary_y=True,
+        )
         return [fig]
 
 
 def loadCNModel(filename: str) -> Dist:
-    """ Load model from json. """
+    """Load model from json."""
     with open(filename) as f:
         data = json.load(f)
-    if data['method'] == "KDEcut":
+    if data["method"] == "KDEcut":
         return KDEcut.load(filename)
-    if data['method'] == "CNgroup":
+    if data["method"] == "CNgroup":
         return CNgroup.load(filename)
     raise NotImplementedError

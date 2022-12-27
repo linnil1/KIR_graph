@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, asdict
 from .utils import runDocker, samtobam, getThreads
 from .msa2hisat import Variant
 from .pileup import PileupCount, getPileupBaseRatio
+
 # TODO
 # = typing_common.identify_ambigious_diffs(ref_seq,
 
@@ -34,6 +35,7 @@ class PairRead:
       lnv: negative variants contains in the l_sam
       rnv: negative variants contains in the r_sam
     """
+
     # records strings
     l_sam: str = ""
     r_sam: str = ""
@@ -57,23 +59,28 @@ class ReadsAndVariantsData(TypedDict):
       variants: variants data in the graph (including novel variants of the sample)
       reads: The positive/negative variants of each pair read
     """
+
     variants: list[Variant]
     reads: list[PairRead]
 
 
 def hisatMap(index: str, f1: str, f2: str, output_file: str, threads: int = 1) -> None:
-    """ run hisat2 """
+    """run hisat2"""
     assert output_file.endswith(".bam")
     output_name = output_file.rsplit(".", 1)[0]
-    runDocker("hisat", f"""\
-              hisat2 --threads {threads} -x {index} -1 {f1} -2 {f2} \
-              --no-spliced-alignment --max-altstried 64 --haplotype \
-              -S {output_name}.sam """)
+    runDocker(
+        "hisat",
+        f"""\
+        hisat2 --threads {threads} -x {index} -1 {f1} -2 {f2} \
+               --no-spliced-alignment --max-altstried 64 --haplotype \
+               -S {output_name}.sam
+        """,
+    )
     samtobam(output_name)
 
 
 def getNH(sam_info: str) -> int:
-    """ Extract NH from record """
+    """Extract NH from record"""
     NH_re = re.findall(r"NH:i:(\d+)", sam_info)
     if NH_re:
         return int(NH_re[0])
@@ -81,18 +88,16 @@ def getNH(sam_info: str) -> int:
 
 
 def readBam(bam_file: str) -> list[str]:
-    """ Read bam file via samtools """
-    proc = runDocker("samtools",
-                     f"samtools sort -n {bam_file} -O SAM",
-                     capture_output=True)
-    return str(proc.stdout).split('\n')
+    """Read bam file via samtools"""
+    proc = runDocker(
+        "samtools", f"samtools sort -n {bam_file} -O SAM", capture_output=True
+    )
+    return str(proc.stdout).split("\n")
 
 
 def readBamHeader(bam_file: str) -> str:
-    """ Read header of bam file via samtools """
-    proc = runDocker("samtools",
-                     f"samtools view -H {bam_file}",
-                     capture_output=True)
+    """Read header of bam file via samtools"""
+    proc = runDocker("samtools", f"samtools view -H {bam_file}", capture_output=True)
     return str(proc.stdout)
 
 
@@ -107,7 +112,7 @@ def readLink(index: str) -> dict[str, list[str]]:
     with open(index + ".link") as f:
         for line in f:
             # hv25	KIR2DL2*0010101 KIR2DL2*0010103
-            allele_id, alleles = line.strip().split('\t')
+            allele_id, alleles = line.strip().split("\t")
             id_alleles[allele_id] = alleles.split()
     return id_alleles
 
@@ -126,9 +131,11 @@ def readExons(index: str) -> dict[str, list[tuple[int, int]]]:
     gene_exons = {}
     with open(index + ".locus") as f:
         for line in f:
-            gene, _, _, _, _, exons_str, _ = line.split('\t')
-            gene_exons[gene] = [(int(i.split('-')[0]) - 1, int(i.split('-')[1]) - 1)
-                                for i in exons_str.split(' ')]
+            gene, _, _, _, _, exons_str, _ = line.split("\t")
+            gene_exons[gene] = [
+                (int(i.split("-")[0]) - 1, int(i.split("-")[1]) - 1)
+                for i in exons_str.split(" ")
+            ]
     return gene_exons
 
 
@@ -144,12 +151,14 @@ def readVariants(index: str) -> list[Variant]:
         for line in f:
             # hv7	single	KIR2DL2*BACKBONE	5819	T
             # hv8	deletion	KIR2DL2*BACKBONE	6626	2
-            variant_id, var_type, ref, pos, val = line.strip().split('\t')
-            v = Variant(typ=var_type,
-                        ref=ref,
-                        pos=int(pos),
-                        id=variant_id,
-                        val=val if var_type != "deletion" else int(val))
+            variant_id, var_type, ref, pos, val = line.strip().split("\t")
+            v = Variant(
+                typ=var_type,
+                ref=ref,
+                pos=int(pos),
+                id=variant_id,
+                val=val if var_type != "deletion" else int(val),
+            )
             variants.append(v)
     return variants
 
@@ -190,9 +199,11 @@ def isInExon(exons: list[tuple[int, int]], variant: Variant) -> bool:
     for exon in exons:
         if exon[0] <= variant.pos < exon[1]:
             return True
-        if (variant.typ == "deletion" and
-                variant.pos < exon[0] and
-                variant.pos + variant.val >= exon[0]):  # type: ignore
+        if (
+            variant.typ == "deletion"
+            and variant.pos < exon[0]
+            and variant.pos + variant.val >= exon[0]  # type: ignore
+        ):
             return True
     return False
 
@@ -220,7 +231,7 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
             continue
 
         # preprocess
-        read_id, flag, ref, pos, _, _, next_ref, next_pos = line.split('\t')[:8]
+        read_id, flag, ref, pos, _, _, next_ref, next_pos = line.split("\t")[:8]
         if next_ref != "=":
             continue
         num_reads += 1
@@ -231,7 +242,7 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
         if next_id in reads:
             next_line = reads[next_id]
             # is left and right
-            if ((int(next_line.split('\t')[1]) | int(flag)) & (64 + 128)) != 64 + 128:
+            if ((int(next_line.split("\t")[1]) | int(flag)) & (64 + 128)) != 64 + 128:
                 print("Strange case", line, next_line)
                 continue
             # success
@@ -330,9 +341,11 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
     def findZs(var_type: str) -> str:
         nonlocal zs_i, zs_pos
         var_id = "unknown"
-        if (zs_i < len(zs)
-                and read_i + md_len == zs_pos + zs[zs_i][0]
-                and zs[zs_i][1] == var_type):
+        if (
+            zs_i < len(zs)
+            and read_i + md_len == zs_pos + zs[zs_i][0]
+            and zs[zs_i][1] == var_type
+        ):
             zs_pos += zs[zs_i][0]
             if var_type == "S":
                 zs_pos += 1
@@ -365,10 +378,12 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
             # the sequence before current_pos is the same (after md_len_last)
             if md_len >= cigar_length:
                 md_len -= cigar_length
-                yield Variant(typ="match",
-                              ref=backbone,
-                              pos=pos + md_len_last,
-                              length=cigar_length - md_len_last)
+                yield Variant(
+                    typ="match",
+                    ref=backbone,
+                    pos=pos + md_len_last,
+                    length=cigar_length - md_len_last,
+                )
                 break
 
             # read the base
@@ -385,18 +400,22 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
 
             # the sequence before current_pos is the same
             if md_len > md_len_last:
-                yield Variant(typ="match",
-                              ref=backbone,
-                              pos=pos + md_len_last,
-                              length=md_len - md_len_last)
+                yield Variant(
+                    typ="match",
+                    ref=backbone,
+                    pos=pos + md_len_last,
+                    length=md_len - md_len_last,
+                )
 
             # the current position is mismatch
-            yield Variant(typ="single",
-                          ref=backbone,
-                          pos=pos + md_len,
-                          length=1,
-                          val=read_base,
-                          id=findZs("S"))
+            yield Variant(
+                typ="single",
+                ref=backbone,
+                pos=pos + md_len,
+                length=1,
+                val=read_base,
+                id=findZs("S"),
+            )
             md_len += 1
             md_len_last = md_len
 
@@ -407,25 +426,33 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
 
     def mdInsertion() -> list[Variant]:
         # md does not contains insertion info
-        return [Variant(typ="insertion",
-                        ref=backbone,
-                        pos=pos,
-                        val=read_seq[read_i:read_i + cigar_length],
-                        length=cigar_length,
-                        id=findZs("I"))]
+        return [
+            Variant(
+                typ="insertion",
+                ref=backbone,
+                pos=pos,
+                val=read_seq[read_i : read_i + cigar_length],
+                length=cigar_length,
+                id=findZs("I"),
+            )
+        ]
 
     def mdDeletion() -> list[Variant]:
         nonlocal md_i
-        assert md[md_i] == '^'
+        assert md[md_i] == "^"
         md_i += 1
-        while md_i < len(md) and type(md[md_i]) is not int and str(md[md_i]) in 'ACGT':
+        while md_i < len(md) and type(md[md_i]) is not int and str(md[md_i]) in "ACGT":
             md_i += 1
-        return [Variant(typ="deletion",
-                        ref=backbone,
-                        pos=pos,
-                        val=cigar_length,
-                        length=cigar_length,
-                        id=findZs("D"))]
+        return [
+            Variant(
+                typ="deletion",
+                ref=backbone,
+                pos=pos,
+                val=cigar_length,
+                length=cigar_length,
+                id=findZs("D"),
+            )
+        ]
 
     cmp_list: list[Variant] = []
     soft_clip = [0, 0]
@@ -470,23 +497,23 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
 
 
 def readZs(cols: list[str]) -> list[tuple[int, str, str]]:
-    """ Read hisat2 Zs infomation """
+    """Read hisat2 Zs infomation"""
     for col in cols:
         if col.startswith("Zs"):
             # Zs:Z:43|D|hv862,19|D|hv868
-            zs = col[5:].split(',')
-            zs1 = map(lambda i: i.split('|'), zs)
+            zs = col[5:].split(",")
+            zs1 = map(lambda i: i.split("|"), zs)
             zs2 = map(lambda i: (int(i[0]), i[1], i[2]), zs1)
             return list(zs2)
     return []
 
 
 def readMd(cols: list[str]) -> list[int | str]:
-    """ Read hisat2 MD infomation """
+    """Read hisat2 MD infomation"""
     for col in cols:
         if col.startswith("MD"):
             # MD:Z:43^G19^TGGAGATATGGGCCTGGGTG88
-            md = re.findall(r'(\d+|.)', col[5:])
+            md = re.findall(r"(\d+|.)", col[5:])
             md1 = map(lambda i: int(i) if i.isdigit() else i, md)  # type: ignore
             return list(md1)
     return []
@@ -502,7 +529,7 @@ def filterRead(line: str, num_editdist: int = 4) -> bool:
     Returns:
         If return True, the read can pass the criteria
     """
-    flag = int(line.split('\t')[1])
+    flag = int(line.split("\t")[1])
 
     # Concordantly mapped?
     if flag & 2 == 0:
@@ -516,7 +543,7 @@ def filterRead(line: str, num_editdist: int = 4) -> bool:
 
     # read additional flag
     NM = None
-    for col in line.strip().split('\t')[11:]:
+    for col in line.strip().split("\t")[11:]:
         if col.startswith("NM"):
             NM = int(col[5:])
 
@@ -581,7 +608,7 @@ def errorCorrection(variant: Variant, pileup: PileupCount) -> Variant:
         return variant
 
     # insufficient depth
-    if p['all'] < 20:
+    if p["all"] < 20:
         return variant
 
     # not minority
@@ -608,11 +635,12 @@ def errorCorrection(variant: Variant, pileup: PileupCount) -> Variant:
     return variant
 
 
-def recordToVariants(record: str,
-                     variants_map: dict[Variant, Variant],
-                     pileup: None | PileupCount = None,
-                     ignore_softclip: bool = False,
-                     ) -> list[Variant]:
+def recordToVariants(
+    record: str,
+    variants_map: dict[Variant, Variant],
+    pileup: None | PileupCount = None,
+    ignore_softclip: bool = False,
+) -> list[Variant]:
     """
     Extract variants (with its id) in the read
 
@@ -642,9 +670,9 @@ def recordToVariants(record: str,
     return sorted(read_variants)
 
 
-def getVariantsBoundary(read_variants: list[Variant],
-                        variants: list[Variant]
-                        ) -> tuple[int, int]:
+def getVariantsBoundary(
+    read_variants: list[Variant], variants: list[Variant]
+) -> tuple[int, int]:
     """
     Find the lower and upper bound of read
 
@@ -659,18 +687,19 @@ def getVariantsBoundary(read_variants: list[Variant],
     """
     left = read_variants[0].pos
     rigt = read_variants[-1].pos + read_variants[-1].length
-    ref  = read_variants[0].ref
+    ref = read_variants[0].ref
     return (
         bisect.bisect_left(variants, Variant(ref=ref, pos=left, typ="single", val="A")),
-        bisect.bisect_left(variants, Variant(ref=ref, pos=rigt, typ="single", val="T"))
+        bisect.bisect_left(variants, Variant(ref=ref, pos=rigt, typ="single", val="T")),
     )
 
 
-def getPNFromVariantList(read_variants: list[Variant],
-                         variants: list[Variant],
-                         exon_only: bool = False,
-                         discard_novel_index: bool = True,
-                         ) -> tuple[list[Variant], list[Variant]]:
+def getPNFromVariantList(
+    read_variants: list[Variant],
+    variants: list[Variant],
+    exon_only: bool = False,
+    discard_novel_index: bool = True,
+) -> tuple[list[Variant], list[Variant]]:
     """
     Extract positive and negative variants of read
 
@@ -696,11 +725,15 @@ def getPNFromVariantList(read_variants: list[Variant],
     assert left <= right
 
     if discard_novel_index:
-        if any(v.typ == "insertion" and v.id.startswith("nv")  # type: ignore
-               for v in read_variants):
+        if any(
+            v.typ == "insertion" and v.id.startswith("nv")  # type: ignore
+            for v in read_variants
+        ):
             return [], []
-        if any(v.typ == "deletion"  and v.id.startswith("nv")  # type: ignore
-               for v in read_variants):
+        if any(
+            v.typ == "deletion" and v.id.startswith("nv")  # type: ignore
+            for v in read_variants
+        ):
             return [], []
 
     # exclude for negative
@@ -748,11 +781,12 @@ def getPNFromVariantList(read_variants: list[Variant],
     return positive_variants, negative_variants
 
 
-def extractVariant(pair_reads: Iterable[tuple[str, str]],
-                   variants: list[Variant],
-                   pileup: None | PileupCount = None
-                   ) -> ReadsAndVariantsData:
-    """ bam records (pair) -> variants information per read """
+def extractVariant(
+    pair_reads: Iterable[tuple[str, str]],
+    variants: list[Variant],
+    pileup: None | PileupCount = None,
+) -> ReadsAndVariantsData:
+    """bam records (pair) -> variants information per read"""
     # this dictionary may changes
     variants_map = {v: v for v in variants}
 
@@ -771,44 +805,49 @@ def extractVariant(pair_reads: Iterable[tuple[str, str]],
         rp, rn = getPNFromVariantList(rv, variants)
 
         # save the allele information for the read
-        reads.append(PairRead(
-            lpv=[v.id for v in lp if v.id is not None],
-            lnv=[v.id for v in ln if v.id is not None],
-            rpv=[v.id for v in rp if v.id is not None],
-            rnv=[v.id for v in rn if v.id is not None],
-            l_sam=left_record,
-            r_sam=right_record,
-            multiple=getNH(left_record),
-            backbone=left_record.split("\t")[2],
-        ))
+        reads.append(
+            PairRead(
+                lpv=[v.id for v in lp if v.id is not None],
+                lnv=[v.id for v in ln if v.id is not None],
+                rpv=[v.id for v in rp if v.id is not None],
+                rnv=[v.id for v in rn if v.id is not None],
+                l_sam=left_record,
+                r_sam=right_record,
+                multiple=getNH(left_record),
+                backbone=left_record.split("\t")[2],
+            )
+        )
     print("Filterd pairs", tot_pair)
     reads_data: ReadsAndVariantsData = {
-        'variants': list(variants_map.values()),
-        'reads': reads,
+        "variants": list(variants_map.values()),
+        "reads": reads,
     }
     return reads_data
 
 
 def writeReadsAndVariantsData(reads_data: ReadsAndVariantsData, filename: str) -> None:
-    """ Write result to json """
+    """Write result to json"""
     with open(filename, "w") as f:
-        json.dump({
-            'variants': [asdict(i) for i in reads_data['variants']],
-            'reads': [asdict(i) for i in reads_data['reads']],
-        }, f)
+        json.dump(
+            {
+                "variants": [asdict(i) for i in reads_data["variants"]],
+                "reads": [asdict(i) for i in reads_data["reads"]],
+            },
+            f,
+        )
 
 
 def loadReadsAndVariantsData(filename: str) -> ReadsAndVariantsData:
-    """ Load result from json """
+    """Load result from json"""
     with open(filename) as f:
         reads_data = json.load(f)
     return {
-        'variants': [Variant(**i) for i in reads_data['variants']],
-        'reads': [PairRead(**i) for i in reads_data['reads']],
+        "variants": [Variant(**i) for i in reads_data["variants"]],
+        "reads": [PairRead(**i) for i in reads_data["reads"]],
     }
 
 
-def saveSam(filename: str, header: str,  reads: Iterable[PairRead]) -> None:
+def saveSam(filename: str, header: str, reads: Iterable[PairRead]) -> None:
     """
     save records into sam file
 
@@ -822,10 +861,12 @@ def saveSam(filename: str, header: str,  reads: Iterable[PairRead]) -> None:
         f.writelines(map(lambda i: i.l_sam + "\n" + i.r_sam + "\n", reads))
 
 
-def saveReadsToBam(reads_data: ReadsAndVariantsData,
-                   filename_prefix: str,
-                   bam_file: str,
-                   filter_multi_mapped: bool = False) -> None:
+def saveReadsToBam(
+    reads_data: ReadsAndVariantsData,
+    filename_prefix: str,
+    bam_file: str,
+    filter_multi_mapped: bool = False,
+) -> None:
     """
     Save the reads into sam/bamfile (`{filename_prefix}.bam`)
 
@@ -835,14 +876,16 @@ def saveReadsToBam(reads_data: ReadsAndVariantsData,
     """
     print(f"Save bam in {filename_prefix}.bam")
     sam_header = readBamHeader(bam_file)
-    reads = reads_data['reads']  # type: Iterable[PairRead]
+    reads = reads_data["reads"]  # type: Iterable[PairRead]
     if filter_multi_mapped:
-        reads = filter(lambda r: r.multiple == 1, reads_data['reads'])
+        reads = filter(lambda r: r.multiple == 1, reads_data["reads"])
     saveSam(filename_prefix + ".sam", sam_header, reads)
     samtobam(filename_prefix)
 
 
-def extractVariantFromBam(index: str, bam_file: str, output_prefix: str, error_correction: bool = True) -> None:
+def extractVariantFromBam(
+    index: str, bam_file: str, output_prefix: str, error_correction: bool = True
+) -> None:
     """
     Extract reads and variants from bamfile
 
@@ -873,14 +916,13 @@ def extractVariantFromBam(index: str, bam_file: str, output_prefix: str, error_c
     writeReadsAndVariantsData(reads_data, f"{output_prefix}.json")
 
     # save to another format
-    saveReadsToBam(reads_data, output_prefix,               bam_file)
-    saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file,
-                   filter_multi_mapped=True)
+    saveReadsToBam(reads_data, output_prefix              , bam_file)
+    saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file, filter_multi_mapped=True)
 
 
 def removeMultipleMapped(reads_data: ReadsAndVariantsData) -> ReadsAndVariantsData:
-    """ actually remove NH != 1 reads """
+    """actually remove NH != 1 reads"""
     return {
-        'variants': reads_data['variants'],
-        'reads': list(filter(lambda i: i.multiple == 1, reads_data['reads'])),
+        "variants": reads_data["variants"],
+        "reads": list(filter(lambda i: i.multiple == 1, reads_data["reads"])),
     }

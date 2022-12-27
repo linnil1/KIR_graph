@@ -17,24 +17,25 @@ import numpy.typing as npt
 
 from .hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
 
+
 @dataclass
 class Hisat2AlleleResult:
-    """ The result of hisat2 EM result """
+    """The result of hisat2 EM result"""
+
     allele: str  # allele name
-    count: int   # allele count
+    count: int  # allele count
     prob: float  # allele abundance
     cn: int = 0  # Copy number (used in.kir_typing)
 
 
 def readAlleleLength(file_fasta: str) -> dict[str, int]:
-    """ Read allele's length """
-    return {
-        seq.id: len(seq.seq) for seq in SeqIO.parse(file_fasta, "fasta")
-    }
+    """Read allele's length"""
+    return {seq.id: len(seq.seq) for seq in SeqIO.parse(file_fasta, "fasta")}
 
 
-def preprocessHisatReads(reads_data: ReadsAndVariantsData
-                         ) -> dict[str, list[dict[str, list[list[str]]]]]:
+def preprocessHisatReads(
+    reads_data: ReadsAndVariantsData,
+) -> dict[str, list[dict[str, list[list[str]]]]]:
     """
     Preprocess hisat2 reads before EM
 
@@ -46,23 +47,26 @@ def preprocessHisatReads(reads_data: ReadsAndVariantsData
     Returns:
         Dictionary[ backbone_name, list of postive and negative alleles of each read]
     """
-    map_variant_to_alleles = {v.id: v.allele for v in reads_data['variants']}
+    map_variant_to_alleles = {v.id: v.allele for v in reads_data["variants"]}
     backbones_reads_alleles = defaultdict(list)
-    pairreads = reads_data['reads']
+    pairreads = reads_data["reads"]
     assert all(map(lambda i: i.multiple == 1, pairreads))
 
     for read in pairreads:
-        backbones_reads_alleles[read.backbone].append({
-            'lp': [map_variant_to_alleles[v] for v in read.lpv],
-            'ln': [map_variant_to_alleles[v] for v in read.lnv],
-            'rp': [map_variant_to_alleles[v] for v in read.rpv],
-            'rn': [map_variant_to_alleles[v] for v in read.rnv],
-        })
+        backbones_reads_alleles[read.backbone].append(
+            {
+                "lp": [map_variant_to_alleles[v] for v in read.lpv],
+                "ln": [map_variant_to_alleles[v] for v in read.lnv],
+                "rp": [map_variant_to_alleles[v] for v in read.rpv],
+                "rn": [map_variant_to_alleles[v] for v in read.rnv],
+            }
+        )
     return backbones_reads_alleles
 
 
-def getCandidateAllelePerRead(positive_allele: list[list[str]],
-                              negative_allele: list[list[str]]) -> list[str]:
+def getCandidateAllelePerRead(
+    positive_allele: list[list[str]], negative_allele: list[list[str]]
+) -> list[str]:
     """
     positive_allele & positive_allele - negative_allele - negative_allele
 
@@ -100,11 +104,11 @@ def getMostFreqAllele(candidates: list[str]) -> list[str]:
 
 
 def hisatEMnp(
-        allele_per_read: list[list[str]],
-        seq_len: dict[str, int] = {},
-        iter_max: int = 300,
-        diff_threshold: float = 0.0001,
-        ) -> dict[str, float]:
+    allele_per_read: list[list[str]],
+    seq_len: dict[str, int] = {},
+    iter_max: int = 300,
+    diff_threshold: float = 0.0001,
+) -> dict[str, float]:
     """
     EM-algorithm: allele per reads -> allele probility
 
@@ -132,7 +136,9 @@ def hisatEMnp(
     allele_map = dict(zip(allele_name, range(len(allele_name))))
 
     if seq_len:
-        allele_len: npt.NDArray[np.float64] = np.array([seq_len[i] for i in allele_name])
+        allele_len: npt.NDArray[np.float64] = np.array(
+            [seq_len[i] for i in allele_name]
+        )
     else:
         allele_len = np.ones(len(allele_name))
     allele_select_one_list = []
@@ -141,14 +147,14 @@ def hisatEMnp(
         for i in map(allele_map.get, alleles):
             x[i] = 1
         allele_select_one_list.append(x)
-    allele_select_one: npt.NDArray[np.bool_]= np.array(allele_select_one_list)
+    allele_select_one: npt.NDArray[np.bool_] = np.array(allele_select_one_list)
 
-    def getNextProb(prob_per_allele: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    def getNextProb(
+        prob_per_allele: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
         a = prob_per_allele * allele_select_one
         b = a.sum(axis=1)[:, None]
-        a = np.divide(a, b,
-                      out=np.zeros(a.shape),
-                      where=b != 0)
+        a = np.divide(a, b, out=np.zeros(a.shape), where=b != 0)
         a /= allele_len
         a = a.sum(axis=0)
         return a / a.sum()  # type: ignore
@@ -161,11 +167,11 @@ def hisatEMnp(
         prob_next2 = getNextProb(prob_next)
         r = prob_next - prob
         v = prob_next2 - prob_next - r
-        r_sum = (r ** 2).sum()
-        v_sum = (v ** 2).sum()
+        r_sum = (r**2).sum()
+        v_sum = (v**2).sum()
         if v_sum > 0.0:
             g = -np.sqrt(r_sum / v_sum)
-            prob_next3 = prob - r * g * 2 + v * g ** 2
+            prob_next3 = prob - r * g * 2 + v * g**2
             prob_next3 = np.maximum(prob_next3, 0)
             prob_next = getNextProb(prob_next3)
 
@@ -181,26 +187,30 @@ def hisatEMnp(
     return dict(zip(allele_name, prob))
 
 
-def hisat2TypingPerGene(reads_alleles: list[dict[str, list[list[str]]]]
-                        ) -> list[Hisat2AlleleResult]:
-    """  The orignal typing method in hisat2 (pre gene) """
+def hisat2TypingPerGene(
+    reads_alleles: list[dict[str, list[list[str]]]]
+) -> list[Hisat2AlleleResult]:
+    """The orignal typing method in hisat2 (pre gene)"""
     reads_max_alleles = []
     for read in reads_alleles:
         reads_max_alleles.append(
             getMostFreqAllele(
-                getCandidateAllelePerRead(read['lp'], read['ln']) +
-                getCandidateAllelePerRead(read['rp'], read['rn'])
+                getCandidateAllelePerRead(read["lp"], read["ln"])
+                + getCandidateAllelePerRead(read["rp"], read["rn"])
             )
         )
 
     allele_prob = hisatEMnp(reads_max_alleles)
     allele_count = Counter(chain.from_iterable(reads_max_alleles))
 
-    alleles_stat = [Hisat2AlleleResult(
-        allele=allele,
-        count=allele_count[allele],
-        prob=allele_prob[allele],
-    ) for allele in allele_prob.keys() | allele_count.keys()]
+    alleles_stat = [
+        Hisat2AlleleResult(
+            allele=allele,
+            count=allele_count[allele],
+            prob=allele_prob[allele],
+        )
+        for allele in allele_prob.keys() | allele_count.keys()
+    ]
     return alleles_stat
 
 
@@ -226,9 +236,11 @@ def hisat2Typing(read_and_variant_json: str, output_prefix: str) -> None:
         json.dump(hisat_result, f)
 
 
-def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
-                     first_n: int = 10,
-                     file: TextIO = sys.stdout) -> None:
+def printHisatTyping(
+    hisat_result: dict[str, list[Hisat2AlleleResult]],
+    first_n: int = 10,
+    file: TextIO = sys.stdout,
+) -> None:
     """
     Print the typing result (EM)
 
@@ -241,10 +253,14 @@ def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
         print(backbone, file=file)
         allele_count = sorted(result, key=lambda i: i.count, reverse=True)
         for i, allele in enumerate(allele_count[:first_n]):
-            print(f"  {i+1:2d} {allele.allele:18s} "
-                  f"(count: {allele.count})", file=file)
+            print(
+                f"  {i+1:2d} {allele.allele:18s} " f"(count: {allele.count})", file=file
+            )
 
         allele_prob = sorted(result, key=lambda i: i.prob, reverse=True)
         for i, allele in enumerate(allele_prob[:first_n]):
-            print(f"  Rank {i+1:2d} {allele.allele:18s} "
-                  f"(abundance: {allele.prob:.2f}, cn: {allele.cn})", file=file)
+            print(
+                f"  Rank {i+1:2d} {allele.allele:18s} "
+                f"(abundance: {allele.prob:.2f}, cn: {allele.cn})",
+                file=file,
+            )

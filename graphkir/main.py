@@ -322,7 +322,9 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     else:
         suffix = f".{args.cn_select}.cohort.{args.cn_cluster}"
         cn_cohort_name = cohort_name + suffix
-        cn_files = [str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files]
+        cn_files = [
+            str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
+        ]
         predictSamplesCN(
             depth_files,
             cn_files,

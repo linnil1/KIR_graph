@@ -7,6 +7,7 @@ from typing import Optional
 from itertools import chain
 from collections import defaultdict
 from dataclasses import dataclass, field
+
 import numpy as np
 import numpy.typing as npt
 import plotly.express as px
@@ -113,12 +114,13 @@ class TypingResult:
                 print()
 
     def fillNameGroup(self, allele_group_mapping: dict[str, list[str]]) -> None:
-        """ extend the allele groups by allele_name and save in allele_name_group """
-        self.allele_name_group = [[allele_group_mapping[j] for j in i]
-                                  for i in self.allele_name]
+        """extend the allele groups by allele_name and save in allele_name_group"""
+        self.allele_name_group = [
+            [allele_group_mapping[j] for j in i] for i in self.allele_name
+        ]
 
     def sortByScoreAndEveness(self) -> TypingResult:
-        """ reorder the internal top_n axis by score """
+        """reorder the internal top_n axis by score"""
         rank_index = rankScore(self.value, self.value_sum_indv, self.fraction)
         return TypingResult(
             n              = self.n,
@@ -132,11 +134,13 @@ class TypingResult:
 
 
 def argSortRow(data: FloatNdArray) -> list[int]:
-    """ Argsort the data by row """
+    """Argsort the data by row"""
     return sorted(range(len(data)), key=lambda i: tuple(data[i]))
 
 
-def rankScore(value: FloatNdArray, value_sum_indv: FloatNdArray, fraction: FloatNdArray) -> list[int]:
+def rankScore(
+    value: FloatNdArray, value_sum_indv: FloatNdArray, fraction: FloatNdArray
+) -> list[int]:
     """
     Sort by likelihood score, sum of likelihood score per alele,
     and difference of allele abundance (smaller -> evenly-distributed)
@@ -161,8 +165,13 @@ class AlleleTyping:
       id_to_allele (dict[int, str]): map the allele id to allele name
     """
 
-    def __init__(self, reads: list[PairRead], variants: list[Variant],
-                 top_n: int = 300, no_empty :bool = True):
+    def __init__(
+        self,
+        reads: list[PairRead],
+        variants: list[Variant],
+        top_n: int = 300,
+        no_empty: bool = True,
+    ):
         """
         Parameters:
           reads: The reads belonged to the gene
@@ -205,7 +214,7 @@ class AlleleTyping:
         return set(chain.from_iterable(map(lambda i: i.allele, variants)))
 
     def read2Onehot(self, variant: str) -> BoolArray:
-        """ Convert allele names in the variant into onehot encoding """
+        """Convert allele names in the variant into onehot encoding"""
         onehot: BoolArray = np.zeros(len(self.allele_to_id), dtype=bool)
         for allele in self.variants[variant].allele:
             onehot[self.allele_to_id[allele]] = True
@@ -213,14 +222,14 @@ class AlleleTyping:
 
     @staticmethod
     def onehot2Prob(onehot: BoolArray) -> FloatNdArray:
-        """ Onehot encoding -> probility"""
+        """Onehot encoding -> probility"""
         # TODO: use quality
         prob = np.ones(onehot.shape) * 0.001
         prob[onehot] = 0.999
         return prob
 
     def reads2AlleleProb(self, reads: list[PairRead]) -> FloatNdArray:
-        """ Position/Negative variants in read -> probility of read belonged to allele """
+        """Position/Negative variants in read -> probility of read belonged to allele"""
         probs = []
         for read in reads:
             prob = [
@@ -254,7 +263,7 @@ class AlleleTyping:
         return self.result[-1]
 
     def mapAlleleIDs(self, list_ids: IdArray) -> list[list[str]]:
-        """ id (m x n np array) -> name (m list x n list of str)"""
+        """id (m x n np array) -> name (m list x n list of str)"""
         return [[self.id_to_allele[id] for id in ids] for ids in list_ids]
 
     @staticmethod
@@ -279,7 +288,9 @@ class AlleleTyping:
                 index_unique.append(True)
         return np.array(index_unique)
 
-    def addCandidate(self, candidate_allele: Optional[list[str]] = None) -> TypingResult:
+    def addCandidate(
+        self, candidate_allele: Optional[list[str]] = None
+    ) -> TypingResult:
         """
         The step of finding the maximum likelihood allele-set that can fit all reads
 
@@ -335,12 +346,14 @@ class AlleleTyping:
         # allele_n_prob = allele_n_prob.sum(axis=1).flatten() / (cn + 1)        # size: top_n
 
         # create id (size: top_n * allele x n) of the allele_n_prob
-        allele_n_id = np.hstack([
-            # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
-            np.repeat(allele_n_1_id, len(allele_index), axis=0),
-            # [1,3,5] -> [1,3,5,1,3,5]
-            np.tile(allele_index, len(allele_n_1_id))[:, None],
-        ])
+        allele_n_id = np.hstack(
+            [
+                # [[1],[3],[5]] -> [[1],[3],[5],[1],[3],[5]]
+                np.repeat(allele_n_1_id, len(allele_index), axis=0),
+                # [1,3,5] -> [1,3,5,1,3,5]
+                np.tile(allele_index, len(allele_n_1_id))[:, None],
+            ]
+        )
 
         # unique the allele set
         unique_id_index    = self.uniqueAllele(allele_n_id)
@@ -376,7 +389,7 @@ class AlleleTyping:
         return self.result[-1]
 
     def plot(self, title: str = "") -> list[go.Figure]:
-        """ Plot the probility of read belonging to allele """
+        """Plot the probility of read belonging to allele"""
         probs = self.probs
         norm_probs = probs / probs.sum(axis=1, keepdims=True)
         # log_probs = np.log10(norm_probs)
@@ -401,8 +414,10 @@ class AlleleTypingExonFirst(AlleleTyping):
     only_exon_variant = False
 
     @staticmethod
-    def aggrVariantsByAllele(variants: list[Variant]) -> dict[tuple[str, ...], list[str]]:
-        """ variant's alleles to dict[allele's variants, allele] """
+    def aggrVariantsByAllele(
+        variants: list[Variant],
+    ) -> dict[tuple[str, ...], list[str]]:
+        """variant's alleles to dict[allele's variants, allele]"""
         allele_variants = defaultdict(list)
         for variant in variants:
             for allele in variant.allele:
@@ -413,8 +428,10 @@ class AlleleTypingExonFirst(AlleleTyping):
         return variantset_to_allele
 
     @staticmethod
-    def removeIntronVariant(reads: list[PairRead], exon_variants: list[Variant]) -> list[PairRead]:
-        """ Only exon variants will be preserved """
+    def removeIntronVariant(
+        reads: list[PairRead], exon_variants: list[Variant]
+    ) -> list[PairRead]:
+        """Only exon variants will be preserved"""
         id_map = {v.id: v for v in exon_variants}
         new_reads = copy.deepcopy(reads)
         for read in new_reads:
@@ -426,7 +443,7 @@ class AlleleTypingExonFirst(AlleleTyping):
 
     @staticmethod
     def createInverseMapping(allele_group: dict[str, list[str]]) -> dict[str, str]:
-        """ {a: [b,c,d]} -> {b:a, c:a, d:a} """
+        """{a: [b,c,d]} -> {b:a, c:a, d:a}"""
         allele_map_to_group = {}
         for group, alleles in allele_group.items():
             for allele in alleles:
@@ -434,24 +451,30 @@ class AlleleTypingExonFirst(AlleleTyping):
         return allele_map_to_group
 
     @staticmethod
-    def removeDuplicateAllele(variants: list[Variant], allele_map: dict[str, str]) -> list[Variant]:
+    def removeDuplicateAllele(
+        variants: list[Variant], allele_map: dict[str, str]
+    ) -> list[Variant]:
         """
         Some alleles are in the same group ({b:a, c:a}),
         so remove it in the variant.allele
         """
         variants = copy.deepcopy(variants)
         for variant in variants:
-            variant.allele = list(set(filter(None, [allele_map.get(v, "") for v in variant.allele])))
+            variant.allele = list(
+                set(filter(None, [allele_map.get(v, "") for v in variant.allele]))
+            )
         return variants
 
-    def __init__(self,
-        reads: list[PairRead], variants: list[Variant],
+    def __init__(
+        self,
+        reads: list[PairRead],
+        variants: list[Variant],
         top_n: int = 300,
         exon_only: bool = False,
         candidate_set: str = "first_score",
         candidate_set_threshold: float = 1.1,
     ):
-        """ Extracting exon alleles """
+        """Extracting exon alleles"""
         # extract exon variants
         exon_variants = [v for v in variants if v.in_exon]
         intron_variants = [v for v in variants if not v.in_exon]
@@ -462,12 +485,17 @@ class AlleleTypingExonFirst(AlleleTyping):
 
         # aggr same alleles that has the same variantset
         variantset_to_allele = self.aggrVariantsByAllele(exon_variants)
-        other_allele = self.collectAlleleNames(variants) \
-                       - self.collectAlleleNames(exon_variants)
+        other_allele = self.collectAlleleNames(variants) - self.collectAlleleNames(
+            exon_variants
+        )
         if other_allele:  # special case
             variantset_to_allele[tuple()] = sorted(other_allele)
-        self.allele_group = {alleles[0]: alleles for alleles in variantset_to_allele.values()}
-        exon_variants = self.removeDuplicateAllele(variants, self.createInverseMapping(self.allele_group))
+        self.allele_group = {
+            alleles[0]: alleles for alleles in variantset_to_allele.values()
+        }
+        exon_variants = self.removeDuplicateAllele(
+            variants, self.createInverseMapping(self.allele_group)
+        )
         # from pprint import pprint
         # pprint(self.allele_group)
 
@@ -475,7 +503,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         super().__init__(exon_reads, exon_variants, top_n=top_n)
         self.first_set_only = candidate_set == "first_score"
         if candidate_set == "same_score":
-            self.candidate_set_max_score_ratio = 1.
+            self.candidate_set_max_score_ratio = 1.0
         elif candidate_set == "max_score_ratio":
             self.candidate_set_max_score_ratio = candidate_set_threshold
         else:
@@ -487,7 +515,9 @@ class AlleleTypingExonFirst(AlleleTyping):
         else:
             self.full_model = None
 
-    def typingIntron(self, exon_candidates: list[list[str]], verbose: bool = True) -> AlleleTyping:
+    def typingIntron(
+        self, exon_candidates: list[list[str]], verbose: bool = True
+    ) -> AlleleTyping:
         assert self.full_model
         model = copy.deepcopy(self.full_model)
         for cand in exon_candidates:
