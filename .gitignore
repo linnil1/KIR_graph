@@ -1,18 +1,20 @@
-gatkir/
 T1K/
 KIR_project/
-PING/
 PING20220527/
+gatkir/
 kirkpi/
 sequenceTubeMap/
-IPDKIR/
 art_illumina
 KIR_v2100/
 KIR_v271/
 KIR_v290/
+example_index/
+example_data/
 
 namepipe/
 pyHLAMSA/
+
 __pycache__/
-.*.swp
+*.egg-info/
 .pylintrc
+.*.swp

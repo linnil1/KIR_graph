@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graphkir"
+version = "0.4.0"
+description = "Typing KIR based on graph alignment"
+readme = "README.md"
+dependencies = [
+    "numpy",
+    "pandas",
+    "plotly",
+    "scipy",
+    "scikit-learn",
+    "biopython",
+    # "git+https://github.com/linnil1/pyHLAMSA",
+]
+
+requires-python = ">=3.10"
+# author = "linnil1"
+# url = "https://github.com/linnil1/pyHLAMSA"
+keywords = ["MSA", "KIR", "typing", "fastq", "graph"]
+license = {text = "MIT License"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+paper = [
+    "pysam",
+    "matplotlib",
+    "dash",
+    "black",
+    "mypy",
+    "requests",
+    "types-requests",
+    "pandas-stubs",
+    # "git+https://github.com/linnil1/name-based-pipeline",
+]
+
+[project.scripts]
+graphkir = "graphkir.main:entrypoint"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["data*", "index*"]
+
+[tool.setuptools.package-data]
+graphkir = ["py.typed"]
+
+[tool.mypy]
+plugins = "numpy.typing.mypy_plugin"
+
+[[tool.mypy.overrides]]
+module = "pysam"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "Bio.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "plotly.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "scipy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sklearn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "dash"
+ignore_missing_imports = true

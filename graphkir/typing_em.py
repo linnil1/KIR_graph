@@ -253,9 +253,7 @@ def printHisatTyping(
         print(backbone, file=file)
         allele_count = sorted(result, key=lambda i: i.count, reverse=True)
         for i, allele in enumerate(allele_count[:first_n]):
-            print(
-                f"  {i+1:2d} {allele.allele:18s} " f"(count: {allele.count})", file=file
-            )
+            print(f"  {i+1:2d} {allele.allele:18s} (count: {allele.count})", file=file)
 
         allele_prob = sorted(result, key=lambda i: i.prob, reverse=True)
         for i, allele in enumerate(allele_prob[:first_n]):

@@ -18,11 +18,12 @@ import pandas as pd
 from pyhlamsa import Genemsa
 
 
-resources: dict[str, int] = {  # per sample
+resources: dict[str, Any] = {  # per sample
     "threads": 2,
     "memory": 7,  # unit: G
+    "engine": "podman",
 }
-docker_config = {
+engine_config = {
     "podman": {
         "path": "podman",
         "run": "run -it --rm -u root -w /app -v $PWD:/app",
@@ -46,14 +47,13 @@ docker_config = {
         "image_func": lambda i: "",
     },
 }
-docker_type = "podman"
 # linnil1's configuration in Taiwania HPC
 # download every image into image file
 # singularity build quay.io/biocontainers/bwa:0.7.17--hed695b0_7 \
 #      singur_image/quay.io/biocontainers/bwa:0.7.17--hed695b0_7
 # docker_type = "singularity"
-# docker_config[docker_type]["image_func"] = lambda i: "singur_image/" + i
-# docker_config[docker_type]["run"] = (
+# engine_config[docker_type]["image_func"] = lambda i: "singur_image/" + i
+# engine_config[docker_type]["run"] = (
 #     "run "
 #     "--bind /home/linnil1tw "
 #     "--bind /work/linnil1tw "
@@ -80,6 +80,16 @@ def setThreads(threads: int) -> None:
     resources["threads"] = threads
 
 
+def getEngine() -> str:
+    return resources["engine"]
+
+
+def setEngine(engine: str) -> None:
+    global resources
+    resources["engine"] = engine
+    assert engine in engine_config
+
+
 def runDocker(
     image: str,
     cmd: str,
@@ -92,9 +102,9 @@ def runDocker(
     random_name = str(uuid.uuid4()).split("-", 1)[0]
 
     # bad but works
-    if docker_type == "singularity":
+    if getEngine() == "singularity":
         opts = opts.replace(" -e ", " --env ")
-    conf = docker_config[docker_type]
+    conf = engine_config[getEngine()]
     cmd_all = (
         f"{conf['path']} {conf['run']} "
         + (f"{conf['name']} {random_name} " if conf.get("name") else "")

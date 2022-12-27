@@ -5,21 +5,20 @@ TODO: update after kg_main OK
 """
 from glob import glob
 from pathlib import Path
-import os
-import sys
 import argparse
+
 import pandas as pd
 import plotly.graph_objects as go
 
-sys.path.append(str(Path(__file__).absolute().parent.parent))
-from graphkir.kir_msa import buildKirMsa
-from graphkir.msa_leftalign import genemsaLeftAlign
-from graphkir.msa2hisat import msa2HisatReference, buildHisatIndex
-from graphkir.hisat2 import hisatMap, extractVariantFromBam, readExons
-from graphkir.kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
-from graphkir.kir_typing import selectKirTypingModel
-from graphkir.utils import setThreads, getThreads, mergeCN, mergeAllele
-from graphkir.plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
+# order of pipeline
+from .kir_msa import buildKirMsa
+from .msa_leftalign import genemsaLeftAlign
+from .msa2hisat import msa2HisatReference, buildHisatIndex
+from .hisat2 import hisatMap, extractVariantFromBam, readExons
+from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
+from .kir_typing import selectKirTypingModel
+from .utils import setThreads, getThreads, mergeCN, mergeAllele, setEngine
+from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
 
 
 def buildMSA(
@@ -32,22 +31,22 @@ def buildMSA(
     """Build MSA from source"""
     if not add_exon_only_sequences:
         msa_index = f"{index_folder}/kir_2100_{msa_type}"
-        if not len(glob(msa_index + ".KIR*")):
+        if not glob(msa_index + ".KIR*"):
             buildKirMsa(msa_type, msa_index, threads=threads)
     else:
         exon_name = f"{index_folder}/kir_2100_withexon"
         msa_index = exon_name + "_" + msa_type
-        if not len(glob(exon_name + "_ab.KIR*")):
+        if not glob(exon_name + "_ab.KIR*"):
             buildKirMsa(
                 "ab", exon_name + "_ab", full_length_only=False, threads=threads
             )
-        if not len(glob(msa_index + ".KIR*")):
+        if not glob(msa_index + ".KIR*"):
             buildKirMsa(
                 msa_type, msa_index, input_msa_prefix=exon_name + "_ab", threads=threads
             )
 
     msa_index1 = msa_index + ".leftalign"
-    if not len(glob(msa_index1 + ".KIR*")):
+    if not glob(msa_index1 + ".KIR*"):
         genemsaLeftAlign(msa_index, msa_index1)
     msa_index = msa_index1
     return msa_index
@@ -77,7 +76,7 @@ def buildIndex(
 
     ref_index = msa_index + ".mut01"
     if not Path(ref_index + ".haplotype").exists():
-        if not len(glob(msa_index + ".KIR*")):
+        if not glob(msa_index + ".KIR*"):
             buildMSA(msa_type, index_folder, threads, add_exon_only_sequences)
         msa2HisatReference(msa_index, ref_index)
 
@@ -133,6 +132,11 @@ def createParser() -> argparse.ArgumentParser:
         "--thread",
         default=1,
         help="Number of threads",
+    )
+    parser.add_argument(
+        "--engine",
+        default="podman",
+        help="podman,docker,singularity,local(samtools,hisat2... installed)",
     )
     parser.add_argument(
         "--r1",
@@ -231,6 +235,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     """
     # Configuration
     setThreads(args.thread)
+    setEngine(args.engine)
 
     # Prepare Index
     ref_index, index = buildIndex(
@@ -246,13 +251,16 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         names = list(map(lambda i: getCommonName(i[0], i[1]), reads))
         if args.cn_provided:
             cn_files = args.cn_provided
-            assert len(cn_files) == len(names)
+        else:
+            cn_files = [""] * len(names)
     else:
         df = pd.read_csv(args.input_csv)
         names = list(df["name"])
         reads = list(zip(df["r1"], df["r2"]))
-        if "cnfile" in df.columns and all(df["cnfile"].notna()):
-            cn_files = list(df["cnfile"])
+        if "cnfile" in df.columns:
+            # Doesn't require all cnfile existed
+            cn_files = list(df["cnfile"].fillna(""))
+    assert len(cn_files) == len(names)
 
     if args.output_folder:
         output_folder = args.output_folder
@@ -302,10 +310,12 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     figs.extend(plotReadMappingStat(bam_files, [fq1 for fq1, _ in reads]))
 
     # Copy Number determination
-    if cn_files:
+    if all(cn_files):
         pass
     elif not args.cn_individually:
-        for depth_file in depth_files:
+        for i, depth_file in enumerate(depth_files):
+            if cn_files[i]:  # CN file exists, skip
+                continue
             suffix = f".{args.cn_select}.{args.cn_cluster}"
             name = str(Path(depth_file).with_suffix(suffix))
             predictSamplesCN(
@@ -316,18 +326,16 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
                 save_cn_model_path=name + ".json",
                 select_mode=args.cn_select,
             )
-            cn_files.append(name + ".tsv")
+            cn_files[i] = name + ".tsv"
             figs.extend(plotGeneDepths(depth_file))
             figs.extend(plotCN(name + ".json"))
     else:
         suffix = f".{args.cn_select}.cohort.{args.cn_cluster}"
         cn_cohort_name = cohort_name + suffix
-        cn_files = [
-            str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
-        ]
+        cn_files = [str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files]
         predictSamplesCN(
-            depth_files,
-            cn_files,
+            [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
+            [cnf            for i, cnf in enumerate(cn_files) if cnf],
             save_cn_model_path=cn_cohort_name + ".json",
             cluster_method=args.cn_cluster,
             select_mode=args.cn_select,

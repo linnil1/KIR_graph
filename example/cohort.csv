@@ -1,0 +1,3 @@
+name,r1,r2,cnfile
+example_data/linnil1.00,example/test00.read1.fq.gz,example/test00.read2.fq.gz,example/test00.assigned.cn.tsv
+example_data/linnil1.01,example/test01.read1.fq.gz,example/test01.read2.fq.gz,

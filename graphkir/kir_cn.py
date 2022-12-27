@@ -33,7 +33,7 @@ def selectSamtoolsDepth(
     """Depths outside regions are removed (Used for remove intron depth)"""
     df_exon = []
     for gene, regions in ref_regions.items():
-        for (start, end) in regions:
+        for start, end in regions:
             df_exon.append(
                 df[(df["gene"] == gene) & (start <= df["pos"]) & (df["pos"] <= end)]
             )

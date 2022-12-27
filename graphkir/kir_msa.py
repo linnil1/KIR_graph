@@ -250,8 +250,7 @@ def muscle(name: str, threads: int = 1) -> str:
     """
     runDocker(
         "muscle",
-        f"muscle -align {name}.fa -threads {threads}"
-        f"       -output {name}.muscle.fa",
+        f"muscle -align {name}.fa -threads {threads} -output {name}.muscle.fa",
     )
     return name + ".muscle"
 
@@ -321,7 +320,10 @@ def buildKirMsa(
             "KIR2DS1": genes.pop("KIR2DS1"),
         }
         genes["KIR2DL1S1"] = mergeMSA(
-            genes_for_merge, method="muscle", tmp_prefix=prefix + ".tmp"
+            genes_for_merge,
+            method="muscle",
+            tmp_prefix=prefix + ".tmp",
+            threads=threads,
         )
     else:
         raise NotImplementedError

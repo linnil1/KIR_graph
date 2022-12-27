@@ -3,6 +3,7 @@ Plot utility for statistic (Not for accuracy)
 """
 from typing import Iterable
 from concurrent.futures import ProcessPoolExecutor
+import gzip
 
 from Bio import SeqIO
 import pandas as pd
@@ -67,7 +68,11 @@ def readSamtoolsFlagstat(bamfile: str) -> dict[str, int]:
 
 def readFastqID(fastq_file: str) -> list[str]:
     """Read read ID in fastq"""
-    seqs = SeqIO.parse(fastq_file, "fastq")
+    if fastq_file.endswith(".gz"):
+        with gzip.open(fastq_file, "rt") as f:
+            seqs = list(SeqIO.parse(f, "fastq"))
+    else:
+        seqs = SeqIO.parse(fastq_file, "fastq")
     return list(map(lambda i: str(i.id), seqs))
 
 
