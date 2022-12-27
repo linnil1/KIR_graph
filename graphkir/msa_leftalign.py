@@ -6,9 +6,10 @@ from typing import Iterator
 from functools import reduce
 from dataclasses import dataclass
 
-from pyhlamsa import msaio, Genemsa
+from pyhlamsa import Genemsa
 
-from .kir_msa import readFromMSAs, saveAllMsa
+from .utils import readFromMSAs
+from .kir_msa import saveAllMsa
 
 
 @dataclass(order=True)
@@ -155,8 +156,8 @@ def leftAlign(ref_seq: str, ori_seq: str) -> str:
 def msaLeftAlign(msa_ori: Genemsa) -> Genemsa:
     """ Left align the MSA (block-wise) """
     msa_aligned = []
-    for msa in msa_ori.split():
-        for name, seq in list(msa.alleles.items()):
+    for msa in msa_ori.split_block():
+        for name, seq in list(msa.items()):
             ref_seq = msa.get_reference()[1]
             msa.alleles[name] = leftAlign(ref_seq, seq)
             # debug
@@ -180,7 +181,7 @@ def genemsaLeftAlign(input_prefix: str, output_prefix: str) -> None:
         refname = msa.get_reference()[0]
         assert refname == f"{gene}*BACKBONE"
         msa = msaLeftAlign(msa)
-        msa = msa.remove(refname)
+        msa = msa.remove_allele([refname])
         new_msas[gene] = msa
     saveAllMsa(new_msas, output_prefix)
 

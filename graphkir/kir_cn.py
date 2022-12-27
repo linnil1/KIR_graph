@@ -10,7 +10,7 @@ from .cn_model import CNgroup, KDEcut, Dist
 from .utils import runDocker, NumpyEncoder
 
 
-def bam2Depth(file_bam: str, file_depth: str, get_all=True) -> None:
+def bam2Depth(file_bam: str, file_depth: str, get_all: bool = True) -> None:
     """ Get read depth of all the position (via samtools depth) """
     if get_all:
         runDocker("samtools", f"samtools depth -aa {file_bam} -o {file_depth}")
@@ -83,6 +83,7 @@ def depthToCN(sample_gene_depths: list[pd.DataFrame],
                 for gene_depths in sample_gene_depths]
             cn = dist.assignCN(kir3dl3_depths)
             if all(i == 1 for i in cn):
+                assert isinstance(dist.base, float)
                 dist.base /= 2
 
             cn = dist.assignCN(kir3dl3_depths)
@@ -206,4 +207,4 @@ def loadCN(filename_cn: str) -> dict[str, int]:
       value:  CN on the reference
     """
     data = pd.read_csv(filename_cn, sep="\t", index_col=[0])
-    return data.to_dict()['cn']
+    return dict(data.to_dict()['cn'])

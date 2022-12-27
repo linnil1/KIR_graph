@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 import json
 import numpy as np
+import numpy.typing as npt
 
 from scipy.stats import norm
 from scipy.signal import argrelextrema
@@ -21,7 +22,7 @@ from .utils import NumpyEncoder
 
 class Dist:
     """ Abstract class of CN prediction model """
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     def fit(self, values: list[float]) -> None:
@@ -70,7 +71,7 @@ class CNgroup(Dist):
       bin_num:  Bins number in [0, x_max]
       max_cn:   CN limits
     """
-    def __init__(self):
+    def __init__(self) -> None:
         # const
         super().__init__()
         self.bin_num:  int   = 500
@@ -78,13 +79,13 @@ class CNgroup(Dist):
 
         # parameters
         self.x_max:    float = 1
-        self.base:     float = None
+        self.base:     float | None = None
         self.base_dev: float = 0.08
         self.y0_dev:   float = 1.5
 
         # result (saved for plotting)
-        self.data            = []
-        self.likelihood      = []
+        self.data: list[float] = []
+        self.likelihood: npt.NDArray[np.float64] = np.array([])
 
     def getParams(self) -> dict[str, Any]:
         """ Save parameters """
@@ -132,15 +133,15 @@ class CNgroup(Dist):
         # discrete (bin_num)
         # Calculate the probility that CN groups fit the data
         density, _ = np.histogram(values, bins=self.bin_num, range=(0, self.x_max))
-        likelihood = []
+        likelihood_list = []
         for base in np.linspace(0, self.x_max, self.bin_num):
             # all probility of cn group across 0 ~ x_max
             cn_group = self.calcCNGroupProb(base)
             # Highest probility in each x
             max_prob = cn_group.max(axis=0)
             # log-probility = depth \cdot the log(highest probility)
-            likelihood.append((base, np.sum(np.log(max_prob + 1e-9) * density)))
-        self.likelihood = np.array(likelihood)  # n x 2(base, likelihood of the base)
+            likelihood_list.append((base, np.sum(np.log(max_prob + 1e-9) * density)))
+        self.likelihood = np.array(likelihood_list)  # n x 2(base, likelihood of the base)
 
         # Find best fit x = base
         max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
@@ -154,7 +155,7 @@ class CNgroup(Dist):
         space = self.x_max / self.bin_num
         return [cn_max[int(depth / space)] for depth in values]
 
-    def calcCNGroupProb(self, base: float) -> np.ndarray:
+    def calcCNGroupProb(self, base: float) -> npt.NDArray[np.float64]:
         """
         Returns:
             ( CN x norm_read_depth(500bin) ) array
@@ -166,7 +167,7 @@ class CNgroup(Dist):
         y0 = norm.pdf(x, loc=0, scale=self.base_dev * self.y0_dev)
         y = np.stack([y0, *[norm.pdf(x, loc=base*n, scale=self.base_dev*n) for n in cn]])
         space = self.x_max / self.bin_num  # * space is to make y-sum = 1
-        return y * space
+        return np.array(y * space)
 
     def plot(self, title: str = "") -> list[go.Figure]:
         assert self.base is not None
@@ -229,7 +230,7 @@ class KDEcut(Dist):
       local_min: list of positions of local minimal i.e. CN thesholds
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.bandwidth: float       = 0.05
         self.points:    int         = 100
@@ -245,6 +246,7 @@ class KDEcut(Dist):
 
     def getParams(self) -> dict[str, Any]:
         """ Save parameters """
+        assert self.kde
         return {
             'method'   : "KDEcut",
             'bandwidth': self.bandwidth,
@@ -283,7 +285,7 @@ class KDEcut(Dist):
 
         # cut
         x = np.linspace(0, 1.1, self.points)
-        y = self.kde.score_samples(x[:, None])
+        y = self.kde.score_samples(x[:, None])  # type: ignore
         self.local_min = list(x[argrelextrema(y, np.less, order=self.neighbor)[0]])
         print("Threshold", self.local_min)
 
@@ -299,6 +301,7 @@ class KDEcut(Dist):
 
     def plot(self, title: str = "") -> list[go.Figure]:
         x = np.linspace(0, 1.1, self.points)
+        assert self.kde
         y = self.kde.score_samples(x[:, None])
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         fig.add_trace(go.Scatter(x=x, y=y, name="KDE"))

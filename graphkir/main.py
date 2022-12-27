@@ -251,7 +251,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         df = pd.read_csv(args.input_csv)
         names = list(df["name"])
         reads = list(zip(df["r1"], df["r2"]))
-        if "cnfile" in df.columns and all(df["cnfile"].notna()):  # type: ignore
+        if "cnfile" in df.columns and all(df["cnfile"].notna()):
             cn_files = list(df["cnfile"])
 
     if args.output_folder:

@@ -8,10 +8,17 @@ from itertools import chain
 from collections import defaultdict
 from dataclasses import dataclass, field
 import numpy as np
+import numpy.typing as npt
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .hisat2 import PairRead, Variant
+from .msa2hisat import Variant
+from .hisat2 import PairRead
+
+
+FloatNdArray = npt.NDArray[np.float64]
+IdArray = npt.NDArray[np.int_]
+BoolArray = npt.NDArray[np.bool_]
 
 
 @dataclass
@@ -36,12 +43,12 @@ class TypingResult:
           ```
     """
     n: int
-    value: np.ndarray             # size: top_n
-    value_sum_indv: np.ndarray    # size: top_n x n
-    allele_id: np.ndarray         # size: top_n x n
-    allele_name: list[list[str]]  # size: top_n x n
-    allele_prob: np.ndarray       # size: read x top_n
-    fraction: np.ndarray          # size: top_n x n
+    value: FloatNdArray             # size: top_n
+    value_sum_indv: FloatNdArray    # size: top_n x n
+    allele_id: IdArray              # size: top_n x n
+    allele_name: list[list[str]]    # size: top_n x n
+    allele_prob: FloatNdArray       # size: read x top_n
+    fraction: FloatNdArray          # size: top_n x n
     allele_name_group: list[list[list[str]]] = field(default_factory=list)
                                   # size: top_n x n x group_size
 
@@ -71,7 +78,7 @@ class TypingResult:
             best_id = 0
         return self.allele_name[best_id]
 
-    def print(self, num: int = 10):
+    def print(self, num: int = 10) -> None:
         """
         Print the first `num` typing result
 
@@ -105,7 +112,7 @@ class TypingResult:
                     print("  group", f"{self.allele_name_group[rank][i]}", end=" ")
                 print()
 
-    def fillNameGroup(self, allele_group_mapping: dict[str, list[str]]):
+    def fillNameGroup(self, allele_group_mapping: dict[str, list[str]]) -> None:
         """ extend the allele groups by allele_name and save in allele_name_group """
         self.allele_name_group = [[allele_group_mapping[j] for j in i]
                                   for i in self.allele_name]
@@ -124,12 +131,12 @@ class TypingResult:
         )
 
 
-def argSortRow(data: np.ndarray) -> list[int]:
+def argSortRow(data: FloatNdArray) -> list[int]:
     """ Argsort the data by row """
     return sorted(range(len(data)), key=lambda i: tuple(data[i]))
 
 
-def rankScore(value: np.ndarray, value_sum_indv: np.ndarray, fraction: np.ndarray) -> list[int]:
+def rankScore(value: FloatNdArray, value_sum_indv: FloatNdArray, fraction: FloatNdArray) -> list[int]:
     """
     Sort by likelihood score, sum of likelihood score per alele,
     and difference of allele abundance (smaller -> evenly-distributed)
@@ -197,22 +204,22 @@ class AlleleTyping:
     def collectAlleleNames(variants: list[Variant]) -> set[str]:
         return set(chain.from_iterable(map(lambda i: i.allele, variants)))
 
-    def read2Onehot(self, variant: str) -> np.ndarray:
+    def read2Onehot(self, variant: str) -> BoolArray:
         """ Convert allele names in the variant into onehot encoding """
-        onehot = np.zeros(len(self.allele_to_id), dtype=bool)
+        onehot: BoolArray = np.zeros(len(self.allele_to_id), dtype=bool)
         for allele in self.variants[variant].allele:
             onehot[self.allele_to_id[allele]] = True
         return onehot
 
     @staticmethod
-    def onehot2Prob(onehot: np.ndarray) -> np.ndarray:
+    def onehot2Prob(onehot: BoolArray) -> FloatNdArray:
         """ Onehot encoding -> probility"""
         # TODO: use quality
         prob = np.ones(onehot.shape) * 0.001
         prob[onehot] = 0.999
         return prob
 
-    def reads2AlleleProb(self, reads: list[PairRead]) -> np.ndarray:
+    def reads2AlleleProb(self, reads: list[PairRead]) -> FloatNdArray:
         """ Position/Negative variants in read -> probility of read belonged to allele """
         probs = []
         for read in reads:
@@ -246,12 +253,12 @@ class AlleleTyping:
         self.result[-1].print()
         return self.result[-1]
 
-    def mapAlleleIDs(self, list_ids: np.ndarray) -> list[list[str]]:
+    def mapAlleleIDs(self, list_ids: IdArray) -> list[list[str]]:
         """ id (m x n np array) -> name (m list x n list of str)"""
         return [[self.id_to_allele[id] for id in ids] for ids in list_ids]
 
     @staticmethod
-    def uniqueAllele(data: np.ndarray) -> np.ndarray:
+    def uniqueAllele(data: IdArray) -> BoolArray:
         """
         Unique the allele set, return the mask.
 
@@ -394,15 +401,15 @@ class AlleleTypingExonFirst(AlleleTyping):
     only_exon_variant = False
 
     @staticmethod
-    def aggrVariantsByAllele(variants: list[Variant]) -> dict[tuple, list[str]]:
+    def aggrVariantsByAllele(variants: list[Variant]) -> dict[tuple[str, ...], list[str]]:
         """ variant's alleles to dict[allele's variants, allele] """
         allele_variants = defaultdict(list)
         for variant in variants:
             for allele in variant.allele:
-                allele_variants[allele].append(variant.id)
+                allele_variants[allele].append(str(variant.id))
         variantset_to_allele = defaultdict(list)
         for allele, allele_vars in allele_variants.items():
-            variantset_to_allele[tuple(sorted(set(allele_vars)))].append(allele)  # type: ignore
+            variantset_to_allele[tuple(sorted(set(allele_vars)))].append(allele)
         return variantset_to_allele
 
     @staticmethod

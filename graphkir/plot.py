@@ -62,7 +62,7 @@ def readSamtoolsFlagstat(bamfile: str) -> dict[str, int]:
 def readFastqID(fastq_file: str) -> list[str]:
     """ Read read ID in fastq """
     seqs = SeqIO.parse(fastq_file, "fastq")
-    return list(map(lambda i: i.id, seqs))
+    return list(map(lambda i: str(i.id), seqs))
 
 
 def plotReadMappingStat(bam_files: list[str],

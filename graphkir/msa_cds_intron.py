@@ -7,14 +7,14 @@ from .utils import getAlleleField, limitAlleleField
 def removeExonIncompleteSeq(msa: Genemsa) -> Genemsa:
     """ Remove the sequence when E in exon (We only expect E in intron) """
     remove_names = set()
-    for msa_part in msa.split():
+    for msa_part in msa.split_block():
         if msa_part.blocks[0].type == "exon":
             for name, seq in msa_part.alleles.items():
                 if "E" in seq:
                     remove_names.add(name)
                     print(f"remove {name} bcz E in {msa_part.blocks[0]}")
     print("remove", remove_names)
-    msa = msa.remove(remove_names)
+    msa = msa.remove_allele(remove_names)
     return msa
 
 

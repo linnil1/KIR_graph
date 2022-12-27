@@ -9,7 +9,7 @@ import re
 import copy
 import json
 import bisect
-from typing import Iterator, TypedDict, Iterable
+from typing import TypedDict, Iterable
 from dataclasses import dataclass, field, asdict
 
 from .utils import runDocker, samtobam, getThreads
@@ -85,7 +85,7 @@ def readBam(bam_file: str) -> list[str]:
     proc = runDocker("samtools",
                      f"samtools sort -n {bam_file} -O SAM",
                      capture_output=True)
-    return proc.stdout.split('\n')
+    return str(proc.stdout).split('\n')
 
 
 def readBamHeader(bam_file: str) -> str:
@@ -197,7 +197,7 @@ def isInExon(exons: list[tuple[int, int]], variant: Variant) -> bool:
     return False
 
 
-def readPair(bam_file: str) -> Iterator[tuple[str, str]]:
+def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
     """
     Extract paired read from bam
 
@@ -327,7 +327,7 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
     zs_pos     = 0      # Accumulated zs (relative to start)
     md_len     = 0      # The len of this md to pos
 
-    def findZs(var_type):
+    def findZs(var_type: str) -> str:
         nonlocal zs_i, zs_pos
         var_id = "unknown"
         if (zs_i < len(zs)
@@ -340,7 +340,7 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
             zs_i += 1
         return var_id
 
-    def mdMatch():
+    def mdMatch() -> Iterable[Variant]:
         """
         Read md(s) for the cigar
 
@@ -357,7 +357,7 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
             # print("Match", md_i, md_len, md_len_last)
             # read md
             if md_len <= md_len_last and md_i < len(md) and type(md[md_i]) is int:
-                md_len += md[md_i]
+                md_len += int(md[md_i])
                 md_i += 1
 
             # md_len > cigar
@@ -379,8 +379,8 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
             # why cannot remove 0 before: Think about this case MD:Z:7A37A0G55T4^CA0T42
             if md[md_i] == 0:  # remove 0
                 md_i += 1
-            assert md[md_i] in "ACGT"
-            assert md[md_i] != read_base
+            assert str(md[md_i]) in "ACGT"
+            assert str(md[md_i]) != read_base
             md_i += 1
 
             # the sequence before current_pos is the same
@@ -405,7 +405,7 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
                 md_len = 0
                 break
 
-    def mdInsertion():
+    def mdInsertion() -> list[Variant]:
         # md does not contains insertion info
         return [Variant(typ="insertion",
                         ref=backbone,
@@ -414,11 +414,11 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
                         length=cigar_length,
                         id=findZs("I"))]
 
-    def mdDeletion():
+    def mdDeletion() -> list[Variant]:
         nonlocal md_i
         assert md[md_i] == '^'
         md_i += 1
-        while md_i < len(md) and type(md[md_i]) is not int and md[md_i] in 'ACGT':
+        while md_i < len(md) and type(md[md_i]) is not int and str(md[md_i]) in 'ACGT':
             md_i += 1
         return [Variant(typ="deletion",
                         ref=backbone,
@@ -427,7 +427,7 @@ def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
                         length=cigar_length,
                         id=findZs("D"))]
 
-    cmp_list = []
+    cmp_list: list[Variant] = []
     soft_clip = [0, 0]
     # print(line)
     for cigar_i, (cigar_op, cigar_length) in enumerate(cigars):
@@ -487,7 +487,7 @@ def readMd(cols: list[str]) -> list[int | str]:
         if col.startswith("MD"):
             # MD:Z:43^G19^TGGAGATATGGGCCTGGGTG88
             md = re.findall(r'(\d+|.)', col[5:])
-            md1 = map(lambda i: int(i) if i.isdigit() else i, md)
+            md1 = map(lambda i: int(i) if i.isdigit() else i, md)  # type: ignore
             return list(md1)
     return []
 
@@ -789,7 +789,7 @@ def extractVariant(pair_reads: Iterable[tuple[str, str]],
     return reads_data
 
 
-def writeReadsAndVariantsData(reads_data: ReadsAndVariantsData, filename: str):
+def writeReadsAndVariantsData(reads_data: ReadsAndVariantsData, filename: str) -> None:
     """ Write result to json """
     with open(filename, "w") as f:
         json.dump({
@@ -808,7 +808,7 @@ def loadReadsAndVariantsData(filename: str) -> ReadsAndVariantsData:
     }
 
 
-def saveSam(filename: str, header: str,  reads: Iterable[PairRead]):
+def saveSam(filename: str, header: str,  reads: Iterable[PairRead]) -> None:
     """
     save records into sam file
 

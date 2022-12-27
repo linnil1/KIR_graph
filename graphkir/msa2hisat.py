@@ -7,8 +7,7 @@ from dataclasses import dataclass, field
 
 from Bio import SeqIO
 from pyhlamsa import Genemsa
-from .utils import runDocker
-from .kir_msa import readFromMSAs
+from .utils import runDocker, readFromMSAs
 
 
 @dataclass
@@ -65,7 +64,7 @@ def count2Freq(base_counts: list[list[int]]) -> list[dict[str, float]]:
         # normalize
         bc_norm = [c / sum(bc) for c in bc]
         # to dict (remove freq=0)
-        freq.append(dict(filter(lambda i: i[1], zip("ATCG-", bc_norm))))
+        freq.append(dict(filter(lambda i: i[1], zip("ACGT-", bc_norm))))
     return freq
 
 
@@ -117,11 +116,11 @@ def msa2Variant(msa: Genemsa) -> tuple[list[Variant], dict[str, list[Variant]]]:
 
     # get variantion from each allele
     variants_per_allele = {}
-    for allele_name in msa.get_sequence_names():
+    for allele_name, allele_seq in msa.items():
         if allele_name == ref_name:
             continue
         variants_per_allele[allele_name] = \
-            getVariantsFromSeqs(ref_seq, msa.get(allele_name), ref_name)
+            getVariantsFromSeqs(ref_seq, allele_seq, ref_name)
 
     # sort variantion and change it to dict
     # and add reference
@@ -200,13 +199,13 @@ def writeMsa(index_prefix: str, msa: Genemsa) -> None:
 
     # All sequence
     with open(index_prefix + "_sequences.fa", 'a') as seq_f:
-        SeqIO.write(msa.copy().remove(ref_name).to_records(gap=False),
+        SeqIO.write(msa.remove_allele([ref_name], inplace=False).to_records(gap=False),
                     seq_f, "fasta")
 
     # Allele allele name
     with open(index_prefix + ".allele", 'a') as allele_name_f:
         allele_name_f.writelines(
-            map(lambda i: i + "\n",  # type: ignore
+            map(lambda i: i + "\n",
                 filter(lambda i: i != ref_name, msa.get_sequence_names()))
         )
 
@@ -218,10 +217,10 @@ def writeMsa(index_prefix: str, msa: Genemsa) -> None:
     with open(index_prefix + ".locus", 'a') as locus_f:
         # TODO: bounardy
         exon_pos = []
-        for b in msa.blocks:
-            pos = msa.get_block_position(b)
+        for b in msa.list_blocks():
+            start, end = msa.get_block_interval(b)
             if b.type == "exon":
-                exon_pos.append((pos + 1, pos + 1 + b.length))
+                exon_pos.append((start + 1, end + 1))
         exon_str = " ".join(f"{s}-{e}" for s, e in exon_pos)
         leng = msa.get_length()
         writeTSV(locus_f, [ref_name, ref_name, 0, leng, leng, exon_str, "+"])

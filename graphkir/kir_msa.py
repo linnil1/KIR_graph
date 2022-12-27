@@ -3,14 +3,13 @@
 * split/merge the MSA
 * realign the MSA when merge (muscle, clustalo)
 """
-from glob import glob
-from typing import Callable
+from typing import Callable, Any
 from itertools import chain
 from collections import defaultdict
 
 from Bio import SeqIO, SeqRecord, Align
-from pyhlamsa import msaio, Genemsa, KIRmsa
-from .utils import runDocker
+from pyhlamsa import Genemsa, KIRmsa
+from .utils import runDocker, readFromMSAs
 from .msa_cds_intron import fillMissingIntrons
 
 
@@ -39,10 +38,10 @@ def saveAllMsa(genes: GenesMsa, prefix: str) -> None:
         msa.append(f"{gene_name}*BACKBONE",
                    msa.get_consensus(include_gap=False))
         msa.set_reference(f"{gene_name}*BACKBONE")
-        msaio.to_bam(msa,   f"{prefix}.{gene_name}.bam")  # noqa: E201
-        msaio.to_gff(msa,   f"{prefix}.{gene_name}.gff")
-        msaio.save_msa(msa, f"{prefix}.{gene_name}.fa",
-                            f"{prefix}.{gene_name}.json")
+        msa.to_bam(  f"{prefix}.{gene_name}.bam")  # noqa: E201
+        msa.to_gff(  f"{prefix}.{gene_name}.gff")
+        msa.save_msa(f"{prefix}.{gene_name}.fa",
+                     f"{prefix}.{gene_name}.json")
 
 
 def readDB(full_length_only: bool = True, version: str = "latest") -> GenesMsa:
@@ -61,30 +60,11 @@ def readDB(full_length_only: bool = True, version: str = "latest") -> GenesMsa:
     return kir.genes
 
 
-def readFromMSAs(prefix: str) -> GenesMsa:
-    """
-    Read MSAs via `{prefix}.*.json`
-
-    Returns:
-        genes: A dictionary of gene's name and its MSA
-    """
-    genes = {}
-    for filename in glob(prefix + ".*.json"):
-        split_name = filename[len(prefix) + 1:].split('.')
-        # prefix.anotherprefix.*.json will not included
-        if len(split_name) != 2:
-            continue
-        print("read", filename)
-        gene = split_name[0]
-        genes[gene] = msaio.load_msa(filename[:-5] + ".fa", filename)
-    return genes
-
-
 def removeBackbone(genes: GenesMsa) -> GenesMsa:
     """ Remove {gene}*BACKBONE alleles """
     for gene, msa in genes.items():
-        if f"{gene}*BACKBONE" in msa.alleles:
-            msa.remove(f"{gene}*BACKBONE")
+        if f"{gene}*BACKBONE" in msa:
+            msa.remove_allele([f"{gene}*BACKBONE"])
     return genes
 
 
@@ -100,8 +80,8 @@ def splitMsaToBlocks(genes: GenesMsa) -> BlockMsa:
     blocks = defaultdict(list)
     for msa in genes.values():
         # TODO: intron3/4 -> intron4
-        for msa_part in msa.split():
-            block_name = msa_part.blocks[0].name
+        for msa_part in msa.split_block():
+            block_name = msa_part.get_block(0).name
             if block_name == "intron3/4":
                 block_name = "intron3"
             elif block_name == "intron5/6":
@@ -268,7 +248,7 @@ def clustalo(name: str, threads: int = 1) -> str:
 def buildKirMsa(mode: str, prefix: str, version: str = "2100",
                 input_msa_prefix: str = "",
                 full_length_only: bool = True,
-                mergeMSA: Callable = mergeMSA,
+                mergeMSA: Callable[..., Genemsa] = mergeMSA,
                 threads: int = 1) -> None:
     """
     Read KIR from database and save MSA into files with prefix

@@ -7,7 +7,8 @@ from collections import defaultdict
 from dataclasses import asdict
 
 from .utils import NumpyEncoder
-from .hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead, Variant
+from .msa2hisat import Variant
+from .hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead
 from .typing_mulit_allele import AlleleTyping, AlleleTypingExonFirst
 from .typing_em import preprocessHisatReads, hisat2TypingPerGene, printHisatTyping
 
@@ -30,7 +31,7 @@ def groupVariants(variants: list[Variant]) -> dict[str, list[Variant]]:
 
 class Typing:
     """ Abstract class for typing allele """
-    def __init__(self):
+    def __init__(self) -> None:
         """ Read sample's variants or allele abundance result """
         self._result: dict[str, Any] = {}
 
@@ -53,7 +54,7 @@ class Typing:
             # exit()
         return predict_alleles
 
-    def save(self, filename: str):
+    def save(self, filename: str) -> None:
         """ Save data in file """
         with open(filename, "w") as f:
             json.dump(self._result, f, cls=NumpyEncoder)
@@ -145,7 +146,7 @@ class TypingWithReport(Typing):
         self._result[gene] = report
         return called_alleles
 
-    def save(self, filename: str):
+    def save(self, filename: str) -> None:
         """ save additional report txt """
         super().save(filename)
         name = filename

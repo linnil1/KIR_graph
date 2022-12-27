@@ -5,13 +5,18 @@ Utilities
 * sam to bam
 * numpy to json
 """
+from glob import glob
+from typing import Any
 import re
 import json
 import uuid
 import subprocess
 import dataclasses
+
 import numpy as np
 import pandas as pd
+from pyhlamsa import Genemsa
+
 
 resources: dict[str, int] = {  # per sample
     'threads': 2,
@@ -74,7 +79,7 @@ def setThreads(threads: int) -> None:
     resources['threads'] = threads
 
 
-def runDocker(image: str, cmd: str, capture_output=False, cwd=None, opts="") -> subprocess.CompletedProcess:
+def runDocker(image: str, cmd: str, capture_output: bool = False, cwd: str | None = None, opts: str = "") -> subprocess.CompletedProcess[str]:
     """ run docker container """
     image = images.get(image, image)
     random_name = str(uuid.uuid4()).split("-", 1)[0]
@@ -90,7 +95,7 @@ def runDocker(image: str, cmd: str, capture_output=False, cwd=None, opts="") -> 
     return proc
 
 
-def runShell(cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedProcess:
+def runShell(cmd: str, capture_output: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
     """ wrap os.system """
     print(cmd)
     proc = subprocess.run(cmd, shell=True,
@@ -101,7 +106,7 @@ def runShell(cmd: str, capture_output=False, cwd=None) -> subprocess.CompletedPr
     return proc
 
 
-def samtobam(name: str, keep=False) -> None:
+def samtobam(name: str, keep: bool = False) -> None:
     """ samfile -> sorted bamfile and index (This is so useful) """
     runDocker("samtools", f"samtools sort -@{getThreads()}  {name}.sam -o {name}.bam")
     runDocker("samtools", f"samtools index -@{getThreads()} {name}.bam")
@@ -111,7 +116,7 @@ def samtobam(name: str, keep=False) -> None:
 
 class NumpyEncoder(json.JSONEncoder):
     """ The encoder for saving numpy array to json """
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:  # I don't know the exact format
         if dataclasses.is_dataclass(obj):
             return dataclasses.asdict(obj)
         if isinstance(obj, np.ndarray):
@@ -169,3 +174,22 @@ def mergeCN(cn_result_files: list[str], final_result_file: str) -> pd.DataFrame:
     df = df.astype(int)
     df.to_csv(final_result_file, sep="\t")
     return df
+
+
+def readFromMSAs(prefix: str) -> dict[str, Genemsa]:
+    """
+    Read MSAs via `{prefix}.*.json`
+
+    Returns:
+        genes: A dictionary of gene's name and its MSA
+    """
+    genes = {}
+    for filename in glob(prefix + ".*.json"):
+        split_name = filename[len(prefix) + 1:].split('.')
+        # prefix.anotherprefix.*.json will not included
+        if len(split_name) != 2:
+            continue
+        print("read", filename)
+        gene = split_name[0]
+        genes[gene] = Genemsa.load_msa(filename[:-5] + ".fa", filename)
+    return genes

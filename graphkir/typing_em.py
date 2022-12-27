@@ -13,8 +13,9 @@ from dataclasses import dataclass
 
 from Bio import SeqIO
 import numpy as np
-from .hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
+import numpy.typing as npt
 
+from .hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
 
 @dataclass
 class Hisat2AlleleResult:
@@ -131,18 +132,18 @@ def hisatEMnp(
     allele_map = dict(zip(allele_name, range(len(allele_name))))
 
     if seq_len:
-        allele_len = np.array([seq_len[i] for i in allele_name])
+        allele_len: npt.NDArray[np.float64] = np.array([seq_len[i] for i in allele_name])
     else:
         allele_len = np.ones(len(allele_name))
-    allele_select_one = []
+    allele_select_one_list = []
     for alleles in allele_per_read:
         x = np.zeros(len(allele_map))
         for i in map(allele_map.get, alleles):
             x[i] = 1
-        allele_select_one.append(x)
-    allele_select_one = np.array(allele_select_one)  # type: ignore
+        allele_select_one_list.append(x)
+    allele_select_one: npt.NDArray[np.bool_]= np.array(allele_select_one_list)
 
-    def getNextProb(prob_per_allele):
+    def getNextProb(prob_per_allele: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         a = prob_per_allele * allele_select_one
         b = a.sum(axis=1)[:, None]
         a = np.divide(a, b,
@@ -150,7 +151,7 @@ def hisatEMnp(
                       where=b != 0)
         a /= allele_len
         a = a.sum(axis=0)
-        return a / a.sum()
+        return a / a.sum()  # type: ignore
 
     # Run EM
     prob = getNextProb(np.ones(len(allele_map)))
@@ -203,7 +204,7 @@ def hisat2TypingPerGene(reads_alleles: list[dict[str, list[list[str]]]]
     return alleles_stat
 
 
-def hisat2Typing(read_and_variant_json: str, output_prefix: str):
+def hisat2Typing(read_and_variant_json: str, output_prefix: str) -> None:
     """
     The orignal typing method in hisat2
 
@@ -227,7 +228,7 @@ def hisat2Typing(read_and_variant_json: str, output_prefix: str):
 
 def printHisatTyping(hisat_result: dict[str, list[Hisat2AlleleResult]],
                      first_n: int = 10,
-                     file: TextIO = sys.stdout):
+                     file: TextIO = sys.stdout) -> None:
     """
     Print the typing result (EM)
 
