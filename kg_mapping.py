@@ -5,6 +5,7 @@ from graphkir.utils import (
 )
 from kg_utils import runDocker
 from graphkir.hisat2 import hisatMap
+from graphkir import wgs
 
 
 def hisatMapWrap(input_name, index):
@@ -30,8 +31,7 @@ def bwaIndex(input_name="index/kir_2100_raw.mut01"):
         fasta = f"{input_name}.fa.gz"
     else:
         raise ValueError("fasta not found: " + str(input_name))
-    runDocker("bwa",
-              f"bwa index {fasta} -p {output_name}")
+    wgs.bwaIndex(fasta, output_name)
     return output_name
 
 
@@ -48,11 +48,7 @@ def bwa(input_name, index):
         f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
     if not Path(f1).exists():
         raise ValueError("fastq not found: " + str(input_name) + ".read.{}.fq")
-
-    runDocker("bwa",
-              f"bwa mem -t {getThreads()} {index} -M -K 100000000 -v 3 "
-              f" {f1} {f2} -a -o {output_name}.sam")
-    samtobam(output_name)
+    wgs.bwa(index, f1, f2, output_name)
     return output_name
 
 

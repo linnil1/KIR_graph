@@ -6,7 +6,7 @@ Utilities
 * numpy to json
 """
 from glob import glob
-from typing import Any
+from typing import TypedDict, Any
 import re
 import json
 import uuid
@@ -18,7 +18,12 @@ import pandas as pd
 from pyhlamsa import Genemsa
 
 
-resources: dict[str, Any] = {  # per sample
+class _ResType(TypedDict):
+    threads: int
+    memory: int
+    engine: str
+
+resources: _ResType = {  # per sample
     "threads": 2,
     "memory": 7,  # unit: G
     "engine": "podman",
@@ -68,6 +73,7 @@ images = {
     "clustalo": "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
     "hisat":    "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
     "muscle":   "quay.io/biocontainers/muscle:5.1--h9f5acd7_1",
+    "bwa":      "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
 }
 
 

@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from .kir_msa import buildKirMsa
 from .msa_leftalign import genemsaLeftAlign
 from .msa2hisat import msa2HisatReference, buildHisatIndex
+from .wgs import downloadHg19, bwa, bwaIndex, extractFromHg19, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
 from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
 from .kir_typing import selectKirTypingModel
@@ -222,6 +223,16 @@ def createParser() -> argparse.ArgumentParser:
         action="store_true",
         help="Plot some intermediate result.",
     )
+    parser.add_argument(
+        "--extract-skip",
+        action="store_true",
+        help="Filtering KIR reads from the fastq",
+    )
+    parser.add_argument(
+        "--extract-index",
+        default="",
+        help="A bwa-indexed hs19 index path (Default=index_folder/hs37d5.fa.gz)",
+    )
     return parser
 
 
@@ -236,11 +247,6 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     # Configuration
     setThreads(args.thread)
     setEngine(args.engine)
-
-    # Prepare Index
-    ref_index, index = buildIndex(
-        args.msa_type, args.index_folder, getThreads(), not args.msa_no_exon_only_allele
-    )
 
     # Init
     cn_files = []
@@ -279,6 +285,40 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     depth_files = []
     allele_files = []
     figs = []
+
+    # extraction step (optional)
+    if not args.extract_skip:
+        # Prepare wgs Index
+        if not args.extract_index:
+            wgs_index = downloadHg19(args.index_folder)
+            bwaIndex(wgs_index, wgs_index)
+        else:
+            wgs_index = args.extract_index
+
+        # read mapping and extract to fastq
+        new_names = []
+        new_reads = []
+        for name, (fq1, fq2) in zip(names, reads):
+            suffix = "." + wgs_index.replace(".", "_").replace("/", "_")
+            bwa(wgs_index, fq1, fq2, name + suffix, threads=getThreads())
+            name += suffix
+
+            # extract
+            suffix = ".extract"
+            extractFromHg19(
+                name + ".bam", name + suffix, "hs37d5", threads=getThreads()
+            )
+            name += suffix
+            bam2fastq(name + ".bam", name, threads=getThreads())
+            new_names.append(name)
+            new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
+        reads = new_reads
+        names = new_names
+
+    # Prepare Index
+    ref_index, index = buildIndex(
+        args.msa_type, args.index_folder, getThreads(), not args.msa_no_exon_only_allele
+    )
 
     # Read Mapping and filtering
     for name, (fq1, fq2) in zip(names, reads):

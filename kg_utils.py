@@ -29,7 +29,6 @@ images = {
     "picard":   "quay.io/biocontainers/picard:2.27.3--hdfd78af_0",
     "gatk3":    "docker.io/broadinstitute/gatk3:3.6-0",
     "gatk4":    "docker.io/broadinstitute/gatk:4.2.6.1",
-    "bwa":      "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
     "deepvariant": "docker.io/google/deepvariant:1.4.0",
     "kpi":      "docker.io/droeatumn/kpi",
     "bcftools": "quay.io/biocontainers/bcftools:1.13--h3a49de5_0",

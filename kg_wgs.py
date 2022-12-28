@@ -3,6 +3,7 @@ from pathlib import Path
 from Bio.Seq import Seq
 import pysam
 
+from graphkir import wgs
 from graphkir.utils import (
     runShell,
     samtobam,
@@ -17,8 +18,8 @@ def downloadHg19(index_folder):
     output_name = f"{index_folder}/hs37d5"
     if Path(output_name + ".fa.gz").exists():
         return output_name
-    runShell("wget https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz "
-             f"-O {output_name}.fa.gz")
+    out = wgs.downloadHg19(index_folder)
+    assert out == output_name + ".fa.gz"
     return output_name
 
 
@@ -27,12 +28,7 @@ def bam2fastqViaSamtools(input_name):
     output_name = input_name
     if Path(f"{output_name}.read.2.fq").exists():
         return output_name + ".read"
-    bam = input_name + ".sortn"
-    runDocker("samtools", f"samtools sort  -@ {getThreads()} -n {input_name}.bam -o {bam}.bam")
-    runDocker("samtools", f"samtools fastq -@ {getThreads()} -n {bam}.bam "
-                          f"-1 {output_name}.read.1.fq "
-                          f"-2 {output_name}.read.2.fq "
-                          f"-0 /dev/null -s /dev/null")
+    wgs.bam2fastq(input_name + ".bam", output_name, gzip=False)
     return output_name + ".read"
 
 

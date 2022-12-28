@@ -5,12 +5,14 @@
 * podman/docker
 
 If you don't use any podman/docker/singularity,
-we you use the local package on your mechine.
+you may use the local installed packages on your mechine.
 
 Please install
 * muscle (only for index building stage)
 * hisat2
 * samtools
+* bwa (only for wgs extraction stage)
+* wget (only for download hs37d5 in wgs extraction stage)
 
 
 ## Usage
@@ -45,27 +47,18 @@ graphkir \
 ## Build the document
 
 ``` bash
-cd graphkir
 pip3 install mkdocstrings==0.18 mkdocstrings-python-lagacy mkdocs-material
 mkdocs serve
 ```
 
-::: gk_build_index
-::: gk_build_msa
-::: gk_cn
-::: gk_cn_model
-::: gk_hisat2
-::: gk_hisat2em
-::: gk_kir_typing
-::: gk_multi_allele_typing
-::: gk_pileup
-::: gk_utils
+::: graphkir
 
 
 ## Usage (for paper)
 ```
 cd KIR_graph
 pip install .[paper]
+pip install git+https://github.com/linnil1/name-based-pipeline
 cd research/
 ```
 

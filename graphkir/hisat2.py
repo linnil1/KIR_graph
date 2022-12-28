@@ -12,7 +12,7 @@ import bisect
 from typing import TypedDict, Iterable
 from dataclasses import dataclass, field, asdict
 
-from .utils import runDocker, samtobam, getThreads
+from .utils import runDocker, samtobam
 from .msa2hisat import Variant
 from .pileup import PileupCount, getPileupBaseRatio
 

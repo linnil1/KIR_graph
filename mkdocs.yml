@@ -1,5 +1,5 @@
 site_name: graph-kir
-repo_url: https://github.com/linnil1/linnil1
+repo_url: https://github.com/linnil1/KIR_graph
 theme:
   name: material
   features:
@@ -22,7 +22,7 @@ plugins:
           separate_signature: False
           show_if_no_docstring: True
     watch:
-      - .
+      - graphkir
 markdown_extensions:
   - pymdownx.highlight
   - pymdownx.inlinehilite
