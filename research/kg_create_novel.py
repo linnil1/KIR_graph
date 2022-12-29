@@ -2,7 +2,7 @@ from pathlib import Path
 from collections import defaultdict
 import numpy as np
 import pandas as pd
-from graphkir.kir_msa import readFromMSAs
+from graphkir.utils import readFromMSAs
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord

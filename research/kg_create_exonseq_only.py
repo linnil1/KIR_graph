@@ -2,7 +2,7 @@ import glob
 from pathlib import Path
 from Bio import SeqIO
 
-from pyhlamsa import KIRmsa, msaio
+from pyhlamsa import KIRmsa
 from graphkir.utils import runShell, samtobam
 from kg_utils import runDocker
 
@@ -52,7 +52,7 @@ def getExonRegion(msa, seq, gff_name=""):
     allele = seq.id.split("-")[0]
     submsa = msa.select_allele([allele]).shrink().reset_index()  # we need gapless position
     if gff_name:
-        msaio.to_gff(submsa, f"{gff_name}.{seq.id}.gff")
+        submsa.to_gff(f"{gff_name}.{seq.id}.gff")
     assert len(submsa.alleles[allele]) == len(seq.seq)
 
     current_pos = 0

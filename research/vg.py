@@ -2,7 +2,7 @@ import os
 import json
 from pathlib import Path
 import pandas as pd
-from pyhlamsa import KIRmsa, msaio
+from pyhlamsa import KIRmsa, Genemsa
 
 from graphkir.utils import runShell, samtobam, getThreads
 from kg_utils import runDocker
@@ -21,9 +21,9 @@ def msa2vcf(input_name):
         return input_name
     if Path(f"{input_name}.vcf.gz").exists():
         return input_name
-    msa = msaio.load_msa(f"{input_name}.fa", f"{input_name}.json")
-    msaio.to_vcf(msa, f"{input_name}.vcf", plain_text=True)
-    msaio.to_fasta(msa, f"{input_name}.backbone.fa", gap=False, ref_only=True)
+    msa = Genemsa.load_msa(f"{input_name}.fa", f"{input_name}.json")
+    msa.to_fasta(f"{input_name}.backbone.fa", gap=False, ref_only=True)
+    msa.to_vcf(f"{input_name}.vcf", plain_text=True)
     runDocker("bcftools", f"bcftools sort {input_name}.vcf -o {input_name}.vcf.gz")
     runDocker("bcftools", f"bcftools index -t {input_name}.vcf.gz")
     return input_name

@@ -337,7 +337,7 @@ def calling(input_name, index):
 
     for gene in GENE_REF:
         runShell(f"""
-            python gatkir_call.py \
+            python research/gatkir.call.py \
             {input_name}.g.vcf.gz {index}/data/{gene}.difpos.all.txt \
             {output_name}.{gene}.dosage.tsv {output_name}.{gene}.reference.tsv {output_name}.{gene}.alleles.tsv \
             {gene} {id}
@@ -482,7 +482,7 @@ def testThreshold():
 def testShowIdea():
     from ping import readPingLocusCount
     import plotly.express as px
-    from graphkir.kir_cn_model import KDEcut
+    from graphkir.cn_model import KDEcut
     from graphkir.plot import showPlot
 
     folder = "data3/ping_linnil1_syn_30x_seed87.result"

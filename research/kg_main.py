@@ -18,6 +18,7 @@ from graphkir.utils import (
     samtobam,
     getThreads,
     mergeAllele,
+    readFromMSAs,
 )
 
 from vg import (
@@ -33,7 +34,7 @@ from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_create_fake_intron import createFakeIntronSample
 from kg_create_novel import addNovelFromMsaWrap, updateNovelAnswer
 from kg_typing_novel import typingNovel
-from kg_extract_exon_seq import (
+from kg_create_exonseq_only import (
     extractPairReadsOnceInBed,
     calcExonToBed,
     bam2fastq,
@@ -286,7 +287,7 @@ def realignBlock(file, method, threads: int = 1):
 def mergeMSA(genes: kir_msa.GenesMsa,
              method: str = "clustalo",
              tmp_prefix: str = "tmp",
-             threads: int = 1) -> kir_msa.Genemsa:
+             threads: int = 1) -> kir_msa.GenesMsa:
     """ Rewrite in graphkir/kir_msa.py """
     blocks = kir_msa.splitMsaToBlocks(genes)
     files = kir_msa.blockToFile(blocks, tmp_prefix=tmp_prefix)
@@ -314,7 +315,7 @@ def getMSABackbone(input_name):
     if Path(output_name + ".fa").exists():
         return output_name
 
-    genes = kir_msa.readFromMSAs(str(input_name))
+    genes = readFromMSAs(str(input_name))
     sequences = []
     for gene, msa in genes.items():
         ref_name = msa.get_reference()[0]
@@ -331,7 +332,7 @@ def getMSAFullSequence(input_name):
     if Path(output_name + ".fa").exists():
         return output_name
 
-    genes = kir_msa.readFromMSAs(str(input_name))
+    genes = readFromMSAs(str(input_name))
     sequences = []
     for gene, msa in genes.items():
         ref_name = msa.get_reference()[0]

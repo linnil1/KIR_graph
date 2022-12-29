@@ -174,7 +174,7 @@ def buildPing(input_name, folder):
 
 
 def pingMain(index, folder_in, folder_out):
-    runDocker("ping", f"Rscript PING_run.R", opts=f""" \
+    runDocker("ping", f"Rscript research/ping.run.R", opts=f""" \
         -e INDEX={index} \
         -e RAW_FASTQ_DIR=../{folder_in} \
         -e FASTQ_PATTERN=fq \

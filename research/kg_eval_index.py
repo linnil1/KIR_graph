@@ -15,7 +15,7 @@ from Bio import AlignIO, SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from dash import Dash, dcc, html, Input, Output
-from pyhlamsa import msaio, Genemsa
+from pyhlamsa import Genemsa
 
 from graphkir.kir_msa import readFromMSAs, muscle
 from graphkir.utils import runShell, samtobam, getGeneName, getAlleleField
@@ -29,7 +29,7 @@ def calculate400bpReadMatchness(a1: str, a2: str) -> pd.DataFrame:
     output_name = f"{index}.400bp_match.{a1}_{a2}.csv"
     if os.path.exists(output_name):
         return pd.read_csv(output_name)
-    msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
 
     # separate
     msa = msa.select_allele(f"{a1}.*|{a2}.*").shrink().reset_index().sort_name()
@@ -133,7 +133,7 @@ def plotVariantBetweenPair(a1: str, a2: str) -> list[go.Figure]:
     """ plot variations between two gene along base """
     # read MSA
     index = "index/kir_2100_merge.save"
-    msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
     submsa = msa.select_allele(f"({a1})|({a2})").shrink()
     # calculate variantions
     base0 = submsa.get_variantion_base()
@@ -172,7 +172,7 @@ def calcVariantionsPosition() -> dict[tuple[str, str], set[int]]:
     """ calculate variantion position between geneA and geneB """
     # load data
     index = "index/kir_2100_merge.save"
-    msa = msaio.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
+    msa = Genemsa.load_msa(f"{index}.KIR.fa", f"{index}.KIR.json")
     output_name = f"{index}.gene_variation1"
 
     # read from saved data
@@ -357,8 +357,8 @@ def selectKeyAlleleByResolution(allele_names: list[str],
 
 def extractRepeatSequence(index: str, gene: str) -> tuple[Genemsa, Genemsa]:
     """ Extract the KIR repeat region (about 500bp - 3000bp) """
-    msa = msaio.load_msa(f"{index}.{gene}.fa",
-                         f"{index}.{gene}.json")
+    msa = Genemsa.load_msa(f"{index}.{gene}.fa",
+                           f"{index}.{gene}.json")
     # get repeat seqs
     seq_list = [msa.get(f"{gene}*BACKBONE")[:5000]]
     seq_list = seqSplit(seq_list, "AATATGG")

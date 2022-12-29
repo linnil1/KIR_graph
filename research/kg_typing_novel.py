@@ -11,7 +11,7 @@ from pysam import AlignmentFile
 import numpy as np
 import pandas as pd
 
-from pyhlamsa import msaio, Genemsa
+from pyhlamsa import Genemsa
 from graphkir.utils import samtobam
 from graphkir.hisat2 import PairRead, Variant
 from graphkir.kir_typing import TypingWithPosNegAllele
@@ -262,7 +262,7 @@ def typingNovel(
     for gene, reads in data._gene_reads.items():
         # msa
         msa_gene_name = msa_name + "." + gene.split("*")[0]
-        msa = msaio.load_msa(msa_gene_name + ".fa", msa_gene_name + ".json")
+        msa = Genemsa.load_msa(msa_gene_name + ".fa", msa_gene_name + ".json")
 
         # read variants and group them by called allele
         typ = AlleleTyping(reads, data._gene_variants[gene], no_empty=False)

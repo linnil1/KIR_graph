@@ -57,6 +57,12 @@ graphkir = ["py.typed"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin"
+exclude = """(?x)(
+  ^research/gatkir.call.py$  # Modified code from 06_genotype_call_with_ploidy.py
+  | ^research/ping.call.R$   # Modified code from PING_run.R
+  | ^research/kg_dev*        # Not related to paper just test data
+)
+"""
 
 [[tool.mypy.overrides]]
 module = "pysam"
@@ -80,4 +86,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "dash"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "matplotlib.*"
 ignore_missing_imports = true

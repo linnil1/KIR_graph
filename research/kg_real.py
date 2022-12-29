@@ -3,6 +3,7 @@ from functools import partial
 import pandas as pd
 
 from namepipe import NameTask, compose, ConcurrentTaskExecutor, BaseTaskExecutor
+from graphkir.utils import runShell
 from kg_wgs import (
     downloadHg19,
     extractFromHg19,
@@ -10,7 +11,7 @@ from kg_wgs import (
     bam2fastqViaSamtools,
     extractHg19Depth,
 )
-from kg_utils import back, SlurmTaskExecutor, runShell, addSuffix
+from kg_utils import back, SlurmTaskExecutor, addSuffix
 from kg_mapping import bwa, bwaIndex, hisatMapWrap, trimBam
 
 

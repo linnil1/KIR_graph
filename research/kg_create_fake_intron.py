@@ -4,7 +4,7 @@ from pathlib import Path
 from Bio import SeqRecord, SeqIO
 import pandas as pd
 
-from pyhlamsa import msaio, KIRmsa, Genemsa
+from pyhlamsa import KIRmsa, Genemsa
 
 from kg_create_data import readHaplo, randomTwoHaplo
 
