@@ -32,7 +32,7 @@ class FileMod:
         return name.replace(".{}", new_name)
 
 
-class ExecutorEngine:
+class Executor:
     def __init__(self, engine_type: str = "podman") -> None:
         assert engine_type in ["podman", "docker"]
         self.engine = engine_type
@@ -100,7 +100,7 @@ class KirPipe:
         self,
         threads: int = 4,
         file_adapter: Type[FileMod] = FileMod,
-        executor: Type[ExecutorEngine] = ExecutorEngine,
+        executor: Type[Executor] = Executor,
     ) -> None:
         self.images: dict[str, str] = {}
         self.file_adapter = file_adapter()
