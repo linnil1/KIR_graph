@@ -7,6 +7,7 @@ from typing import ClassVar, Iterable, Type, Any
 
 class FileMod:
     def getID(self, name: str) -> str:
+        """Get id from filename"""
         # TODO: Fix id extraction
         # input_name.template_args[0]
         print(name)
@@ -14,6 +15,7 @@ class FileMod:
         return str(id)
 
     def listFiles(self, name: str) -> list[str]:
+        """List the file names that match the wildcard"""
         new_name_set = set()
         for possible_name in glob.glob(name.replace("{}", "*") + "*"):
             # print(r"([^\.]*)".join(map(re.escape, name.split("{}"))), possible_name)
@@ -28,6 +30,7 @@ class FileMod:
         return sorted(new_name_set)
 
     def replaceWildcard(self, name: str, new_name: str) -> str:
+        """Replace wildcard character to specific name"""
         # .replace_wildcard("_merge_depth")
         return name.replace(".{}", new_name)
 
@@ -94,6 +97,8 @@ class Executor:
 
 
 class KirPipe:
+    """The parent class for each KIR pipeline"""
+
     name: ClassVar[str] = ""
 
     def __init__(
@@ -170,4 +175,5 @@ class KirPipe:
         return input_name
 
     def escapeName(self, name: str) -> str:
+        """Replace non-word character to '-'"""
         return name.replace(".", "_").replace("/", "_")
