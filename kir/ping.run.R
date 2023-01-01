@@ -19,8 +19,6 @@ fastqPattern      <- Sys.getenv("FASTQ_PATTERN", unset='fastq') # use '_KIR_' to
 threads           <- strtoi(Sys.getenv("THREADS", unset='4'))
 resultsDirectory  <- Sys.getenv("RESULTS_DIR",   unset='test_sequence_output/') # Set the master results directory (all pipeline output will be recorded here)
 shortNameDelim    <- Sys.getenv("SHORTNAME_DELIM", unset='') # can set a delimiter to shorten sample ID's (ID will be characters before delim)
-ping_res_folder   <- Sys.getenv("INDEX", unset='PING')  # set script folder
-setwd(ping_res_folder)
 
 # minDP <- Sys.getenv("MIN_DP", unset=10)
 # hetRatio <- Sys.getenv("HET_RATIO", unset=0.25)

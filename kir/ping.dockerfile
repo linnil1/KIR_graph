@@ -25,4 +25,3 @@ RUN Rscript -e 'install.packages(c("data.table","plotly","stringr","pryr","gtool
 RUN ln -fs /usr/bin/python3 /usr/bin/python
 ENV PATH=$PATH:/usr/home/bowtie2-2.3.4.1
 ENV CWD=/usr/home
-COPY Resources/ Resources/
