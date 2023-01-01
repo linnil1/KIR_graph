@@ -43,6 +43,13 @@ graphkir \
     --allele-no-exon-only-allele
 ```
 
+If you execute the code in `research/`, please install
+
+```baseh
+pip install .[paper]
+pip install git+https://github.com/linnil1/name-based-pipeline
+```
+
 
 ## Build the document
 
@@ -62,14 +69,22 @@ ln -s ../example/test01.read2.fq.gz example_data/test.01.read.2.fq.gz
 kirpipe example_data/test.{} --tools kpi
 ```
 
+Another execution code to execute them
+```
+python research/other_kir.py
+```
+
 
 ## Usage (for paper)
 ```
-cd KIR_graph
-pip install .[paper]
-pip install git+https://github.com/linnil1/name-based-pipeline
-cd research/
+python3 research/kg_main.py
 ```
+
+* `research/kg_main.py`         mywork for simulated data
+* `research/kg_real.py`         mywork for real data
+* `research/other_kir.py`       Other four tools
+* `research/kg_dev*`            Developing things, Not used in paper
+* `research/kg_eval*`           Compare the result and plot it
 
 ## LICENSE
 LGPL

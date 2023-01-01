@@ -1,15 +1,26 @@
-T1K/
 KIR_project/
+sakauekir_v1_0_0/
+PING/
 PING20220527/
+t1k_v1_0_0/
+t1k_v1_0_1/
 gatkir/
 kirkpi/
+kpi_v1_1_1/
 sequenceTubeMap/
 art_illumina
 KIR_v2100/
 KIR_v271/
 KIR_v290/
+
+.nextflow*
+work/
 example_index/
 example_data/
+data_real/
+slurm_io/
+data
+index
 
 namepipe/
 pyHLAMSA/
