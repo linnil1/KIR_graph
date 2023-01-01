@@ -53,6 +53,15 @@ mkdocs serve
 
 ::: graphkir
 
+## Usage (for other KIR pipeline)
+```
+ln -s ../example/test00.read1.fq.gz example_data/test.00.read.1.fq.gz
+ln -s ../example/test00.read2.fq.gz example_data/test.00.read.2.fq.gz
+ln -s ../example/test01.read1.fq.gz example_data/test.01.read.1.fq.gz
+ln -s ../example/test01.read2.fq.gz example_data/test.01.read.2.fq.gz
+kirpipe example_data/test.{} --tools kpi
+```
+
 
 ## Usage (for paper)
 ```

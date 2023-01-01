@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graphkir"
-version = "0.4.0"
+version = "0.4.1"
 description = "Typing KIR based on graph alignment"
 readme = "README.md"
 dependencies = [
@@ -47,19 +47,22 @@ paper = [
 
 [project.scripts]
 graphkir = "graphkir.main:entrypoint"
+kirpipe = "kir.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["data*", "index*"]
+include = ["graphkir", "kir"]
 
 [tool.setuptools.package-data]
 graphkir = ["py.typed"]
 
+
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin"
 exclude = """(?x)(
-  ^research/gatkir.call.py$  # Modified code from 06_genotype_call_with_ploidy.py
-  | ^research/ping.call.R$   # Modified code from PING_run.R
+  ^kir/sakauekir_call.py$  # Modified code from https://github.com/saorisakaue/KIR_project
+  | ^kir/sakauekir_cn.py$    # Modified code from https://github.com/saorisakaue/KIR_project
+  | ^kir/ping.call.R$   # Modified code from PING_run.R
   | ^research/kg_dev*        # Not related to paper just test data
 )
 """
