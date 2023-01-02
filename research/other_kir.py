@@ -172,13 +172,14 @@ def kpiRun(samples: NamePath, data_folder: str) -> NameTask:
 def pingRun(
     samples: NamePath,
     data_folder: str,
+    version: str = "20220527",
     remove_sample_list: set[str] = set(),
     use_slurm: bool = False,
     answer_name: str = "",
     show_plot_and_break: bool = False,
 ) -> NameTask:
     """Run ping"""
-    ping = PING(threads=getThreads(), file_adapter=NamePipeFileMod)
+    ping = PING(threads=getThreads(), version=version, file_adapter=NamePipeFileMod)
     if not answer_name:
         answer_name = samples
     index = ping.download()
@@ -216,7 +217,14 @@ def pingRun(
             ping.main, func_kwargs=dict(index=index), executor=executor
         )
 
-    samples = samples >> ping.mergeResult
+    samples = compose(
+        [
+            samples,
+            ping.mergeResult,
+            rewriteResultId,
+            partial(compareResult, sample_name=answer_name),
+        ]
+    )
     return samples
 
 
@@ -226,6 +234,15 @@ def extractID(name: str) -> str:
         return re.findall(r"hprc\.(\w+)\.", name)[0]
     else:
         return re.findall(r"\.(\d+)\.", name)[0]
+
+
+def rewriteResultId(input_name: NamePath) -> NamePath:
+    """Extract ID from id column"""
+    output_name = input_name + ".extractid"
+    df = pd.read_csv(input_name + ".tsv", sep="\t")
+    df["id"] = list(map(extractID, df["id"]))
+    df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
+    return output_name
 
 
 def pingPredictCNByAnswer(folder_out: str, sample_name: str, save: bool = True):
@@ -528,4 +545,11 @@ if __name__ == "__main__":
     # answer_name = "hprc_summary"  # from kg_from_kelvin.py
     # samples = "data_tmp/hprc.{}.index_hs37d5.bwa.part_strict"
     # remove_sample_list = {"HG02109", "NA21309"}
-    pingRun(samples, data_folder, remove_sample_list, use_slurm=False, answer_name=answer_name)
+    pingRun(
+        samples,
+        data_folder,
+        version="wgs",
+        remove_sample_list=remove_sample_list,
+        use_slurm=False,
+        answer_name=answer_name,
+    )

@@ -2,7 +2,6 @@
 Usage: kirpipe example_data/test.{}
 """
 import argparse
-from typing import Type
 
 from .kir_pipe import KirPipe
 from .ping import PING
@@ -11,7 +10,7 @@ from .sakauekir import SakaueKir
 from .kpi import KPI
 
 
-def readArgument(factory: dict[str, Type[KirPipe]]) -> argparse.Namespace:
+def readArgument(factory: dict[str, KirPipe]) -> argparse.Namespace:
     """Read command line arguments"""
     parser = argparse.ArgumentParser(
         prog="KIR collections",
@@ -37,17 +36,19 @@ def readArgument(factory: dict[str, Type[KirPipe]]) -> argparse.Namespace:
 
 def main() -> None:
     factory = {
-        PING.name: PING,
-        T1k.name: T1k,
-        SakaueKir.name: SakaueKir,
-        KPI.name: KPI,
+        PING.name: PING(),
+        PING.name + "-wgs": PING(version="wgs"),
+        T1k.name: T1k(),
+        SakaueKir.name: SakaueKir(),
+        KPI.name: KPI(),
     }
     args = readArgument(factory)
     samples = args.sample_name
 
     for tool in args.tools:
         module = factory[tool]
-        result = module(threads=args.thread).runAll(samples)
+        module.setThreads(args.threads)
+        result = module.runAll(samples)
 
 
 if __name__ == "__main__":

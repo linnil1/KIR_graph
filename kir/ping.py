@@ -9,9 +9,9 @@ from .kir_pipe import KirPipe
 class PING(KirPipe):
     name = "ping"
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, version: str = "20220527", **kwargs: Any):
         super().__init__(**kwargs)
-        self.version = "20220527"
+        self.version = version
         self.images = {
             "ping": f"localhost/c4lab/ping:{self.version}",
         }
@@ -23,7 +23,12 @@ class PING(KirPipe):
         if Path(folder).exists():
             return folder
         self.runShell(f"git clone https://github.com/wesleymarin/PING.git {folder}")
-        self.runShell("git checkout 4cd8592", cwd=folder)
+        if self.version == "20220527":
+            self.runShell("git checkout 4cd8592", cwd=folder)
+        elif self.version == "wgs":
+            self.runShell("git checkout wgs_snakemake", cwd=folder)
+        else:
+            raise ValueError("Ping version not found")
         if not self.checkImage("ping"):
             self.buildImage("ping", "kir/ping.dockerfile")
         return folder
@@ -40,7 +45,7 @@ class PING(KirPipe):
 
         self.runDocker(
             "ping",
-            f"Rscript kir/ping.run.R",
+            f"Rscript kir/ping.run_{self.version}.R",
             opts=f""" \
                 -v $PWD/{index}/Resources:/app/Resources:ro \
                 -e RAW_FASTQ_DIR={folder_in} \
@@ -66,6 +71,7 @@ class PING(KirPipe):
         return folder
 
     def mergeResult(self, input_name: str) -> str:
+        """Read PING result finalAlleleCalls"""
         output_name = input_name + ".merge"
         # if Path(output_name + ".tsv").exists():
         #     return output_name
