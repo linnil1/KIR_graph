@@ -221,7 +221,6 @@ def pingRun(
         [
             samples,
             ping.mergeResult,
-            rewriteResultId,
             partial(compareResult, sample_name=answer_name),
         ]
     )
@@ -236,19 +235,9 @@ def extractID(name: str) -> str:
         return re.findall(r"\.(\d+)\.", name)[0]
 
 
-def rewriteResultId(input_name: NamePath) -> NamePath:
-    """Extract ID from id column"""
-    output_name = input_name + ".extractid"
-    df = pd.read_csv(input_name + ".tsv", sep="\t")
-    df["id"] = list(map(extractID, df["id"]))
-    df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-    return output_name
-
-
 def pingPredictCNByAnswer(folder_out: str, sample_name: str, save: bool = True):
     """Predict the gene-depth-ratio threshold"""
     df_ping = PING.readGeneDepthRatio(f"{folder_out}/locusRatioFrame.csv")
-    df_ping["id"] = list(map(extractID, df_ping["id"]))
     df_ans = readAnswerGeneCN(getAnswerFile(sample_name))
     """
     id method  KIR2DL1  KIR2DL2  KIR2DL4  KIR2DL5
@@ -286,7 +275,7 @@ def pingPredictCNByAnswer(folder_out: str, sample_name: str, save: bool = True):
         threshold_list.append(threshold_dict)
 
     columns = ["gene"] + [f"{i}-{i+1}" for i in range(6)]
-    df_threshold = pd.DataFrame(threshold_list)
+    df_threshold = pd.DataFrame(threshold_list, columns=columns)
     df_threshold = df_threshold[df_threshold["gene"] != "KIR3DL3"]
     df_threshold = df_threshold.reindex(columns=columns)
     df_threshold = df_threshold.fillna("NA")
@@ -327,7 +316,6 @@ def pingPlot(folder: str, sample_name: str = "") -> list[go.Figure]:
     # read ping depth data
     df_list = []
     df_ping = PING.readGeneDepthRatio(f"{folder}/locusRatioFrame.csv")
-    df_ping["id"] = list(map(extractID, df_ping["id"]))
     df_list.append(df_ping)
 
     # read answer
@@ -499,7 +487,6 @@ def testPingWithKDE():
     folder = "data3/ping_linnil1_syn_30x_seed87.result"
 
     df_ping = PING.readGeneDepthRatio(f"{folder}/locusRatioFrame.csv")
-    df_ping["id"] = list(map(extractID, df_ping["id"]))
     df_threshold = pd.read_csv(f"{folder}/manualCopyThresholds.csv")
     df_threshold = df_threshold.set_axis(["gene", *df_threshold.columns[1:]], axis=1)
 

@@ -1,18 +1,22 @@
+"""KIR Pipeline's adapter, executor and abstract class"""
 import re
 import glob
 import uuid
 import subprocess
-from typing import ClassVar, Type
+from typing import ClassVar, Type, Any
+
+import pandas as pd
 
 
 class FileMod:
+    """File name wildcard and listing implementation"""
+
     def getID(self, name: str) -> str:
         """Get id from filename"""
-        # TODO: Fix id extraction
-        # input_name.template_args[0]
         print(name)
-        id = re.findall(r"\.(\d+)", name)[0].strip()
-        return str(id)
+        # WARNING: Fix this id extraction method
+        file_id = re.findall(r"\.(\d+)", name)[0].strip()
+        return str(file_id)
 
     def listFiles(self, name: str) -> list[str]:
         """List the file names that match the wildcard"""
@@ -36,6 +40,8 @@ class FileMod:
 
 
 class Executor:
+    """Execute the command by shell or docker/podman"""
+
     def __init__(self, engine_type: str = "podman") -> None:
         assert engine_type in ["podman", "docker"]
         self.engine = engine_type
@@ -157,6 +163,18 @@ class KirPipe:
         self.runDocker("samtools", f"samtools index -@{self.getThreads()} {name}.bam")
         if not keep:
             self.runShell(f"rm {name}.sam")
+
+    def savePredictedAllele(
+        self, samples_alleles: list[dict[str, Any]], output_name: str
+    ) -> pd.DataFrame:
+        """Save predicted allele to tsv"""
+        assert samples_alleles
+        for sample in samples_alleles:
+            sample["alleles"] = "_".join(sample["alleles"])
+        df = pd.DataFrame(samples_alleles)
+        df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
+        print(df)
+        return df
 
     def getID(self, name: str) -> str:
         """Extract ID from filename"""

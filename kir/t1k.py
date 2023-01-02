@@ -1,6 +1,7 @@
+"""T1K pipeline"""
+from typing import Any
 from pathlib import Path
 from itertools import chain
-from typing import Any
 
 import pandas as pd
 
@@ -8,6 +9,8 @@ from .kir_pipe import KirPipe
 
 
 class T1k(KirPipe):
+    """T1K pipeline https://github.com/mourisl/T1K"""
+
     name = "t1k"
 
     def __init__(self, version: str = "v1.0.1", **kwargs: Any):
@@ -16,11 +19,12 @@ class T1k(KirPipe):
         self.images = {
             "t1k": f"localhost/c4lab/t1k:{version}",
         }
-        self.folder_name = "t1k"
 
     def download(self, folder_base: str = "") -> str:
         """Download t1k and compile"""
-        folder = self.folder_name + "_" + self.escapeName(self.version)
+        if folder_base and not folder_base.endswith("/"):
+            folder_base += "/"
+        folder = folder_base + "t1k_" + self.escapeName(self.version)
         if Path(folder).exists():
             return folder
         if not self.checkImage("t1k"):
@@ -81,14 +85,12 @@ class T1k(KirPipe):
 
         # remove low quality
         df = df[df["quality"] > 5]
-        print(df)
-        """
-        allele  abundance  quality
-        0    KIR2DL1*052  66.463100       23
-        1    KIR2DL2*003  74.674877       27
-        3    KIR2DL4*054  77.410274       58
-        4   KIR2DL5A*001  47.363073       18
-        """
+        # print(df)
+        # allele  abundance  quality
+        # 0    KIR2DL1*052  66.463100       23
+        # 1    KIR2DL2*003  74.674877       27
+        # 3    KIR2DL4*054  77.410274       58
+        # 4   KIR2DL5A*001  47.363073       18
         return list(df["allele"])
 
     def mergeResult(self, input_name: str, select: str = "first") -> str:
@@ -113,20 +115,17 @@ class T1k(KirPipe):
             predict_list.append(
                 {
                     "id": self.getID(name),
-                    "alleles": "_".join(alleles),
+                    "alleles": alleles,
                     "name": name,
                 }
             )
-
-        assert predict_list
-        df = pd.DataFrame(predict_list)
-        df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-        print(df)
+        self.savePredictedAllele(predict_list, output_name)
         return output_name
 
-    def runAll(self, samples: str) -> str:
+    def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline"""
         index = self.download()
+        samples = input_name
         for sample in self.listFiles(samples):
             sample = self.run(sample, index=index)
         sample = self.mergeResult(samples + ".t1k_t1k_v1_0_1.dig7")

@@ -1,5 +1,4 @@
-""" The pipeline is modified from https://github.com/saorisakaue/KIR_project """
-import os
+"""The pipeline is modified from https://github.com/saorisakaue/KIR_project"""
 import gzip
 import json
 from pathlib import Path
@@ -13,6 +12,8 @@ from .kir_pipe import KirPipe
 
 
 class SakaueKir(KirPipe):
+    """Sakaue's KIR pipeline (rewritten by linnil1)"""
+
     name = "sakauekir"
 
     def __init__(self, **kwargs: Any):
@@ -24,12 +25,13 @@ class SakaueKir(KirPipe):
             "samtools":    "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
             "deepvariant": "docker.io/google/deepvariant:1.4.0",
         }
-        self.folder_name = "sakauekir"
         self.version = "v1.0.0"
 
     def download(self, folder_base: str = "") -> str:
         """Download Database"""
-        folder = self.folder_name + "_" + self.escapeName(self.version)
+        if folder_base and not folder_base.endswith("/"):
+            folder_base += "/"
+        folder = folder_base + "sakauekir_" + self.escapeName(self.version)
         if Path(folder).exists():
             return folder
         self.runShell(f"git clone https://github.com/saorisakaue/KIR_project {folder}")
@@ -44,8 +46,8 @@ class SakaueKir(KirPipe):
         f1, f2 = f"{input_name}.read.1.fq", f"{input_name}.read.2.fq"
         if not Path(f1).exists():
             f1, f2 = f"{input_name}.read.1.fq.gz", f"{input_name}.read.2.fq.gz"
-        id = self.getID(input_name)
-        rg = "@RG\\tID:" + id + "\\tSM:" + id
+        name_id = self.getID(input_name)
+        rg = "@RG\\tID:" + name_id + "\\tSM:" + name_id
         self.runDocker(
             "bwa",
             f""" \
@@ -63,14 +65,14 @@ class SakaueKir(KirPipe):
         output_name = input_name + ".rg"
         if Path(output_name + ".bam").exists():
             return output_name
-        id = self.getID(input_name)
+        name_id = self.getID(input_name)
         self.runDocker(
             "picard",
             f""" \
             picard AddOrReplaceReadGroups \
                    I={input_name}.bam \
                    O={output_name}.bam \
-                   RGLB={id} RGPL=ILLUMINA RGPU={id} RGSM={id} RGID={id} \
+                   RGLB={name_id} RGPL=ILLUMINA RGPU={name_id} RGSM={name_id} RGID={name_id} \
                    VALIDATION_STRINGENCY=LENIENT
             """,
         )
@@ -120,17 +122,18 @@ class SakaueKir(KirPipe):
         if Path(output_name + ".csv").exists():
             return output_name
         regions = []
-        for line in open(input_name + ".vcf"):
-            if not line or line.startswith("#"):
-                continue
-            # KIR2DL1	1	.	C	<DT>	.	PASS	END=159;IDP=17.63;IGC=0.604	IDP:LL:ZL	17.63:0:0
-            fields = line.split("\t")
-            info = dict(map(lambda i: i.split("="), fields[7].split(";")))
-            gene = fields[0]
-            length = float(info["END"]) - float(fields[1])
-            regions.append(
-                {"gene": gene, "depth": float(info["IDP"]), "length": length}
-            )
+        with open(input_name + ".vcf") as f_vcf:
+            for line in f_vcf:
+                if not line or line.startswith("#"):
+                    continue
+                # KIR2DL1	1	.	C	<DT>	.	PASS	END=159;IDP=17.63;IGC=0.604	IDP:LL:ZL	17.63:0:0
+                fields = line.split("\t")
+                info = dict(map(lambda i: i.split("="), fields[7].split(";")))
+                gene = fields[0]
+                length = float(info["END"]) - float(fields[1])
+                regions.append(
+                    {"gene": gene, "depth": float(info["IDP"]), "length": length}
+                )
 
         # Paper: average depth with weighted by length
         df = pd.DataFrame(regions)
@@ -172,7 +175,7 @@ class SakaueKir(KirPipe):
 
     def beforeHC(self, input_name: str, ploidy_name: str) -> str:
         """Stpe02.5: Perpare copy number and bam data for Step03"""
-        id = self.getID(input_name)
+        name_id = self.getID(input_name)
         output_name = (
             input_name
             + ".ploidy_"
@@ -182,8 +185,8 @@ class SakaueKir(KirPipe):
         if Path(output_name.format("KIR3DL3") + ".json").exists():
             return output_name
 
-        ploidy = pd.read_csv(ploidy_name.format(id) + ".csv", index_col=0)
-        sample_ploidy = ploidy[id]
+        ploidy = pd.read_csv(ploidy_name.format(name_id) + ".csv", index_col=0)
+        sample_ploidy = ploidy[name_id]
         print(sample_ploidy)
 
         for gene, ploidy in sample_ploidy.iteritems():
@@ -196,7 +199,7 @@ class SakaueKir(KirPipe):
             ) as f_out:
                 json.dump(
                     {
-                        "id": id,
+                        "id": name_id,
                         "gene": gene,
                         "input_name": input_name,
                         "bam": input_name + ".bam",
@@ -312,7 +315,7 @@ class SakaueKir(KirPipe):
                 if i.startswith("#CHROM"):
                     samples = [i.strip() for i in i.split("FORMAT")[-1].split()]
         assert samples
-        id = samples[0]
+        name_id = samples[0]
 
         # call sakaue python by directed called
         self.runShell(
@@ -323,7 +326,7 @@ class SakaueKir(KirPipe):
                    {output_name}.dosage.tsv \
                    {output_name}.reference.tsv \
                    {output_name}.alleles.tsv \
-                   '{data['gene']}' {id}
+                   '{data['gene']}' {name_id}
             """
         )
         return output_name + ".alleles"
@@ -344,9 +347,9 @@ class SakaueKir(KirPipe):
         raw_df = pd.read_csv(filename, header=None, sep="\t", dtype=str)
         raw_df.columns = ["id", "gene", "alleles", "type"]  # type: ignore
         alleles = []
-        id = ""
+        name_id = ""
         for i in raw_df.itertuples():
-            id = i.id
+            name_id = i.id
             if i.type == "known":
                 alleles_text = i.alleles.replace("_", "*")
                 possible_set = alleles_text.split("-or-")
@@ -369,7 +372,7 @@ class SakaueKir(KirPipe):
                 )
             else:
                 alleles.extend([i.split("-")[0] for i in possible_set[0].split("/")])
-        return id, alleles
+        return name_id, alleles
 
     def mergeResult(self, input_name: str, select_all: bool = False) -> str:
         """Step06.3: Read result to our format"""
@@ -383,19 +386,16 @@ class SakaueKir(KirPipe):
 
         predict_list = []
         for name in self.listFiles(input_name):
-            id, alleles = self.readResult(name + ".tsv", select_all=select_all)
-            print(id, alleles)
+            name_id, alleles = self.readResult(name + ".tsv", select_all=select_all)
+            print(name_id, alleles)
             predict_list.append(
                 {
-                    "id": id,
-                    "alleles": "_".join(alleles),
-                    "name": input_name.format(id),
+                    "id": name_id,
+                    "alleles": alleles,
+                    "name": input_name.format(name_id),
                 }
             )
-        assert predict_list
-        df = pd.DataFrame(predict_list)
-        df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-        print(df)
+        self.savePredictedAllele(predict_list, output_name)
         return output_name
 
     def deepVariant(self, input_name: str, index: str) -> str:
@@ -418,10 +418,11 @@ class SakaueKir(KirPipe):
         )
         return output_name
 
-    def runAll(self, samples: str) -> str:
+    def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline"""
         folder = self.download()
         sample_bam = []
+        samples = input_name
         for sample in self.listFiles   (samples):
             sample =  self.bwa         (sample, index=folder)
             sample =  self.addGroup    (sample)

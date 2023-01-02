@@ -1,4 +1,4 @@
-# https://github.com/droeatumn/kpi
+"""KIR-KPI pipeline"""
 from typing import Any
 from pathlib import Path
 
@@ -8,6 +8,8 @@ from .kir_pipe import KirPipe
 
 
 class KPI(KirPipe):
+    """KIR-KPI pipeline (https://github.com/droeatumn/kpi)"""
+
     name = "kpi"
 
     def __init__(self, **kwargs: Any):
@@ -17,11 +19,12 @@ class KPI(KirPipe):
             # "kpi": f"localhost/c4lab/kpi:{self.version}",
             "kpi": "docker.io/droeatumn/kpi",
         }
-        self.folder_name = "kpi"
 
     def download(self, folder_base: str = "") -> str:
         """Download KPI dockerfile and build it"""
-        folder = self.folder_name + "_" + self.escapeName(self.version)
+        if folder_base and not folder_base.endswith("/"):
+            folder_base += "/"
+        folder = folder_base + "kpi_" + self.escapeName(self.version)
         if Path(folder).exists():
             return folder
         self.runShell(f"git clone https://github.com/droeatumn/kpi.git {folder}")
@@ -42,8 +45,8 @@ class KPI(KirPipe):
                     f1, f2 = f"{name}.read.1.fq.gz", f"{name}.read.2.fq.gz"
                 basename = Path(name).name
                 suffix = ".kpi_" + self.escapeName(index)
-                print(basename + ".kpi", f1, sep="\t", file=f)
-                print(basename + ".kpi", f2, sep="\t", file=f)
+                print(basename + suffix, f1, sep="\t", file=f)
+                print(basename + suffix, f2, sep="\t", file=f)
 
         folder = Path(input_name).parents[0]
         self.runDocker(
@@ -75,17 +78,17 @@ class KPI(KirPipe):
             df = df.set_axis(map(lambda i: f"KIR{i}", df.columns), axis=1)
 
             # cn
-            id = self.getID(name)
-            cn[id] = dict(df.sum(axis=0))
+            name_id = self.getID(name)
+            cn[name_id] = dict(df.sum(axis=0))
 
             # allele
             alleles = []
-            for gene_name, gene_cn in cn[id].items():
+            for gene_name, gene_cn in cn[name_id].items():
                 alleles.extend([gene_name] * int(gene_cn))
             guess_allele.append(
                 {
-                    "id": id,
-                    "alleles": "_".join(alleles),
+                    "id": name_id,
+                    "alleles": alleles,
                     "name": name,
                 }
             )
@@ -98,14 +101,13 @@ class KPI(KirPipe):
         df_cn.to_csv(output_name_cn + ".csv", index=False)
 
         # allele
-        df_allele = pd.DataFrame(guess_allele)
-        df_allele.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-        print(df_allele)
+        self.savePredictedAllele(guess_allele, output_name)
         return output_name
 
-    def runAll(self, samples: str) -> str:
+    def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline"""
         index = self.download()
+        samples = input_name
         samples = self.run(samples, index=index)
         samples = self.mergeResult(samples, index=index)
         return samples

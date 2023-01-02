@@ -1,3 +1,4 @@
+"""PING pipeline (targeted and wgs version included)"""
 from typing import Any
 from pathlib import Path
 
@@ -7,6 +8,11 @@ from .kir_pipe import KirPipe
 
 
 class PING(KirPipe):
+    """
+    PING pipeline(targeted and wgs version included)
+    https://github.com/wesleymarin/PING.git
+    """
+
     name = "ping"
 
     def __init__(self, version: str = "20220527", **kwargs: Any):
@@ -15,11 +21,12 @@ class PING(KirPipe):
         self.images = {
             "ping": f"localhost/c4lab/ping:{self.version}",
         }
-        self.folder_name = "PING"
 
     def download(self, folder_base: str = "") -> str:
         """Download index"""
-        folder = self.folder_name + self.escapeName(self.version)
+        if folder_base and not folder_base.endswith("/"):
+            folder_base += "/"
+        folder = folder_base + "ping_" + self.escapeName(self.version)
         if Path(folder).exists():
             return folder
         self.runShell(f"git clone https://github.com/wesleymarin/PING.git {folder}")
@@ -52,22 +59,25 @@ class PING(KirPipe):
                 -e FASTQ_PATTERN=fq \
                 -e THREADS={self.getThreads()} \
                 -e RESULTS_DIR={folder_out} \
+                -e SHORTNAME_DELIM=.read \
             """,
         )
         return folder_out
 
     def migrateSample(self, input_name: str) -> str:
         """Copy file to new directory"""
-        folder = self.replaceWildcard(input_name, "_pinglist")
+        folder = self.replaceWildcard(input_name, "_pingsample")
         if Path(folder).exists():
             return folder
         self.runShell(f"mkdir -p {folder}")
         for name in self.listFiles(input_name):
             f1, f2 = f"{name}.read.1.fq", f"{name}.read.2.fq"
+            suffix = "fq"
             if not Path(f1).exists():
                 f1, f2 = f"{name}.read.1.fq.gz", f"{name}.read.2.fq.gz"
-            self.runShell(f"ln -s ../../{f1} {folder}/{Path(f1).name}")
-            self.runShell(f"ln -s ../../{f2} {folder}/{Path(f2).name}")
+                suffix = "fq.gz"
+            self.runShell(f"ln -s ../../{f1} {folder}/id.{self.getID(name)}.read.1.{suffix}")
+            self.runShell(f"ln -s ../../{f2} {folder}/id.{self.getID(name)}.read.2.{suffix}")
         return folder
 
     def mergeResult(self, input_name: str) -> str:
@@ -77,20 +87,16 @@ class PING(KirPipe):
         #     return output_name
         data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
 
-        result = []
+        predict_list = []
         for name, alleles in data.items():
-            result.append(
+            predict_list.append(
                 {
                     "id": name,
-                    "alleles": "_".join(alleles),
-                    "name": name,
+                    "alleles": alleles,
+                    "name": input_name + "." + name,
                 }
             )
-        assert result
-
-        df = pd.DataFrame(result)
-        df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-        print(df)
+        self.savePredictedAllele(predict_list, output_name)
         return output_name
 
     def readAllele(self, csv_file: str) -> dict[str, list[str]]:
@@ -109,7 +115,7 @@ class PING(KirPipe):
 
         called_alleles = {}
         for sample in data.to_dict("records"):
-            id = sample["name"]
+            name_id = sample["name"][3:]  # remove id.
             alleles = []
             for gene, alleles_str in sample.items():
                 if gene == "name":
@@ -118,15 +124,15 @@ class PING(KirPipe):
             alleles = [i for i in alleles if "null" not in i]
             alleles = [i for i in alleles if "failed" not in i]
             # alleles = [i for i in alleles if "unresolved" not in i]
-            called_alleles[id] = alleles
-            # print(id, alleles)
+            called_alleles[name_id] = alleles
+            # print(name_id, alleles)
         # print(called_alleles)
         return called_alleles
 
-    def runAll(self, samples: str) -> str:
+    def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline)"""
         index = self.download()
-        samples = "example_data/test.{}"
+        samples = input_name
         samples = self.migrateSample(samples)
         # If you break at this line. Fine
         # Try again after editing manualCopyNumberFrame.csv
@@ -140,6 +146,6 @@ class PING(KirPipe):
         ping_data = pd.read_csv(locus_csv)
         ping_data = ping_data.rename(columns={"Unnamed: 0": "sample"})
         ping_data["method"] = "PING"
-        ping_data["id"] = list(ping_data["sample"])
+        ping_data["id"] = list(map(lambda i: i[3:], ping_data["sample"]))  # remove id.
         ping_data = ping_data.drop(columns=["sample"])
         return ping_data
