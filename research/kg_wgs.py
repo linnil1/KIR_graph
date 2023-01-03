@@ -23,6 +23,15 @@ def downloadHg19(index_folder):
     return output_name
 
 
+def downloadHg38(index_folder: str) -> str:
+    output_name = f"{index_folder}/hs38"
+    if Path(output_name + ".fa.gz").exists():
+        return output_name
+    runShell(
+        f"wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_full_analysis_set.fna.gz -O {output_name}.fa.gz"
+    )
+    return output_name
+
 def bam2fastqViaSamtools(input_name):
     """ Bam to fastq """
     output_name = input_name
@@ -47,7 +56,7 @@ def extractHg19Depth(input_name):
     return output_name
 
 
-def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
+def extractFromWGS(input_name, wgs_type: str = "hs37d5", loose: bool = False):
     """ Extract hg19 """
     if loose:
         output_name = input_name + ".part.{}"
@@ -58,7 +67,7 @@ def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
     if Path(f"{output_all_name}.bam").exists():
         return output_all_name
 
-    if hg19_type == "hs37d5":
+    if wgs_type == "hs37d5":
         if loose:
             main_regions = ("19:55000000                  GL000209.1 ")
         else:
@@ -77,7 +86,7 @@ def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
                         "GL000246.1 GL000247.1 GL000248.1 GL000249.1 "
                         "hs37d5 NC_007605 ")
 
-    elif hg19_type == "hg19":
+    elif wgs_type == "hg19":
         if loose:
             main_regions = ("chr19:55000000         chr19_gl000208_random chr19_gl000209_random ")
         else:
@@ -90,8 +99,14 @@ def extractFromHg19(input_name, hg19_type: str = "hs37d5", loose: bool = False):
                         "chrUn_gl000236 chrUn_gl000237 chrUn_gl000238 chrUn_gl000239 chrUn_gl000240 "
                         "chrUn_gl000241 chrUn_gl000242 chrUn_gl000243 chrUn_gl000244 chrUn_gl000245 "
                         "chrUn_gl000246 chrUn_gl000247 chrUn_gl000248 chrUn_gl000249 ")
+
+    elif wgs_type == "hg38":
+        if loose:
+            main_regions = ("chr19:54000000")
+        else:
+            other_region = open("research/hs38.decoy").read().replace("\n", " ")
     else:
-        raise ValueError("hg19_type doesn't correct")
+        raise ValueError(f"{wgs_type} doesn't correct")
 
     threads = getThreads()
     if loose:

@@ -48,7 +48,7 @@ def bwa(input_name, index):
         f1, f2 = input_name + ".read.1.fq.gz", input_name + ".read.2.fq.gz"
     if not Path(f1).exists():
         raise ValueError("fastq not found: " + str(input_name) + ".read.{}.fq")
-    wgs.bwa(index, f1, f2, output_name)
+    wgs.bwa(index, f1, f2, output_name, threads=getThreads())
     return output_name
 
 

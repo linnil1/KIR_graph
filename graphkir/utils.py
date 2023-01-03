@@ -51,23 +51,26 @@ engine_config = {
         "run": "",
         "image_func": lambda i: "",
     },
+    # linnil1's configuration in Taiwania HPC
+    "singularity_linnil1": {
+        "path": "singularity",
+        "run": (
+            "run "
+            "--bind /home/linnil1tw "
+            "--bind /work/linnil1tw "
+            "--bind /staging/biology/linnil1tw "
+            "--bind /staging/biology/zxc898977 "
+            "--bind /staging/biodata/lions/twbk "
+        ),
+        # lions: twbb data
+        # zxc898977: hprc data
+        "image_func": lambda i: "singur_image/" + i,
+    },
 }
-# linnil1's configuration in Taiwania HPC
+
 # download every image into image file
 # singularity build quay.io/biocontainers/bwa:0.7.17--hed695b0_7 \
 #      singur_image/quay.io/biocontainers/bwa:0.7.17--hed695b0_7
-# docker_type = "singularity"
-# engine_config[docker_type]["image_func"] = lambda i: "singur_image/" + i
-# engine_config[docker_type]["run"] = (
-#     "run "
-#     "--bind /home/linnil1tw "
-#     "--bind /work/linnil1tw "
-#     "--bind /staging/biology/linnil1tw "
-#     "--bind /staging/biology/zxc898977 "
-#     "--bind /staging/biodata/lions/twbk "
-# )
-# lions: twbb data
-# zxc898977: hprc data
 images = {
     "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
     "clustalo": "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",
@@ -108,8 +111,10 @@ def runDocker(
     random_name = str(uuid.uuid4()).split("-", 1)[0]
 
     # bad but works
-    if getEngine() == "singularity":
+    if "singularity" in getEngine():
         opts = opts.replace(" -e ", " --env ")
+        opts = opts.replace(" -v ", " --bind ")
+        opts = opts.replace(":/app/", ":$PWD/")
     conf = engine_config[getEngine()]
     cmd_all = (
         f"{conf['path']} {conf['run']} "

@@ -146,6 +146,6 @@ class PING(KirPipe):
         ping_data = pd.read_csv(locus_csv)
         ping_data = ping_data.rename(columns={"Unnamed: 0": "sample"})
         ping_data["method"] = "PING"
-        ping_data["id"] = list(map(lambda i: i[3:], ping_data["sample"]))  # remove id.
+        ping_data["id"] = list(map(lambda i: str(i)[3:], ping_data["sample"]))  # remove id.
         ping_data = ping_data.drop(columns=["sample"])
         return ping_data

@@ -64,7 +64,7 @@ class Executor:
         self,
         image: str,
         cmd: str,
-        cwd: str = "",
+        cwd: str | None = None,
         opts: str = "",
     ) -> subprocess.CompletedProcess[str]:
         """run docker container"""
@@ -73,6 +73,8 @@ class Executor:
         # if getEngine() == "singularity":
         #     opts = opts.replace(" -e ", " --env ")
         # conf = engine_config[getEngine()]
+        if not cwd:
+            cwd = ""
         proc = self.runShell(
             f"{self.engine} run -it --rm --name {random_name}"
             f"       {opts} -v $PWD:/app -w /app/{cwd}"
@@ -136,7 +138,7 @@ class KirPipe:
         self,
         image: str,
         cmd: str,
-        cwd: str = "",
+        cwd: str | None = None,
         opts: str = "",
     ) -> subprocess.CompletedProcess[str]:
         """Run docker-like command"""

@@ -4,12 +4,14 @@ import pandas as pd
 
 from namepipe import NameTask, compose, ConcurrentTaskExecutor, BaseTaskExecutor
 from graphkir.utils import runShell
+
 from kg_wgs import (
     downloadHg19,
-    extractFromHg19,
+    extractFromWGS,
     bam2fastqWrap,
     bam2fastqViaSamtools,
     extractHg19Depth,
+    downloadHg38,
 )
 from kg_utils import back, SlurmTaskExecutor, addSuffix
 from kg_mapping import bwa, bwaIndex, hisatMapWrap, trimBam
@@ -68,7 +70,7 @@ def linkTWBBBamSample(input_folder):
 
 def linkTWBBFastqSample(input_folder):
     twbk_path = "/staging/biodata/lions/twbk/TWBR10811-02/WGS/FASTQ/{name}/{name}_S99_L999_R{strand}_001.fastq.gz"
-    samples = twbb_samples[0:14]
+    samples = twbb_samples[0:7]
     for name in samples:
         if Path(f"{input_folder}/twbb.{name}.read.1.fq.gz").exists():
             continue
@@ -81,11 +83,11 @@ def linkTWBBFastqSample(input_folder):
 if __name__ == "__main__":
     index_folder = "index"
     data_folder = "data_tmp"
-    cohort = "hprc_fastq"
+    cohort = "twbb_fastq"
     direct_on_kir = False
     ref_index = "index5/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
     index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
-    search_other_region = False
+    search_other_region = True
     TAIWANIA = True
 
     # these step in run on Taiwania HPC
@@ -96,6 +98,7 @@ if __name__ == "__main__":
                 linkTWBBBamSample,
             ])
             direct_on_kir = False
+            wgs_type = "hg19"
         elif cohort == "twbb_fastq":
             sample = compose([
                 data_folder,
@@ -108,16 +111,21 @@ if __name__ == "__main__":
                 linkHPRCSample,
                 back,
             ])
+        else:
+            raise ValueError(f"{cohort} not found")
 
         if not direct_on_kir:
             genome_index = compose([
                 index_folder,
-                downloadHg19,
+                # downloadHg19,
+                downloadHg38,
                 bwaIndex,
             ])
+            wgs_type = "hg37d5"
+            wgs_type = "hg38"
 
-        exe = SlurmTaskExecutor(threads_per_sample=1, template_file="taiwania.template")
-        exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="taiwania.48.template")
+        exe       = SlurmTaskExecutor(threads_per_sample=1,  template_file="research/taiwania.template")
+        exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="research/taiwania.14.template")
         NameTask.set_default_executor(exe)
         if not direct_on_kir:
             if "fastq" in cohort:
@@ -125,13 +133,10 @@ if __name__ == "__main__":
                     sample,
                     NameTask(partial(bwa, index=str(genome_index)), executor=exe_large),
                 ])
-                compose([sample, extractHg19Depth])
-                hg19_type = "hs37d5"
-            else:
-                hg19_type = "hg19"
+                # compose([sample, extractHg19Depth])
             sample = compose([
                 sample,
-                partial(extractFromHg19, hg19_type=hg19_type, loose=search_other_region),
+                partial(extractFromWGS, wgs_type=wgs_type, loose=search_other_region),
                 bam2fastqWrap if search_other_region else bam2fastqViaSamtools,
                 back,
             ])

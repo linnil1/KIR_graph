@@ -16,6 +16,7 @@ from namepipe import BaseTaskExecutor, NamePath, StandaloneTaskExecutor
 from graphkir.utils import (
     runShell,
     runDocker as runDockerGK,
+    getEngine,
 )
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 
@@ -74,8 +75,12 @@ class SlurmTaskExecutor(StandaloneTaskExecutor):
         """
         cmd = ["python << EOF",
                "from namepipe import StandaloneTaskExecutor",
-               "from graphkir.utils import setThreads",
+               "from graphkir.utils import setThreads, setEngine",
                f"setThreads({self.threads_per_sample})",
+               f"setEngine({repr(str(getEngine()))})",
+               "import sys",  # this path hacking
+               "from pathlib import Path",
+               f"sys.path.append(str(Path({repr(str(__main__.__file__))}).parents[0]))",
                "StandaloneTaskExecutor.run_standalone_task("
                f"{repr(str(__main__.__file__))}, {repr(str(name))})",
                f"EOF"]
@@ -105,6 +110,10 @@ def linkSamples(input_name, data_folder, new_name=None,
     output_name = str(Path(data_folder) / name)
     new_name = output_name.format(input_name.template_args[0])
     relative = "../" * (len(Path(new_name).parents) - 1)
+
+    if str(Path(input_name).parents[0]) == data_folder:  # skip when same folder
+        return output_name
+
     if fastq:
         if Path(new_name + ".read.1.fq").exists():
             return output_name

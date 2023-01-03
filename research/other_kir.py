@@ -17,9 +17,16 @@ from namepipe import (
     ConcurrentTaskExecutor,
     NamePath,
 )
-from graphkir.utils import runShell, getThreads, getGeneName, setThreads
+from graphkir.utils import (
+    runShell,
+    runDocker,
+    getThreads,
+    getGeneName,
+    setThreads,
+    setEngine,
+)
 from graphkir.plot import showPlot
-from kir.kir_pipe import FileMod
+from kir.kir_pipe import FileMod, Executor
 from kir.sakauekir import SakaueKir
 from kir.t1k import T1k
 from kir.kpi import KPI
@@ -40,6 +47,20 @@ class NamePipeFileMod(FileMod):
 
     def replaceWildcard(self, name: NamePath, new_name: str) -> NamePath:
         return name.replace_wildcard(new_name)
+
+
+class MainExecutor(Executor):
+    """Connect the Executor from graphkir/utils"""
+
+    def runDocker(
+        self,
+        image: str,
+        cmd: str,
+        cwd: str | None = None,
+        opts: str = "",
+    ) -> subprocess.CompletedProcess[str]:
+        """run docker container"""
+        return runDocker(image, cmd, cwd=cwd, opts=opts)
 
 
 def createSakaueKirPloidy(input_name: NamePath, sample_name: NamePath) -> NamePath:
@@ -76,7 +97,7 @@ def sakauekirRun(
     samples: NamePath, data_folder: str, use_answer: bool = True
 ) -> NameTask:
     """Run SakaueKir"""
-    gatkir = SakaueKir(threads=getThreads(), file_adapter=NamePipeFileMod)
+    gatkir = SakaueKir(threads=getThreads(), file_adapter=NamePipeFileMod, executor=MainExecutor)
     folder = compose(
         [
             None,
@@ -133,7 +154,7 @@ def sakauekirRun(
 
 def t1kRun(samples: NamePath, data_folder: str) -> NameTask:
     """Run T1K"""
-    t1k = T1k(threads=getThreads(), file_adapter=NamePipeFileMod)
+    t1k = T1k(threads=getThreads(), file_adapter=NamePipeFileMod, executor=MainExecutor)
     index = compose(
         [
             None,
@@ -155,7 +176,7 @@ def t1kRun(samples: NamePath, data_folder: str) -> NameTask:
 
 def kpiRun(samples: NamePath, data_folder: str) -> NameTask:
     """Run kpi"""
-    kpi = KPI(threads=getThreads(), file_adapter=NamePipeFileMod)
+    kpi = KPI(threads=getThreads(), file_adapter=NamePipeFileMod, executor=MainExecutor)
     index = kpi.download()
     samples = compose(
         [
@@ -179,7 +200,12 @@ def pingRun(
     show_plot_and_break: bool = False,
 ) -> NameTask:
     """Run ping"""
-    ping = PING(threads=getThreads(), version=version, file_adapter=NamePipeFileMod)
+    ping = PING(
+        threads=getThreads(),
+        version=version,
+        file_adapter=NamePipeFileMod,
+        executor=MainExecutor,
+    )
     if not answer_name:
         answer_name = samples
     index = ping.download()
@@ -200,8 +226,9 @@ def pingRun(
     # change executor
     if use_slurm:
         executor = SlurmTaskExecutor(
-            threads_per_sample=14, template_file="research/taiwania.48.template"
+            threads_per_sample=14, template_file="research/taiwania.14.template"
         )
+        ping.setThreads(14)
     else:
         executor = BaseTaskExecutor()
 
@@ -217,6 +244,7 @@ def pingRun(
             ping.main, func_kwargs=dict(index=index), executor=executor
         )
 
+    ping.setThreads(getThreads())
     samples = compose(
         [
             samples,
@@ -225,14 +253,6 @@ def pingRun(
         ]
     )
     return samples
-
-
-def extractID(name: str) -> str:
-    """Extract KIR ID from ping filename"""
-    if "hprc" in name:  # bad habit but works
-        return re.findall(r"hprc\.(\w+)\.", name)[0]
-    else:
-        return re.findall(r"\.(\d+)\.", name)[0]
 
 
 def pingPredictCNByAnswer(folder_out: str, sample_name: str, save: bool = True):
@@ -275,7 +295,7 @@ def pingPredictCNByAnswer(folder_out: str, sample_name: str, save: bool = True):
         threshold_list.append(threshold_dict)
 
     columns = ["gene"] + [f"{i}-{i+1}" for i in range(6)]
-    df_threshold = pd.DataFrame(threshold_list, columns=columns)
+    df_threshold = pd.DataFrame(threshold_list)
     df_threshold = df_threshold[df_threshold["gene"] != "KIR3DL3"]
     df_threshold = df_threshold.reindex(columns=columns)
     df_threshold = df_threshold.fillna("NA")
@@ -306,7 +326,7 @@ def readAnswerGeneCN(ans_csv: str) -> pd.DataFrame:
 
 def pingRemoveSample(folder: str, remove_name: set[str]) -> NamePath:
     for name in Path(folder).iterdir():
-        if extractID(str(name)) in remove_name:
+        if Path(name).name.split(".")[1] in remove_name:  # pattern: id.{id}.read.xx
             runShell(f"rm {name}*")
     return folder
 
@@ -529,14 +549,25 @@ if __name__ == "__main__":
 
     remove_sample_list: set[str] = set()
     answer_name = ""
-    # answer_name = "hprc_summary"  # from kg_from_kelvin.py
-    # samples = "data_tmp/hprc.{}.index_hs37d5.bwa.part_strict"
-    # remove_sample_list = {"HG02109", "NA21309"}
+    samples = "data_real"
+    data_folder = "data_real"
+    use_slurm = False
+    # answer_name = "hprc_summary"  # from kg_from_kelvin.py  and uncomment show_plot_and_break
+
+    # TAIWANIA
+    setEngine("singularity_linnil1")
+    data_folder = "data_tmp"
+    samples = "data_tmp"
+    use_slurm = True
+
+    samples += "/hprc.{}.index_hs37d5.bwa.part_strict"
+    remove_sample_list = {"HG02109", "NA21309"}
     pingRun(
         samples,
         data_folder,
         version="wgs",
         remove_sample_list=remove_sample_list,
-        use_slurm=False,
+        use_slurm=use_slurm,
         answer_name=answer_name,
+        # show_plot_and_break=True,
     )
