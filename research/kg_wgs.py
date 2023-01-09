@@ -32,6 +32,27 @@ def downloadHg38(index_folder: str) -> str:
     )
     return output_name
 
+
+def downloadHs38noalt(index_folder: str) -> str:
+    output_name = f"{index_folder}/hs38noalt"
+    if Path(output_name + ".fa.gz").exists():
+        return output_name
+    runShell(
+        f"wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O {output_name}.fa.gz"
+    )
+    return output_name
+
+
+def downloadHs38DH(index_folder: str) -> str:
+    output_name = f"{index_folder}/hs38DH"
+    if Path(output_name + ".fa.gz").exists():
+        return output_name
+    runDocker("bwakit", "run-gen-ref hs38DH")
+    runShell(f"mv hs38DH.* {index_folder}")
+    runShell(f"gzip {output_name}")
+    return output_name
+
+
 def bam2fastqViaSamtools(input_name):
     """ Bam to fastq """
     output_name = input_name
@@ -103,8 +124,20 @@ def extractFromWGS(input_name, wgs_type: str = "hs37d5", loose: bool = False):
     elif wgs_type == "hg38":
         if loose:
             main_regions = ("chr19:54000000")
-        else:
             other_region = open("research/hs38.decoy").read().replace("\n", " ")
+        else:
+            main_regions = (
+                "chr19:54720000-chr19:54870000 "
+                "chr19_GL000209v2_alt chr19_GL949746v1_alt chr19_GL949747v2_alt chr19_GL949748v2_alt chr19_GL949749v2_alt "
+                "chr19_GL949750v2_alt chr19_GL949751v2_alt chr19_GL949752v1_alt chr19_GL949753v2_alt chr19_KI270882v1_alt "
+                "chr19_KI270883v1_alt chr19_KI270884v1_alt chr19_KI270885v1_alt chr19_KI270886v1_alt chr19_KI270887v1_alt "
+                "chr19_KI270888v1_alt chr19_KI270889v1_alt chr19_KI270890v1_alt chr19_KI270891v1_alt chr19_KI270914v1_alt "
+                "chr19_KI270915v1_alt chr19_KI270916v1_alt chr19_KI270917v1_alt chr19_KI270918v1_alt chr19_KI270919v1_alt "
+                "chr19_KI270920v1_alt chr19_KI270921v1_alt chr19_KI270922v1_alt chr19_KI270923v1_alt chr19_KI270929v1_alt "
+                "chr19_KI270930v1_alt chr19_KI270931v1_alt chr19_KI270932v1_alt chr19_KI270933v1_alt chr19_KI270938v1_alt "
+            )
+            #TODO: chr19_KV* not exists here.
+            other_region = ""
     else:
         raise ValueError(f"{wgs_type} doesn't correct")
 

@@ -99,7 +99,8 @@ class PING(KirPipe):
         self.savePredictedAllele(predict_list, output_name)
         return output_name
 
-    def readAllele(self, csv_file: str) -> dict[str, list[str]]:
+    @classmethod
+    def readAllele(cls, csv_file: str) -> dict[str, list[str]]:
         """
         Read ping result finalAlleleCalls.csv
 

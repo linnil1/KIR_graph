@@ -209,6 +209,7 @@ def pingRun(
     if not answer_name:
         answer_name = samples
     index = ping.download()
+
     samples = compose(
         [
             samples,
@@ -538,34 +539,38 @@ if __name__ == "__main__":
     # testKDEThreshold()
     # testPingWithKDE()
     # exit()
-    data_folder = "data7"
-    samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
-    # samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
+    data_folder = "data"
+    # samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
+    samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
     setThreads(25)
-    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=8))
+    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=10))
+    use_slurm = False
+    # setThreads(2)
     # t1kRun(samples, data_folder)
     # kpiRun(samples, data_folder)
+    # setThreads(2)
     # sakauekirRun(samples, data_folder, use_answer=True)
+    # exit()
 
     remove_sample_list: set[str] = set()
     answer_name = ""
-    samples = "data_real"
-    data_folder = "data_real"
-    use_slurm = False
+    # HPRC sample on 
+    # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
+    # data_folder = "data_real"
     # answer_name = "hprc_summary"  # from kg_from_kelvin.py  and uncomment show_plot_and_break
 
-    # TAIWANIA
-    setEngine("singularity_linnil1")
-    data_folder = "data_tmp"
-    samples = "data_tmp"
-    use_slurm = True
+    TAIWANIA = False
+    if TAIWANIA:  # Run this in TAIWANIA (for hprc sample)
+        setEngine("singularity_linnil1")
+        data_folder = "data_tmp"
+        samples = "data_tmp/hprc.{}.index_hs37d5.bwa.part_strict"
+        use_slurm = True
+        remove_sample_list = {"HG02109", "NA21309"}
 
-    samples += "/hprc.{}.index_hs37d5.bwa.part_strict"
-    remove_sample_list = {"HG02109", "NA21309"}
     pingRun(
         samples,
         data_folder,
-        version="wgs",
+        version="20220527",
         remove_sample_list=remove_sample_list,
         use_slurm=use_slurm,
         answer_name=answer_name,

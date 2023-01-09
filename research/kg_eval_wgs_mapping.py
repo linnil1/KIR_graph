@@ -9,6 +9,7 @@ import os
 import json
 
 import pysam
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -107,10 +108,10 @@ def positionsSummary(
 def extractSignificantRegion(
     positions: Iterable[PositionInfo],
     min_depth: float = 20,
-    min_length: int = 20,
-    max_gap: int = 5000,
+    min_length: int = 2000,
+    max_gap: int = 500,
 ) -> Iterator[list[PositionInfo]]:
-    """ Find the continuous positions if the read depth is significant enough.  """
+    """Find the continuous positions if the read depth is significant enough."""
     ref_pos_dict = defaultdict(list)
     for pos_item in positions:
         ref_pos_dict[pos_item.ref].append(pos_item)
@@ -169,27 +170,44 @@ def extractPerReadMapping(cohort: str) -> Iterator[pd.DataFrame]:
 
 def extractSignificantMappingRegion(
     df_reads: Iterable[pd.DataFrame],
+    avg_depth_threshold: float = 5.0,
+    split_sample: bool = False,
+    split_gene: bool = True,
 ) -> Iterator[RegionPosition]:
-    """ Group mapping infomation by gene and yield the significant regions from them """
+    """Group mapping infomation by gene and yield the significant regions from them"""
     # remove these three line to run individually
-    df_reads_list = list(df_reads)
-    df_reads = [pd.concat(df_reads_list)]  # merge all samples in cohort
-    N = len(df_reads_list)
+    df_reads = list(df_reads)
+    N = 1
+
+    if not split_sample:
+        N = len(df_reads)
+        df_reads = [pd.concat(df_reads)]  # merge all samples in cohort
+
+    if not split_gene:
+        df_reads_list = []
+        for df in df_reads:
+            df = df[df["ref"] != "KIR3DL2*BACKBONE"]  # remove 3DL2 because it mess up
+            df["ref"] = "KIR"
+            df_reads_list.append(df)
+        df_reads = df_reads_list
+
     for df in df_reads:
-        # N = 1
         for gene in sorted(set(df["ref"])):
             df_gene = df[df["ref"] == gene]
             reads = map(
                 lambda i: PositionInfo(ref=i.prev_ref, pos=i.prev_pos, depth=1),
                 df_gene.itertuples(),
             )
-            region_pos_item = extractSignificantRegion(reads, min_depth=N * 5 / 150)
+
+            region_pos_item = extractSignificantRegion(
+                reads, min_depth=N * avg_depth_threshold / 150
+            )
             for pos_items in region_pos_item:
                 yield gene.split("*")[0], pos_items
 
 
 def printSignigicantRegion(
-    regions: Iterable[RegionPosition], depth_multiply: float = 1
+    regions: Iterable[RegionPosition], depth_multiply: float = 1, no_3dl2: bool = True
 ) -> pd.DataFrame:
     """Print the summary of the significant region"""
     mapping_info: list[dict[str, Any]] = []
@@ -201,10 +219,12 @@ def printSignigicantRegion(
             }
         )
     df = pd.DataFrame(mapping_info)
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # type: ignore
-        print(df)
-        if len(df[df["gene"] == "KIR3DL2"]) > 10:  # some reads always mapped on KIR3DL2
+    df = df.sort_values(["gene", "ref", "left"])
+    with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):  # type: ignore
+        if no_3dl2:
             print(df[df["gene"] != "KIR3DL2"])
+        else:
+            print(df)
     return df
 
 
@@ -243,16 +263,27 @@ def plotSignigicantRegion(regions: Iterable[RegionPosition]) -> list[go.Figure]:
 def getNCBIKirGene(ref: str = "hg19") -> pd.DataFrame:
     """Get KIR genes position from NCBI record"""
     # read NCBI data
-    df_ncbi = pd.read_csv("ncbi_kir_search_result.tsv", sep="\t")
-    df_ncbi = df_ncbi[df_ncbi["Symbol"].str.contains("KIR")]
-    print(df_ncbi[["Symbol", "GeneID"]])
+    # the tsv is came from eaching NCBI with
+    # (killer cell immunoglobulin like receptor) AND "Homo sapiens"[porgn:__txid9606]
+    name = "ncbi_kir_search_result1"
+    df_ncbi = pd.read_csv(name + ".tsv", sep="\t")
+    df_ncbi = df_ncbi[
+        np.logical_or(
+            df_ncbi["Symbol"].str.contains("KIR"),
+            df_ncbi["description"].str.contains("cell immunoglobulin"),
+        )
+    ]
+    with pd.option_context(
+        "display.width", None, "max_colwidth", 100, "display.max_rows", None  # type: ignore
+    ):
+        print(df_ncbi[["Symbol", "GeneID", "description"]])
 
     # read NCBI gene data
-    if not os.path.exists("ncbi_kir_gene.json"):
+    if not os.path.exists(name + ".gene.json"):
         data = {}
         import requests
 
-        for row in df_ncbi[["Symbol", "GeneID"]].itertuples():
+        for row in df_ncbi.itertuples():
             id = row.GeneID
             gene = row.Symbol
             data[gene] = {
@@ -262,10 +293,11 @@ def getNCBIKirGene(ref: str = "hg19") -> pd.DataFrame:
                 ).json(),
                 "id": id,
                 "gene": gene,
+                "description": row.description,
             }
-        json.dump(data, open("ncbi_kir_gene.json", "w"))
+        json.dump(data, open(name + ".gene.json", "w"))
     else:
-        data = json.load(open("ncbi_kir_gene.json"))
+        data = json.load(open(name + ".gene.json"))
 
     # extract hg19 hg38 position
     locations = []
@@ -294,11 +326,13 @@ def getNCBIKirGene(ref: str = "hg19") -> pd.DataFrame:
             "chrstop": "pos_right",
         }
     )
-    df_loc = df_loc[["gene", "reference", "pos_left", "pos_right"]]
+    df_loc["length"] = df_loc["pos_right"] - df_loc["pos_left"]
+    df_loc = df_loc[["gene", "reference", "pos_left", "pos_right", "length"]]
     df_loc = df_loc.sort_values("gene")
     print("NCBI KIR gene data")
-    print(df_loc)
-    print(df_loc[df_loc["reference"].str.startswith("NC_")])
+    with pd.option_context("display.max_rows", None):  # type: ignore
+        print(df_loc)
+        print(df_loc[df_loc["reference"].str.startswith("NC_")].sort_values("pos_left"))
     return df_loc
 
 
@@ -310,7 +344,7 @@ def getUCSCKirGene(ref: str = "hg19") -> pd.DataFrame:
                 "wget https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/genes/hg19.refGene.gtf.gz"
             )
             runShell(
-                'zcat hg19.refGene.gtf.gz | grep "\\"KIR" | grep -v "exon" | grep -v "KIRREL" > hg19.refGene.kir.gtf'
+                'zcat hg19.refGene.gtf.gz | grep "\\"KIR" | grep -v "exon" | grep chr19 > hg19.refGene.kir.gtf'
             )
         gff = "hg19.refGene.kir.gtf"
     elif ref == "hg38":
@@ -319,7 +353,7 @@ def getUCSCKirGene(ref: str = "hg19") -> pd.DataFrame:
                 "wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.refGene.gtf.gz"
             )
             runShell(
-                'zcat hg38.refGene.gtf.gz | grep "\\"KIR" | grep -v "exon" | grep -v "KIRREL" > hg38.refGene.kir.gtf'
+                'zcat hg38.refGene.gtf.gz | grep "\\"KIR" | grep -v "exon" | grep chr19 > hg38.refGene.kir.gtf'
             )
         gff = "hg38.refGene.kir.gtf"
 
@@ -346,8 +380,14 @@ def getUCSCKirGene(ref: str = "hg19") -> pd.DataFrame:
         df[["gene", "seqname", "start", "end"]].sort_values("gene").drop_duplicates()
     )
     df_gene_regions.columns = ["gene", "reference", "pos_left", "pos_right"]  # type: ignore
-    print("UCSC KIR gene")
-    print(df_gene_regions)
+    df_gene_regions["length"] = (
+        df_gene_regions["pos_right"] - df_gene_regions["pos_left"]
+    )
+    # df_gene_regions = df_gene_regions.sort_values(["gene", "reference", "pos_left"])
+    df_gene_regions = df_gene_regions.sort_values(["reference", "pos_left"])
+    with pd.option_context("display.max_rows", None):  # type: ignore
+        print("UCSC KIR gene")
+        print(df_gene_regions)
     return df_gene_regions
 
 
@@ -401,12 +441,21 @@ def evaluateSimulationReadMappingOnGenome(cohort: str) -> list[go.Figure]:
     return figs
 
 
-def evaluateRealMappingOnKIR(cohort: str) -> list[go.Figure]:
+def evaluateRealMappingOnKIR(
+    cohort: str,
+    avg_depth_threshold: float = 5.0,
+    split_gene: bool = False,
+    no_3dl2: bool = True,
+) -> list[go.Figure]:
     figs = []
     # SELECT regions FROM ALL GROUP BY GENE
     dfs_read = extractPerReadMapping(cohort)
-    regions = list(extractSignificantMappingRegion(dfs_read))
-    printSignigicantRegion(regions, 150)
+    regions = list(
+        extractSignificantMappingRegion(
+            dfs_read, avg_depth_threshold=avg_depth_threshold, split_gene=split_gene
+        )
+    )
+    printSignigicantRegion(regions, 150, no_3dl2=no_3dl2)
     figs.extend(plotSignigicantRegion(regions))
     return figs
 
@@ -418,10 +467,10 @@ if __name__ == "__main__":
     # figs.extend(evaluateSimulationReadMappingOnGenome(cohort))
 
     # real dataset
-    ref = "hg19"
+    ref = "hg38"  # "hg19" "hg38"
     # data in dataset
     # getNCBIKirGene(ref)
-    # getUCSCKirGene(ref)
+    getUCSCKirGene(ref)
 
     # twbb 14 samples hg19 bam2fastq data
     cohort = "data_real/hg19.twbb.{}.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
@@ -437,7 +486,14 @@ if __name__ == "__main__":
 
     # hprc 28 samples hs37d5 with very limited extracted reads
     cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    figs.extend(evaluateRealMappingOnKIR(cohort))
+    # figs.extend(evaluateRealMappingOnKIR(cohort, no_3dl2=False))
 
+    # twbb 7 samples hs38 loose
+    cohort = "data_real/twbb.{}.index_hs38.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.5, split_gene=False))
+
+    # twbb 7 samples hs38 strict
+    cohort = "data_real/twbb.{}.index_hs38.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.02, no_3dl2=False))
     # plot all figure
     showPlot(figs)

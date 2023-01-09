@@ -21,6 +21,7 @@ data_real/
 slurm_io/
 data
 index
+linnil1_syn/
 
 namepipe/
 pyHLAMSA/
@@ -29,3 +30,10 @@ __pycache__/
 *.egg-info/
 .pylintrc
 .*.swp
+
+kelvin_kir.csv
+hg19.refGene.gtf.gz
+hg19.refGene.kir.gtf
+hg38.refGene.gtf.gz
+hg38.refGene.kir.gtf
+ncbi_kir_search_result1.gene.json

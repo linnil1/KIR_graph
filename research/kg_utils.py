@@ -38,6 +38,7 @@ images = {
     "t1k":      "localhost/linnil1/t1k",
     "kpi":      "localhost/linnil1/kpi",
     "node":     "docker.io/library/node:18-alpine",
+    "bwakit":   "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
 }
 
 

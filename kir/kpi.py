@@ -35,24 +35,24 @@ class KPI(KirPipe):
     def run(self, input_name: str, index: str) -> str:
         """Run KPI (It used next flow)"""
         mapping_file = self.replaceWildcard(input_name, "_kpidatalist")
+        out_suffix = ".kpi_" + self.escapeName(index)
+        output_name = input_name + out_suffix + "_prediction"
         if Path(mapping_file + ".txt").exists():
-            return input_name + ".kpi_prediction"
-
+            return output_name
         with open(mapping_file + ".txt", "w") as f:
             for name in self.listFiles(input_name):
                 f1, f2 = f"{name}.read.1.fq", f"{name}.read.2.fq"
                 if not Path(f1).exists():
                     f1, f2 = f"{name}.read.1.fq.gz", f"{name}.read.2.fq.gz"
                 basename = Path(name).name
-                suffix = ".kpi_" + self.escapeName(index)
-                print(basename + suffix, f1, sep="\t", file=f)
-                print(basename + suffix, f2, sep="\t", file=f)
+                print(basename + out_suffix, f1, sep="\t", file=f)
+                print(basename + out_suffix, f2, sep="\t", file=f)
 
         folder = Path(input_name).parents[0]
         self.runDocker(
             "kpi", f"/opt/kpi/main.nf --map {mapping_file}.txt --output {folder}"
         )
-        return input_name + ".kpi_prediction"
+        return output_name
 
     def mergeResult(self, input_name: str, index: str) -> str:
         """Merge KPI haplotype result to allele and cn"""
