@@ -467,7 +467,7 @@ if __name__ == "__main__":
     # figs.extend(evaluateSimulationReadMappingOnGenome(cohort))
 
     # real dataset
-    ref = "hg38"  # "hg19" "hg38"
+    ref = "hg19"  # "hg19" "hg38"
     # data in dataset
     # getNCBIKirGene(ref)
     getUCSCKirGene(ref)
@@ -488,11 +488,11 @@ if __name__ == "__main__":
     cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
     # figs.extend(evaluateRealMappingOnKIR(cohort, no_3dl2=False))
 
-    # twbb 7 samples hs38 loose
+    # twbb 14 samples hs38 loose
     cohort = "data_real/twbb.{}.index_hs38.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    # figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.5, split_gene=False))
+    figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.5, split_gene=True))
 
-    # twbb 7 samples hs38 strict
+    # twbb 14 samples hs38 strict
     cohort = "data_real/twbb.{}.index_hs38.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
     # figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.02, no_3dl2=False))
     # plot all figure

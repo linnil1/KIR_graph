@@ -120,13 +120,15 @@ if __name__ == "__main__":
         if not direct_on_kir:
             genome_index = compose([
                 index_folder,
-                # downloadHg19,
-                downloadHg38,
+                downloadHg19,
+                # downloadHg38,
                 # downloadHs38DH,
+                # downloadHs38noalt,
                 bwaIndex,
             ])
             wgs_type = "hg37d5"
-            wgs_type = "hg38"
+            # wgs_type = "hg38"
+            # wgs_type = "hg38noalt"
 
         exe       = SlurmTaskExecutor(threads_per_sample=1,  template_file="research/taiwania.template")
         exe_large = SlurmTaskExecutor(threads_per_sample=14, template_file="research/taiwania.14.template")
@@ -183,10 +185,11 @@ if __name__ == "__main__":
         # cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=False), depended_pos=[-1])
 
         # allele typing
+        # sample_possible_ans = "data_real/hprc_pingsample.index_hs37d5.bwa.part_strict.result_ping_wgs.merge"  # from other_kir.py
         sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
         typing = compose([
             variant,
-            partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv_exonfirst_1
+            partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),  # pv pv_exonfirst_1
             NameTask(mergeKirResult, depended_pos=[0]),
             partial(compareResult, sample_name=sample_possible_ans),
         ])

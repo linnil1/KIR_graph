@@ -210,11 +210,14 @@ def cnPredict(input_name):
 def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # setup
     top_n = 600
+    error_correction = False
     assert len(input_name.template_args) == 1
     id = input_name.template_args[0]
     cn_name = cn_input_name.output_name.template.format(id)
     output_name_template = cn_input_name.output_name + "." + allele_method
     output_name_template += ".compare_sum"
+    if error_correction:
+        output_name_template += ".var_errcorr"
     if top_n != 300:
         output_name_template += f".top{top_n}"
     output_name = output_name_template.format(id)
@@ -224,8 +227,7 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # debug
     # if "02" != input_name.template_args[0]:
     #     return output_name_template
-
-    t = selectKirTypingModel(allele_method, input_name + ".json", top_n=top_n)
+    t = selectKirTypingModel(allele_method, input_name + ".json", top_n=top_n, variant_correction=error_correction)
     if not Path(cn_name + ".tsv").exists():
         return None
     cn = loadCN(cn_name + ".tsv")
@@ -487,7 +489,7 @@ if __name__ == "__main__":
 
     typing = compose([
         variant,
-        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1.2"),  # pv_exonfirst_1
+        partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv pv_exonfirst_1 pv_exonfirst_1.2
     ])
 
     novel_funcs = [typing]

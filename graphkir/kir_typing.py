@@ -51,8 +51,10 @@ class Typing:
         for gene, cn in gene_cn.items():
             if not cn:
                 continue
+            # debug
+            # if "KIR3DP1" not in gene:
+            #     continue
             predict_alleles.extend(self.typingPerGene(gene, cn))
-            # exit()
         return predict_alleles
 
     def save(self, filename: str) -> None:
@@ -73,6 +75,7 @@ class TypingWithPosNegAllele(Typing):
         exon_only: bool = False,
         exon_candidate: str = "first_score",
         exon_candidate_threshold: float = 1.1,
+        variant_correction: bool = False,
     ):
         """Read all reads and variants from the json file (From .hisat2.py)"""
         super().__init__()
@@ -86,16 +89,17 @@ class TypingWithPosNegAllele(Typing):
         self._exon_only = exon_only
         self._exon_candidate = exon_candidate
         self._exon_candidate_threshold = exon_candidate_threshold
+        self._variant_correction = variant_correction
 
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """Select reads belonged to the gene and typing it"""
         print(f"{gene=} {cn=}")
-        # debug
-        # if gene != "KIR2DL5*BACKBONE":
-        #     return []
         if not self._exon_first and not self._exon_only:
             typ = AlleleTyping(
-                self._gene_reads[gene], self._gene_variants[gene], top_n=self._top_n
+                self._gene_reads[gene],
+                self._gene_variants[gene],
+                top_n=self._top_n,
+                variant_correction=self._variant_correction,
             )
         else:
             typ = AlleleTypingExonFirst(
@@ -108,6 +112,7 @@ class TypingWithPosNegAllele(Typing):
             )
         res = typ.typing(cn)
         self._result[gene] = typ.result
+        # return res.selectBest(filter_minor=True)
         return res.selectBest()
 
 
@@ -166,26 +171,30 @@ class TypingWithReport(Typing):
 
 
 def selectKirTypingModel(
-    method: str, filename_variant_json: str, top_n: int = 300
+    method: str,
+    filename_variant_json: str,
+    *args: Any,
+    **kwargs: Any,
 ) -> Typing:
     """Select and Init typing model"""
     if method == "pv":
-        return TypingWithPosNegAllele(filename_variant_json, top_n=top_n)
+        return TypingWithPosNegAllele(filename_variant_json, *args, **kwargs)
     elif method == "pv_exonfirst":
         return TypingWithPosNegAllele(
             filename_variant_json,
-            top_n=top_n,
             exon_first=True,
             exon_candidate="first_score",
+            *args, **kwargs,
         )
     elif method.startswith("pv_exonfirst_"):
         thres = float(method[len("pv_exonfirst_") :])
         return TypingWithPosNegAllele(
             filename_variant_json,
-            top_n=top_n,
             exon_first=True,
             exon_candidate="max_score_ratio",
             exon_candidate_threshold=thres,
+            *args,
+            **kwargs,
         )
     elif method == "em":
         return TypingWithReport(filename_variant_json)

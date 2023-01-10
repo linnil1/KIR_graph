@@ -85,7 +85,8 @@ class PING(KirPipe):
         output_name = input_name + ".merge"
         # if Path(output_name + ".tsv").exists():
         #     return output_name
-        data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
+        # data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
+        data = self.readAllele(f"{input_name}/iterAlleleCalls.csv")
 
         predict_list = []
         for name, alleles in data.items():
@@ -112,7 +113,10 @@ class PING(KirPipe):
         """
         # read
         data = pd.read_csv(csv_file, sep=",")
-        data = data.rename(columns={"Unnamed: 0": "name"})
+        if not isinstance(data.index, pd.RangeIndex):
+            data = data.reset_index()
+        data = data.rename(columns={"Unnamed: 0": "name", "index": "name"})
+        data = data.fillna("")
 
         called_alleles = {}
         for sample in data.to_dict("records"):
@@ -122,8 +126,10 @@ class PING(KirPipe):
                 if gene == "name":
                     continue
                 alleles.extend(alleles_str.split(" ")[0].split("+"))
+            alleles = [i for i in alleles if i]
             alleles = [i for i in alleles if "null" not in i]
             alleles = [i for i in alleles if "failed" not in i]
+            alleles = [i.replace("_", ".") for i in alleles]
             # alleles = [i for i in alleles if "unresolved" not in i]
             called_alleles[name_id] = alleles
             # print(name_id, alleles)

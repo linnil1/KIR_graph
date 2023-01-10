@@ -50,10 +50,12 @@ class TypingResult:
     allele_name: list[list[str]]    # size: top_n x n
     allele_prob: FloatNdArray       # size: read x top_n
     fraction: FloatNdArray          # size: top_n x n
+    fraction_uniq: FloatNdArray     # size: top_n x n
     allele_name_group: list[list[list[str]]] = field(default_factory=list)
-                                  # size: top_n x n x group_size
+                                    # size: top_n x n x group_size
 
-    def selectBest(self) -> list[str]:
+
+    def selectBest(self, filter_fraction: bool = True, filter_minor: bool = False) -> list[str]:
         """
         Select the best allele set by the maximum of likelihood
         whlie considering abundance (fraction).
@@ -69,14 +71,16 @@ class TypingResult:
           loss -3  fraction 0.2 0.8
           loss -4  fraction 0.4 0.6  -> OK
         """
-        best_id = 0
-        for i in range(len(self.fraction)):
+        ids = range(len(self.fraction))
+        if filter_fraction:
             expect_prob = 1 / self.n
-            if all(j >= expect_prob / 2 for j in self.fraction[i]):
-                break
-            best_id += 1
-        else:  # cannot meet the criteria
-            best_id = 0
+            ids = filter(lambda i: all(i >= expect_prob / 2 for i in self.fraction[i]), ids)
+        if filter_minor:
+            ids = filter(lambda i: np.abs(self.value_sum_indv[i]).min() / np.abs(self.value_sum_indv[i]).max() > 0.8, ids)
+            # ids = filter(lambda i: np.abs(self.fraction_uniq[i]).min() / np.abs(self.fraction_uniq[i]).max() > 0.1, ids)
+        ids = list(ids) or [0]
+        best_id = ids[0]
+        print(best_id)
         return self.allele_name[best_id]
 
     def print(self, num: int = 10) -> None:
@@ -104,11 +108,11 @@ class TypingResult:
                   "sum",       self.value_sum_indv[rank].sum())
 
             for i in range(n):
-                print("  id",       f"{self.allele_id[rank][i]:3}",       end=" ")
-                print("  name",     f"{self.allele_name[rank][i]:20s}",   end=" ")
-                print("  fraction", f"{self.fraction[rank][i]:.5f}",      end=" ")
-                print("  sum",      f"{self.value_sum_indv[rank][i]:3f}", end=" ")
-                # print(f" unique_count {unique_count}")
+                print("  id",       f"{self.allele_id[rank][i]     :3}",    end=" ")
+                print("  name",     f"{self.allele_name[rank][i]   :20s}",  end=" ")
+                print("  fraction", f"{self.fraction[rank][i]      :.5f}",  end=" ")
+                print("  sum",      f"{self.value_sum_indv[rank][i]:8.3f}", end=" ")
+                # print("  uniq",     f"{self.fraction_uniq[rank][i] :8.5f}", end=" ")
                 if self.allele_name_group:
                     print("  group", f"{self.allele_name_group[rank][i]}", end=" ")
                 print()
@@ -119,17 +123,21 @@ class TypingResult:
             [allele_group_mapping[j] for j in i] for i in self.allele_name
         ]
 
-    def sortByScoreAndEveness(self) -> TypingResult:
+    def sortByScoreAndEveness(self, preserve_topn: int = -1) -> TypingResult:
         """reorder the internal top_n axis by score"""
+        if preserve_topn == -1:
+            preserve_topn = self.value.shape[0]
+
         rank_index = rankScore(self.value, self.value_sum_indv, self.fraction)
         return TypingResult(
             n              = self.n,
-            value          = self.value          [rank_index],
-            value_sum_indv = self.value_sum_indv [rank_index],
-            allele_id      = self.allele_id      [rank_index],
-            allele_name    = [self.allele_name[i] for i in rank_index],
-            allele_prob    = self.allele_prob [:, rank_index],
-            fraction       = self.fraction       [rank_index],
+            value          = self.value          [rank_index][:preserve_topn],
+            value_sum_indv = self.value_sum_indv [rank_index][:preserve_topn],
+            allele_id      = self.allele_id      [rank_index][:preserve_topn],
+            allele_name    = [self.allele_name[i] for i in rank_index][:preserve_topn],
+            allele_prob    = self.allele_prob [:, rank_index][:, :preserve_topn],
+            fraction       = self.fraction       [rank_index][:preserve_topn],
+            fraction_uniq  = self.fraction_uniq  [rank_index][:preserve_topn],
         )
 
 
@@ -171,6 +179,7 @@ class AlleleTyping:
         variants: list[Variant],
         top_n: int = 300,
         no_empty: bool = True,
+        variant_correction: bool = True,
     ):
         """
         Parameters:
@@ -188,6 +197,8 @@ class AlleleTyping:
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
 
         self._no_empty = no_empty
+        if variant_correction:  # var_errcorr
+            reads = self.errorCorrection(reads)
         if self._no_empty:
             reads = self.removeEmptyReads(reads)
 
@@ -227,6 +238,42 @@ class AlleleTyping:
         prob = np.ones(onehot.shape) * 0.001
         prob[onehot] = 0.999
         return prob
+
+    def errorCorrection(self, reads: list[PairRead]) -> list[PairRead]:
+        """Ignore low read-depth variant or very minor variant"""
+        v_count = defaultdict(int)
+        for read in reads:
+            for i in read.lpv + read.rpv:
+                v_count[(i, True )] += 1
+                v_count[(i, False)] += 0
+            for i in read.lnv + read.rnv:
+                v_count[(i, True )] += 0
+                v_count[(i, False)] += 1
+
+        exclude_v_pos = set()
+        exclude_v_neg = set()
+        for (id, pn), num in v_count.items():
+            if num + v_count[(id, not pn)] < 3:  # min-depth
+                exclude_v_pos.add(id)
+                exclude_v_neg.add(id)
+            elif num / (num + v_count[(id, not pn)]) < 0.2:  # very small amount of variant
+                if pn:
+                    exclude_v_pos.add(id)
+                else:
+                    exclude_v_neg.add(id)
+
+        # print("Exclude pos")
+        # for i in exclude_v_pos:
+        #     print(i, v[(i, True)], v[(i, False)])
+        # print("Exclude neg")
+        # for i in exclude_v_neg:
+        #     print(i, v[(i, True)], v[(i, False)])
+        for read in reads:
+            read.lpv = [i for i in read.lpv if not i in exclude_v_pos]
+            read.rpv = [i for i in read.rpv if not i in exclude_v_pos]
+            read.lnv = [i for i in read.lnv if not i in exclude_v_neg]
+            read.rnv = [i for i in read.rnv if not i in exclude_v_neg]
+        return reads
 
     def reads2AlleleProb(self, reads: list[PairRead]) -> FloatNdArray:
         """Position/Negative variants in read -> probility of read belonged to allele"""
@@ -326,6 +373,7 @@ class AlleleTyping:
                 allele_name    = self.mapAlleleIDs(allele_1_top_id),           # size: top_n x 1
                 allele_prob    = allele_1_top_prob,
                 fraction       = np.ones(allele_1_top_id.shape),               # size:  top_n x 1
+                fraction_uniq  = np.ones(allele_1_top_id.shape),               # size:  top_n x 1
             ))
             return self.result[-1]
 
@@ -361,11 +409,13 @@ class AlleleTyping:
         allele_n_prob      = allele_n_prob[unique_id_index]
 
         # top-n result
-        allele_n_top_index = np.argsort(allele_n_prob)[::-1][:self.top_n]      # size: top_n
+        # allele_n_top_index = np.argsort(allele_n_prob)[::-1][:self.top_n]    # size: top_n
+        allele_n_top_index = np.argsort(allele_n_prob)[::-1][:max(self.top_n, allele_n_prob.shape[0] // 5)]  # size: top_n
         allele_n_top_id    = allele_n_id[allele_n_top_index]                   # size: top_n x CN
         allele_n_top_prob  = self.log_probs[:, allele_n_top_id].max(axis=2)    # read x top_n x CN -> size: read x top-n
         allele_n_top_value = allele_n_prob[allele_n_top_index]                 # size: top_n
         allele_n_top_sum   = self.log_probs[:, allele_n_top_id].sum(axis=0)    # size: top_n
+        # print(candidate_allele, allele_n_top_prob.shape)
 
         # calculate fraction
         belong             = np.equal(self.log_probs[:, allele_n_top_id],
@@ -374,6 +424,10 @@ class AlleleTyping:
         belong_norm        = (belong / belong.sum(axis=2)[:, :, None])         # size: reads x top_n x CN (float)
         # sum across read and normalize by n
         allele_n_top_frac  = belong_norm.sum(axis=0) / self.log_probs.shape[0] # size: top_n x CN
+
+        # belong_uniq        = belong * (belong.sum(axis=2) == 1)[:, :, None]    # size: read x top_n x CN
+        # allele_n_top_uniq  = belong_uniq.sum(axis=0) / belong.shape[0]         # size top_n x CN
+        allele_n_top_uniq  = np.ones(allele_n_top_frac.shape)  # fake          # size top_n x CN
 
         # sort and save the result
         self.result.append(TypingResult(
@@ -384,7 +438,8 @@ class AlleleTyping:
             allele_name    = self.mapAlleleIDs(allele_n_top_id),
             allele_prob    = allele_n_top_prob,
             fraction       = allele_n_top_frac,
-        ).sortByScoreAndEveness())
+            fraction_uniq  = allele_n_top_uniq,
+        ).sortByScoreAndEveness(preserve_topn=self.top_n))
         # breakpoint()
         return self.result[-1]
 
@@ -573,5 +628,6 @@ class AlleleTypingExonFirst(AlleleTyping):
             allele_name    = list(chain.from_iterable(res.allele_name for res in mixed_result)),
             allele_prob    = np.concatenate([res.allele_prob    for res in mixed_result], axis=1),
             fraction       = np.concatenate([res.fraction       for res in mixed_result]),
+            fraction_uniq  = np.concatenate([res.fraction       for res in mixed_result]),  # ignore this
         )
         return result.sortByScoreAndEveness()

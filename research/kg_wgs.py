@@ -127,7 +127,7 @@ def extractFromWGS(input_name, wgs_type: str = "hs37d5", loose: bool = False):
             other_region = open("research/hs38.decoy").read().replace("\n", " ")
         else:
             main_regions = (
-                "chr19:54720000-chr19:54870000 "
+                "chr19:54720000-54870000 "
                 "chr19_GL000209v2_alt chr19_GL949746v1_alt chr19_GL949747v2_alt chr19_GL949748v2_alt chr19_GL949749v2_alt "
                 "chr19_GL949750v2_alt chr19_GL949751v2_alt chr19_GL949752v1_alt chr19_GL949753v2_alt chr19_KI270882v1_alt "
                 "chr19_KI270883v1_alt chr19_KI270884v1_alt chr19_KI270885v1_alt chr19_KI270886v1_alt chr19_KI270887v1_alt "
