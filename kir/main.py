@@ -32,6 +32,11 @@ def readArgument(factory: dict[str, KirPipe]) -> argparse.Namespace:
         nargs="+",
         help="KIR tools to execute",
     )
+    parser.add_argument(
+        "--ipd-version",
+        default="2100",
+        help="IPD-KIR database version (only works in some tools)"
+    )
     parser.add_argument("--final-name", help="The name of final merged results")
     args = parser.parse_args()
     # print(args)
@@ -90,6 +95,7 @@ def main() -> None:
     results = []
     for tool in args.tools:
         module = factory[tool]
+        module.setIPDVersion(args.ipd_version)
         module.setThreads(args.thread)
         result = module.runAll(samples)
         results.append(result)

@@ -80,13 +80,15 @@ class PING(KirPipe):
             self.runShell(f"ln -s ../../{f2} {folder}/id.{self.getID(name)}.read.2.{suffix}")
         return folder
 
-    def mergeResult(self, input_name: str) -> str:
+    def mergeResult(self, input_name: str, use_novel: bool = False) -> str:
         """Read PING result finalAlleleCalls"""
         output_name = input_name + ".merge"
         # if Path(output_name + ".tsv").exists():
         #     return output_name
-        # data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
-        data = self.readAllele(f"{input_name}/iterAlleleCalls.csv")
+        if use_novel:
+            data = self.readAllele(f"{input_name}/iterAlleleCalls.csv")
+        else:
+            data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
 
         predict_list = []
         for name, alleles in data.items():
@@ -153,6 +155,8 @@ class PING(KirPipe):
         ping_data = pd.read_csv(locus_csv)
         ping_data = ping_data.rename(columns={"Unnamed: 0": "sample"})
         ping_data["method"] = "PING"
-        ping_data["id"] = list(map(lambda i: str(i)[3:], ping_data["sample"]))  # remove id.
+        ping_data["id"] = list(
+            map(lambda i: str(i)[3:], ping_data["sample"])
+        )  # remove id.
         ping_data = ping_data.drop(columns=["sample"])
         return ping_data

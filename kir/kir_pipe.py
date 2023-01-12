@@ -119,6 +119,7 @@ class KirPipe:
         self.file_adapter = file_adapter()
         self.executor = executor()
         self.threads = threads
+        self.ipd_version: str = ""
 
     def getThreads(self) -> int:
         """Get theads for one job"""
@@ -197,3 +198,7 @@ class KirPipe:
     def escapeName(self, name: str) -> str:
         """Replace non-word character to '-'"""
         return name.replace(".", "_").replace("/", "_")
+
+    def setIPDVersion(self, version: str) -> None:
+        """Set IPD-KIR database version"""
+        self.ipd_version = version

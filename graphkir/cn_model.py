@@ -76,14 +76,15 @@ class CNgroup(Dist):
     def __init__(self) -> None:
         # const
         super().__init__()
-        self.bin_num:  int   = 500
-        self.max_cn:   int   = 6
+        self.bin_num:   int   = 500
+        self.max_cn:    int   = 6
 
         # parameters
-        self.x_max:    float = 1
-        self.base:     float | None = None
-        self.base_dev: float = 0.08
-        self.y0_dev:   float = 1.5
+        self.x_max:     float = 1
+        self.base:      float | None = None
+        self.base_dev:  float = 0.08
+        self.y0_dev:    float = 1.5
+        self.dev_decay: float = 0.2  # 0.2 or 1
 
         # result (saved for plotting)
         self.data: list[float] = []
@@ -92,14 +93,15 @@ class CNgroup(Dist):
     def getParams(self) -> dict[str, Any]:
         """Save parameters"""
         return {
-            'method'  : "CNgroup",
-            'x_max'   : self.x_max,
-            'base'    : self.base,
-            'base_dev': self.base_dev,
-            'y0_dev'  : self.y0_dev,
-            'bin_num' : self.bin_num,
-            'max_cn'  : self.max_cn,
-            'data'    : self.data,
+            'method'     : "CNgroup",
+            'x_max'      : self.x_max,
+            'base'       : self.base,
+            'base_dev'   : self.base_dev,
+            'y0_dev'     : self.y0_dev,
+            'dev_decay'  : self.dev_decay,
+            'bin_num'    : self.bin_num,
+            'max_cn'     : self.max_cn,
+            'data'       : self.data,
             'likelihood' : self.likelihood,
         }
 
@@ -108,13 +110,14 @@ class CNgroup(Dist):
         """Load parameters"""
         assert data["method"] == "CNgroup"
         self = cls()
-        self.base     = data['base']
-        self.base_dev = data['base_dev']
-        self.x_max    = data['x_max']
-        self.y0_dev   = data['y0_dev']
-        self.bin_num  = data['bin_num']
-        self.max_cn   = data['max_cn']
-        self.data     = data['data']
+        self.base       = data['base']
+        self.base_dev   = data['base_dev']
+        self.x_max      = data['x_max']
+        self.y0_dev     = data['y0_dev']
+        self.dev_decay  = data['dev_decay']
+        self.bin_num    = data['bin_num']
+        self.max_cn     = data['max_cn']
+        self.data       = data['data']
         self.likelihood = np.array(data['likelihood'])
         return self
 
@@ -167,11 +170,10 @@ class CNgroup(Dist):
             indicate the probility of read_depth belong to the CN
         """
         x = np.linspace(0, self.x_max, self.bin_num)
-        cn = np.arange(1, self.max_cn)
+        cn = np.arange(0, self.max_cn - 1)
         y0 = norm.pdf(x, loc=0, scale=self.base_dev * self.y0_dev)
-        y = np.stack(
-            [y0, *[norm.pdf(x, loc=base * n, scale=self.base_dev * n) for n in cn]]
-        )
+        yn = [norm.pdf(x, loc=base * n, scale=self.base_dev * (self.dev_decay * n + 1)) for n in cn]
+        y = np.stack([y0, *yn])
         space = self.x_max / self.bin_num  # * space is to make y-sum = 1
         return np.array(y * space)
 
@@ -257,6 +259,7 @@ class KDEcut(Dist):
 
         # for plot
         self.data: list[float]      = []  # normalized data
+        self.prob: list[float]      = []  # Density data
 
     def getParams(self) -> dict[str, Any]:
         """Save parameters"""
@@ -267,8 +270,10 @@ class KDEcut(Dist):
             'points'   : self.points,
             'neighbor' : self.neighbor,
             'x_max'    : self.x_max,
-            'kde'      : self.kde.get_params(),
+            'kde'      : self.kde.get_params(deep=True),
             'local_min': self.local_min,
+            'data'     : self.data,
+            'prob'     : self.prob,
         }
 
     @classmethod
@@ -282,6 +287,8 @@ class KDEcut(Dist):
         self.points    = data['points']
         self.kde       = KernelDensity().set_params(**data['kde'])
         self.local_min = data['local_min']
+        self.data      = data['data']
+        self.prob      = data['prob']
         return self
 
     def fit(self, values: list[float]) -> None:
@@ -300,6 +307,7 @@ class KDEcut(Dist):
         # cut
         x = np.linspace(0, 1.1, self.points)
         y = self.kde.score_samples(x[:, None])  # type: ignore
+        self.prob = y
         self.local_min = list(x[argrelextrema(y, np.less, order=self.neighbor)[0]])
         print("Threshold", self.local_min)
 
@@ -316,22 +324,22 @@ class KDEcut(Dist):
     def plot(self, title: str = "") -> list[go.Figure]:
         x = np.linspace(0, 1.1, self.points)
         assert self.kde
-        y = self.kde.score_samples(x[:, None])
+        y = self.prob
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Scatter(x=x, y=y, name="KDE"))
+        fig.add_trace(go.Scatter(x=x * self.x_max, y=y, name="KDE"))
         fig.update_layout(
             yaxis_title="KDE score",
             yaxis2_title="Fraction of samples",
-            xaxis_title="Normalized Depth",
+            xaxis_title="Depth",
         )
         for cn, m in enumerate(self.local_min):
             fig.add_vline(
-                x=m, line_width=2, line_dash="dash", annotation_text=f"cn={cn}"
+                x=m * self.x_max, line_width=2, line_dash="dash", annotation_text=f"cn={cn}"
             )
 
         fig.add_trace(
             go.Histogram(
-                x=np.array(self.data) / self.x_max,
+                x=np.array(self.data),
                 name="samples",
                 nbinsx=100,
                 histnorm="probability",

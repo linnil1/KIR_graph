@@ -86,7 +86,7 @@ def createSakaueKirPloidy(input_name: NamePath, sample_name: NamePath) -> NamePa
         dfs.append(Counter(map(renameGene, map(getGeneName, alleles))))
 
     df = pd.DataFrame(dfs)
-    df = df.set_axis(ids, axis=1)
+    df = df.set_axis(ids, axis=0)
     df = df.T.fillna(0).astype(int)
     df.to_csv(output_name + ".csv")
     print(df)
@@ -159,7 +159,7 @@ def t1kRun(samples: NamePath, data_folder: str) -> NameTask:
         [
             None,
             t1k.download,
-            t1k.build,
+            partial(t1k.build, ipd_version="2100"),
         ]
     )
     samples = compose(
@@ -542,16 +542,16 @@ if __name__ == "__main__":
     data_folder = "data"
     # samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
     samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
-    setThreads(25)
+    setThreads(2)
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=10))
     use_slurm = False
-    # setThreads(2)
-    # t1kRun(samples, data_folder)
-    # kpiRun(samples, data_folder)
-    # setThreads(2)
-    # sakauekirRun(samples, data_folder, use_answer=True)
+    t1kRun(samples, data_folder)
+    sakauekirRun(samples, data_folder, use_answer=True)
+    setThreads(25)
+    kpiRun(samples, data_folder)
     # exit()
 
+    setThreads(25)
     remove_sample_list: set[str] = set()
     answer_name = ""
     # HPRC sample on 
@@ -570,7 +570,7 @@ if __name__ == "__main__":
     pingRun(
         samples,
         data_folder,
-        version="20220527",
+        version="wgs",  # 20220527, wgs
         remove_sample_list=remove_sample_list,
         use_slurm=use_slurm,
         answer_name=answer_name,

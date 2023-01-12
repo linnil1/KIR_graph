@@ -19,6 +19,7 @@ class T1k(KirPipe):
         self.images = {
             "t1k": f"localhost/c4lab/t1k:{version}",
         }
+        self.setIPDVersion("2100")
 
     def download(self, folder_base: str = "") -> str:
         """Download t1k and compile"""
@@ -29,22 +30,30 @@ class T1k(KirPipe):
             return folder
         if not self.checkImage("t1k"):
             self.buildImage("t1k", "kir/t1k.dockerfile", args={"version": self.version})
-
-        folder = self.build(folder)
+        self.runShell(f"mkdir -p {folder}")
         return folder
 
-    def build(self, folder: str) -> str:
+    def build(self, folder: str, ipd_version: str = "2100") -> str:
         """Build KIR database"""
-        # if not Path(f"{folder}/hlaidx").exists():
-        #     runDocker("t1k",
-        #               "perl t1k-build.pl -o hlaidx --download IPD-IMGT/HLA",
-        #               cwd=folder)
-        if not Path(f"{folder}/kiridx").exists():
-            self.runShell(f"mkdir -p {folder}")
-            self.runDocker(
-                "t1k", "t1k-build.pl -o kiridx --download IPD-KIR", cwd=folder
+        output_name = f"{folder}/ipd_{ipd_version}"
+        if Path(output_name).exists():
+            return output_name
+        self.runShell(f"mkdir -p {output_name}")
+        if ipd_version <= "2100":
+            self.runShell(
+                f"wget https://github.com/ANHIG/IPDKIR/raw/{ipd_version}/KIR.dat"
+                f"  -O {output_name}/kir.dat"
             )
-        return folder
+        else:
+            self.runShell(
+                f"wget https://github.com/ANHIG/IPDKIR/raw/{ipd_version}/kir.dat "
+                f"  -O {output_name}/kir.dat"
+            )
+        self.runDocker(
+            "t1k",
+            f"t1k-build.pl -o {output_name} -d {output_name}/kir.dat --prefix t1k",
+        )
+        return output_name
 
     def run(self, input_name: str, index: str, digits: int = 7) -> str:
         """Main function"""
@@ -60,7 +69,7 @@ class T1k(KirPipe):
             f""" \
             run-t1k \
               -1 {f1} -2 {f2} \
-              --preset kir-wgs -f {index}/kiridx/kiridx_dna_seq.fa \
+              --preset kir-wgs -f {index}/t1k_dna_seq.fa \
               --alleleDigitUnits {digits} \
               -t {self.getThreads()} \
               -o {output_name}. \
@@ -125,8 +134,9 @@ class T1k(KirPipe):
     def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline"""
         index = self.download()
+        index = self.build(index, self.ipd_version)
         samples = input_name
         for sample in self.listFiles(samples):
             sample = self.run(sample, index=index)
-        sample = self.mergeResult(samples + ".t1k_t1k_v1_0_1.dig7")
+        sample = self.mergeResult(samples + f".t1k_{self.escapeName(index)}.dig7")
         return sample

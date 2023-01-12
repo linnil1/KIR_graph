@@ -19,6 +19,7 @@ from graphkir.utils import (
     getThreads,
     mergeAllele,
     readFromMSAs,
+    setThreads,
 )
 
 from vg import (
@@ -155,15 +156,15 @@ def filterDepthWrap(input_name, ref_index, exon=False):
 
 def cnPredict(input_name):
     per_gene = False
-    cn_cluster = "CNgroup"
+    cn_cluster = "CNgroup"  # kde CNgroup
     cn_select = "p75"
     assume_3DL3_diploid = True
     suffix_cn = f".{cn_select}.{cn_cluster}"
-
+    suffix_cn += "_smallg"  # if not -> set CNgroup's dev_decay = 1
     cluster_dev = "0.06"
     cluster_method_kwargs = {}
     if cn_cluster == "CNgroup" and cluster_dev != "0.08":
-        suffix_cn += ".dev" + cluster_dev
+        suffix_cn += "_dev" + cluster_dev
         cluster_method_kwargs = {'base_dev': float(cluster_dev)}
 
     if per_gene:
@@ -210,7 +211,7 @@ def cnPredict(input_name):
 def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # setup
     top_n = 600
-    error_correction = False
+    error_correction = True
     assert len(input_name.template_args) == 1
     id = input_name.template_args[0]
     cn_name = cn_input_name.output_name.template.format(id)
@@ -375,6 +376,7 @@ def typingNovelWrap(input_name, msa_name, variant_name):
 
 
 if __name__ == "__main__":
+    # setThreads(20)
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=10))
     index_folder = "index"
     extract_exon = False
@@ -407,7 +409,7 @@ if __name__ == "__main__":
 
     msa_index = compose([
         index_folder,
-        # partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),
+        # partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),  # merge split ab ab_2dl1s1
         partial(buildMsaWithCds, msa_type="ab_2dl1s1"),
         leftAlignWrap,
     ])
