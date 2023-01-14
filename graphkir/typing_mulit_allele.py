@@ -54,7 +54,6 @@ class TypingResult:
     allele_name_group: list[list[list[str]]] = field(default_factory=list)
                                     # size: top_n x n x group_size
 
-
     def selectBest(self, filter_fraction: bool = True, filter_minor: bool = False) -> list[str]:
         """
         Select the best allele set by the maximum of likelihood

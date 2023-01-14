@@ -160,12 +160,15 @@ def cnPredict(input_name):
     cn_select = "p75"
     assume_3DL3_diploid = True
     suffix_cn = f".{cn_select}.{cn_cluster}"
-    suffix_cn += "_smallg"  # if not -> set CNgroup's dev_decay = 1
-    cluster_dev = "0.06"
+    # suffix_cn += "_smallg"  # if not -> set CNgroup's dev_decay = 1 and not b2
+    suffix_cn += "_b2"
+    cluster_dev = "0.08"
     cluster_method_kwargs = {}
     if cn_cluster == "CNgroup" and cluster_dev != "0.08":
         suffix_cn += "_dev" + cluster_dev
-        cluster_method_kwargs = {'base_dev': float(cluster_dev)}
+        cluster_method_kwargs['base_dev'] = float(cluster_dev)
+    # b2
+    cluster_method_kwargs['start_base'] = 2
 
     if per_gene:
         assert ".{}." in input_name
@@ -190,7 +193,7 @@ def cnPredict(input_name):
                              save_cn_model_path=output_name + ".json")
         except AssertionError as e:
             # SKIP this sample becuase 3DL3 assumption is fail
-            print(e)
+            print("fail", input_name, e)
             return None
     else:  # cohort
         # SELECT * FROM depths
@@ -485,9 +488,10 @@ if __name__ == "__main__":
         partial(addSuffix, suffix=".no_multi"),
         bam2DepthWrap,
         partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
-        NameTask(cnPredict)  # .set_depended(-1),
+        NameTask(cnPredict)  # .set_depended(-1),  # parameters written in cnPredict funcion
     ])
-    # cn >> NameTask(plotCNWrap).set_depended(0)
+    cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False)).set_depended(0)
+    exit()
 
     typing = compose([
         variant,

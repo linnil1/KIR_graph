@@ -84,7 +84,9 @@ class CNgroup(Dist):
         self.base:      float | None = None
         self.base_dev:  float = 0.08
         self.y0_dev:    float = 1.5
-        self.dev_decay: float = 0.2  # 0.2 or 1
+        self.dev_decay: float = 0.5  # 0.5 or 1
+        self.dev_decay_neg: float = 0.3  # 0.5 or 1
+        self.start_base: int  = 1  # The maximum Cn group is
 
         # result (saved for plotting)
         self.data: list[float] = []
@@ -99,10 +101,12 @@ class CNgroup(Dist):
             'base_dev'   : self.base_dev,
             'y0_dev'     : self.y0_dev,
             'dev_decay'  : self.dev_decay,
+            'dev_decay_neg': self.dev_decay_neg,
             'bin_num'    : self.bin_num,
             'max_cn'     : self.max_cn,
             'data'       : self.data,
             'likelihood' : self.likelihood,
+            'start_base' : self.start_base,
         }
 
     @classmethod
@@ -119,6 +123,8 @@ class CNgroup(Dist):
         self.max_cn     = data['max_cn']
         self.data       = data['data']
         self.likelihood = np.array(data['likelihood'])
+        self.start_base = data.get('start_base', 1)
+        self.dev_decay_neg = data.get('dev_decay_neg', self.dev_decay)
         return self
 
     def fit(self, values: list[float]) -> None:
@@ -170,10 +176,23 @@ class CNgroup(Dist):
             indicate the probility of read_depth belong to the CN
         """
         x = np.linspace(0, self.x_max, self.bin_num)
-        cn = np.arange(0, self.max_cn - 1)
-        y0 = norm.pdf(x, loc=0, scale=self.base_dev * self.y0_dev)
-        yn = [norm.pdf(x, loc=base * n, scale=self.base_dev * (self.dev_decay * n + 1)) for n in cn]
-        y = np.stack([y0, *yn])
+        if self.start_base == 1:
+            cn = np.arange(1, self.max_cn)
+            y0 = norm.pdf(x, loc=0, scale=self.base_dev * self.y0_dev)
+            yn = [norm.pdf(x, loc=base * n, scale=self.base_dev * (self.dev_decay * (n - 1) + 1)) for n in cn]
+            y = np.stack([y0, *yn])
+        elif self.start_base == 2:  # more general method
+            cn = np.arange(0, self.max_cn)
+            yn = []
+            for n in cn:
+                if n < self.start_base:
+                    dev = self.base_dev * (self.dev_decay_neg * (self.start_base - n) + 1)
+                else:
+                    dev = self.base_dev * (self.dev_decay     * (n - self.start_base) + 1)
+                yn.append(norm.pdf(x, loc=base * n, scale=dev))
+            y = np.array(yn)
+        else:
+            raise NotImplementedError
         space = self.x_max / self.bin_num  # * space is to make y-sum = 1
         return np.array(y * space)
 

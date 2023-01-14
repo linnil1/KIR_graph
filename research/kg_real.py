@@ -85,12 +85,12 @@ def linkTWBBFastqSample(input_folder):
 if __name__ == "__main__":
     index_folder = "index"
     data_folder = "data_tmp"
-    cohort = "twbb_fastq"
+    cohort = "hprc_fastq"
     direct_on_kir = False
     ref_index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
     index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
     search_other_region = False
-    TAIWANIA = True
+    TAIWANIA = False
 
     # these step in run on Taiwania HPC
     if TAIWANIA:
@@ -167,7 +167,9 @@ if __name__ == "__main__":
         # samples = "data_real/twbb.{}.index_hs37d5.bwa.part_strict"
         # samples = "data_real/hprc26.{}.index_hs37d5.bwa.part_strict"
         # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
-        samples = "data_real/twbb.{}.index_hs38.bwa.part_strict"
+        # samples = "data_real/twbb.{}.index_hs38.bwa.part_strict"
+        # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read"
+        samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
         samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
         NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
         variant = compose([
@@ -182,7 +184,8 @@ if __name__ == "__main__":
             partial(filterDepthWrap, ref_index=str(ref_index)),
             NameTask(cnPredict)  # .set_depended(-1),
         ])
-        # cn >> NameTask(partial(plotCNWrap, per_sample=False, show_depth=False), depended_pos=[-1])
+        cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False), depended_pos=[-1])
+        # exit()
 
         # allele typing
         # sample_possible_ans = "data_real/hprc_pingsample.index_hs37d5.bwa.part_strict.result_ping_wgs.merge"  # from other_kir.py
