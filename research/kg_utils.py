@@ -147,7 +147,12 @@ def getAnswerFile(sample_name: str) -> str:
         raise ValueError(f"Not found answer file {name}")
 
 
-def compareResult(input_name, sample_name, input_fasta_name=None, plot=False):
+def compareResult(
+    input_name: NamePath,
+    sample_name: NamePath | str,
+    input_fasta_name: str = "",
+    plot: bool = False,
+) -> NamePath:
     print(input_name + ".tsv")
     answer_seq = {}
     # back = xx.00.30x.fq -> xx.00.fa
@@ -167,7 +172,6 @@ def compareResult(input_name, sample_name, input_fasta_name=None, plot=False):
     if input_fasta_name:
         for name in NamePath(input_fasta_name).get_input_names():
             if Path(name + ".fa").exists():
-                print("HI", name + ".fa")
                 predit_seq[name.template_args[-1]] = SeqIO.to_dict(SeqIO.parse(name + ".fa", "fasta"))
 
     compareCohort(
@@ -182,9 +186,9 @@ def compareResult(input_name, sample_name, input_fasta_name=None, plot=False):
     return input_name
 
 
-def addSuffix(input_name, suffix):
+def addSuffix(input_name: NamePath, suffix: str) -> NamePath:
     return input_name + suffix
 
 
-def back(input_name):
+def back(input_name: NamePath) -> str:
     return str(Path(input_name.template).with_suffix(""))

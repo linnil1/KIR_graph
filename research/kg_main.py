@@ -40,6 +40,7 @@ from kg_create_exonseq_only import (
     calcExonToBed,
     bam2fastq,
 )
+from kg_eval_cn import compareCNResult
 
 
 def createSamplesWithAnswer(input_name, N=10, seed=2022):
