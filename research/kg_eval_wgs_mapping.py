@@ -388,6 +388,7 @@ def getUCSCKirGene(ref: str = "hg19") -> pd.DataFrame:
     with pd.option_context("display.max_rows", None):  # type: ignore
         print("UCSC KIR gene")
         print(df_gene_regions)
+        # print(df_gene_regions[df_gene_regions["gene"] == "KIR3DX1"])
     return df_gene_regions
 
 
@@ -456,7 +457,7 @@ def evaluateRealMappingOnKIR(
         )
     )
     printSignigicantRegion(regions, 150, no_3dl2=no_3dl2)
-    figs.extend(plotSignigicantRegion(regions))
+    # figs.extend(plotSignigicantRegion(regions))
     return figs
 
 
@@ -478,7 +479,7 @@ if __name__ == "__main__":
 
     # twbb 14 samples hs37d5 bam2fastq data
     cohort = "data_real/twbb.{}.index_hs37d5.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    # figs.extend(evaluateRealMappingOnKIR(cohort))
+    # figs.extend(evaluateRealMappingOnKIR(cohort, split_gene=True, no_3dl2=False))
 
     # hprc 28 samples hs37d5 bam2fastq data
     cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
@@ -486,11 +487,11 @@ if __name__ == "__main__":
 
     # hprc 28 samples hs37d5 with very limited extracted reads
     cohort = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    # figs.extend(evaluateRealMappingOnKIR(cohort, no_3dl2=False))
+    # figs.extend(evaluateRealMappingOnKIR(cohort, split_gene=True, no_3dl2=False))
 
     # twbb 14 samples hs38 loose
     cohort = "data_real/twbb.{}.index_hs38.bwa.part_merge.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-    figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.5, split_gene=True))
+    # figs.extend(evaluateRealMappingOnKIR(cohort, avg_depth_threshold=0.5, split_gene=True))
 
     # twbb 14 samples hs38 strict
     cohort = "data_real/twbb.{}.index_hs38.bwa.part_strict.annot_read.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"

@@ -90,23 +90,29 @@ def plotStat(df: pd.DataFrame) -> list[go.Figure]:
     fig1 = px.box(df, x="method",  y="secd_perc", title="Secondary Ratio",
                   labels={"secd_perc": "Secondary reads / Total reads"},
                   category_orders={'method': display_columns})
-    return [fig0, fig1]
+    fig2 = px.scatter(df, x="secd_perc",  y="pair_perc", color="method",
+                      labels={
+                          "secd_perc": "Secondary reads / Total reads",
+                         "pair_perc": "Primary paired reads / Total reads",
+                      },
+                      category_orders={'method': display_columns})
+    return [fig0, fig1, fig2]
 
 
 def plotBamStat() -> list[go.Figure]:
     # sample_index = "data/linnil1_syn_wide.test10"
     answer = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031.read..sam"
-    prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
+    prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
     filename = "tmp"
     # filename = f"{sample_index}.bam_stat_vg"
 
     cohort = [
-        {"method": "answer",           "name": f"{answer}"},
-        {"method": "linear",           "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bowtie2.bam"},
-        {"method": "bwa",              "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.backbone.bwa.bam"},
-        {"method": "hisat",            "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
-        {"method": "hisat_ab",         "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
-        {"method": "hisat_ab_2dl1s1",  "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
+        {"method": "answer",             "name": f"{answer}"},
+        {"method": "bowtie",             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bowtie2.bam"},
+        {"method": "bwa",                "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa.bam"},
+        {"method": "graphkir-split",     "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
+        {"method": "graphkir-ab",        "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
+        {"method": "graphkir-ab2dl1s1",  "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
         # {"method": "linear_ab",                    "file": f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
         # {"method": "linear_ab_2dl1s1",             "file": f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
         # {"method": "linear_full",                  "file": f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
@@ -134,7 +140,7 @@ def plotBamStat() -> list[go.Figure]:
         id = 0
         data: list[DfDict] = []
         for info in cohort:
-            for name in NamePath(info["name"]).get_input_names():
+            for name in NamePath(info["name"]).get_input_names():  # [:5]:
                 data.append({
                     "method": info["method"],
                     "file": name,
@@ -178,7 +184,7 @@ def getEachReadMappedOn(filename: str) -> dict[str, list[ReadRecord]]:
     return data
 
 
-def customMissingCalc(total: dict[str, int],
+def customSamstatCalc(total: dict[str, int],
                       reads: dict[str, list[ReadRecord]],
                       **kwargs: Any) -> Iterator[DfDict]:
     """
@@ -188,9 +194,16 @@ def customMissingCalc(total: dict[str, int],
       total: Nubmer(value) of reads belong to the reference(key)
       reads: The gene mapped on (value) of for each read(key)
     """
-    data = {gene: {"total": num, "count": 0, "miss": 0} for gene, num in total.items()}
+    data = {
+        gene: {
+            "total": num, "count": 0,
+            "miss": 0,
+            "pair": 0,
+            "secd": 0,
+        } for gene, num in total.items()
+    }
 
-    print(sorted(reads.keys()))
+    # print(sorted(reads.keys()))
     for read_name, mapping_info in reads.items():
         data[getGeneName(read_name)]["count"] += 1
         # don't include secondary, but it's find
@@ -198,18 +211,27 @@ def customMissingCalc(total: dict[str, int],
         if len(list(filter(lambda i: i.ref != "*" and not (i.flag & 256), mapping_info))) < 2:
             data[getGeneName(read_name)]["miss"] += 1
 
+        if len(list(filter(lambda i: (i.flag & 2), mapping_info))) >= 2:
+            data[getGeneName(read_name)]["pair"] += 1
+
+        data[getGeneName(read_name)]["secd"] += len(list(filter(lambda i: (i.flag & (2 | 256)), mapping_info))) // 2
+
     for gene, d in data.items():
         d["miss"] += d["total"] - d["count"]  # maybe removed by mapper
         yield {
             "gene": gene,
             "total": d["total"],
             "count": d["count"],
-            "miss": d["miss"],
+            "miss_num": d["miss"],
             "miss_perc": d["miss"] / d["total"],
+            "pair_num": d["pair"],
+            "pair_perc": d["pair"] / d["total"],
+            "secd_num": d["secd"],
+            "secd_perc": d["secd"] / d["total"],
         }
 
 
-def customMissingPlot(df: pd.DataFrame) -> list[go.Figure]:
+def customSamstatPlot(df: pd.DataFrame) -> list[go.Figure]:
     gene_order = {"gene": sorted(set(df["gene"]))}
     return [
         px.box(df, x="gene", y="miss_perc", color="method", category_orders=gene_order)
@@ -220,230 +242,141 @@ def customMissingPlot(df: pd.DataFrame) -> list[go.Figure]:
           .update_layout(title="Missed reads Per Method (Proportion)",
                          yaxis_title="Missed_reads / total_read_counts in that gene",
                          yaxis_tickformat="e"),
-    ]
-
-
-def customProperMappedCalc(total: dict[str, int],
-                           reads: dict[str, list[ReadRecord]],
-                           **kwargs: Any) -> Iterator[DfDict]:
-    """ Any of pair-reads are correctly mapped on reference """
-    data = {gene: {"total": num, "count": 0, "pair": 0} for gene, num in total.items()}
-
-    for read_name, mapping_info in reads.items():
-        data[getGeneName(read_name)]["count"] += 1
-        if len(list(filter(lambda i: (i.flag & 2), mapping_info))) >= 2:
-            data[getGeneName(read_name)]["pair"] += 1
-
-    for gene, d in data.items():
-        yield {
-            "gene": gene,
-            "total": d["total"],
-            "count": d["count"],
-            "pair_num": d["pair"],
-            "pair_perc": d["pair"] / d["total"],
-        }
-
-
-def customProperMappedPlot(df: pd.DataFrame) -> list[go.Figure]:
-    gene_order = {"gene": sorted(set(df["gene"]))}
-    return [
         px.box(df, x="gene", y="pair_perc", color="method", category_orders=gene_order)
           .update_layout(title="Proper mapped",
                          yaxis_title="Correct read / total read (%)"),
         px.box(df, x="method", y="pair_perc", category_orders=gene_order)
           .update_layout(title="Proper mapped",
-                         yaxis_title="Pair-mapped read / total read (%)")
-    ]
-
-
-def customSecondaryCalc(total: dict[str, int],
-                        reads: dict[str, list[ReadRecord]],
-                        **kwargs: Any) -> Iterator[DfDict]:
-    """ The number of secondary reads """
-    data = {gene: {"total": num, "count": 0, "secd": 0} for gene, num in total.items()}
-    for read_name, mapping_info in reads.items():
-        data[getGeneName(read_name)]["count"] += 1
-        data[getGeneName(read_name)]["secd"] += len(list(filter(lambda i: (i.flag & 256), mapping_info)))
-
-    for gene, d in data.items():
-        yield {
-            "gene": gene,
-            "total": d["total"],
-            "count": d["count"],
-            "secd_num": d["secd"],
-            "secd_perc": d["secd"] / d["count"],
-        }
-
-
-def customSecondaryPlot(df: pd.DataFrame) -> list[go.Figure]:
-    gene_order = {"gene": sorted(set(df["gene"]))}
-    return [
+                         yaxis_title="Pair-mapped read / total read (%)"),
         px.box(df, x="gene", y="secd_perc", color="method", category_orders=gene_order)
           .update_layout(title="Secondary count",
                          yaxis_title="secondary read / total read (%)"),
         px.box(df, x="method", y="secd_perc", category_orders=gene_order)
           .update_layout(title="Secondary Count",
-                         yaxis_title="secondary read / total read (%)")
+                         yaxis_title="secondary read / total read (%)"),
     ]
 
 
-def customGeneAccCalc(total: dict[str, int],
-                      reads: dict[str, list[ReadRecord]],
-                      getRenamedGeneName: Callable[[str], str],
-                      **kwargs: Any) -> Iterator[DfDict]:
+def customGenePrecisionCalc(total: dict[str, int],
+                            reads: dict[str, list[ReadRecord]],
+                            getRenamedGeneName: Callable[[str], str],
+                            **kwargs: Any) -> Iterator[DfDict]:
     """ The pair reads are mapped on reference """
-    data = {gene: {"total": num, "count": 0, "unique": 0, "primary": 0, "secondary": 0} for gene, num in total.items()}
+    data = {
+        gene: {
+            "total": num, "count": 0,
+            "unique": 0, "primary": 0, "secondary": 0,
+            "secondary_count": 0,
+            "secondary_correct": 0,
+        } for gene, num in total.items()
+    }
 
     for read_name, mapping_info in reads.items():
-        data[getGeneName(read_name)]["count"] += 1
         # remove non-pair
-        mapping_info = list(filter(lambda i: (i.flag & 2), mapping_info))
+        mapping_info = list(filter(lambda i: (i.flag & 2) and i.ref != "*" and not (i.flag & 2048), mapping_info))
+        if not mapping_info:
+            continue
+        data[getGeneName(read_name)]["count"] += 1
 
-        primary = list(filter(lambda i: i.ref != "*" and not (i.flag & (256 | 2048)), mapping_info))
         # assert primary is 2
+        primary = list(filter(lambda i: not (i.flag & 256), mapping_info))
         if len(primary) not in [0, 2]:
             print(read_name, mapping_info)
             assert False
         if primary and getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
             data[getGeneName(read_name)]["primary"] += 1
 
-        second = list(filter(lambda i: i.ref != "*", mapping_info))
-        if second and any(getRenamedGeneName(read.ref) == getRenamedGeneName(read_name) for read in second):
+        # secondary
+        if mapping_info and any(getRenamedGeneName(read.ref) == getRenamedGeneName(read_name) for read in mapping_info):
             data[getGeneName(read_name)]["secondary"] += 1
+        for read in mapping_info:
+            data[getGeneName(read_name)]['secondary_count'] += 1
+            if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
+                data[getGeneName(read_name)]['secondary_correct'] += 1
 
         # unique mapping
-        unique_pair = list(filter(lambda i: i.ref != "*", mapping_info))
-        if len(unique_pair) == 2 and getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
+        if len(mapping_info) == 2 and getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
             data[getGeneName(read_name)]["unique"] += 1
 
     for gene, d in data.items():
+        # origin method
         yield {
             "gene": gene,
-            "total": d["total"],
-            "correct": d["secondary"],
-            "acc": d["secondary"] / d["count"],
+            "total":                      d["total"],
+            "count":                      d["count"],
+            "correct":   d["secondary"],
+            "precision": d["secondary"] / d["count"],
+            "recall":    d["secondary"] / d["total"],
             "type": "all",
         }
+        # precision should be calculated like this
         yield {
             "gene": gene,
-            "total": d["total"],
-            "correct": d["unique"],
-            "acc": d["unique"] / d["count"],
+            "total":                              d["total"],
+            "count":                              d["secondary_count"],
+            "correct":   d["secondary_correct"],
+            "precision": d["secondary_correct"] / d["secondary_count"],
+            "recall":    d["secondary"]         / d["total"],
+            "type": "all-per-read",
+        }
+        yield {
+            "gene": gene,
+            "total":                      d["total"],
+            "count":                      d["count"],
+            "correct":   d["unique"],
+            "precision": d["unique"]    / d["count"],
+            "recall":    d["unique"]    / d["total"],
             "type": "unique-only",
         }
-        continue
         yield {
             "gene": gene,
-            "total": d["total"],
-            "correct": d["primary"],
-            "acc": d["primary"] / d["count"],
+            "total":                      d["total"],
+            "count":                      d["count"],
+            "correct":   d["primary"],
+            "precision": d["primary"]   / d["count"],
+            "recall":    d["primary"]   / d["total"],
             "type": "primary-only",
         }
 
 
-def customGeneAccPlot(df: pd.DataFrame) -> list[go.Figure]:
+def customGenePrecisionPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
     gene_order = {"gene": sorted(set(df["gene"]))}
     group, color = reColor(df["method"], df["type"])
     return [
-        px.box(df, x="gene", y="acc",
-               color=group,
-               color_discrete_map=color,
-               category_orders=gene_order,
-           )
-           .update_layout(
-               title="Gene-level accuracy(Primary)",
-               yaxis_title="Correct read / total read (%)",
-           ),
-        px.box(df, x="method", y="acc", color="type", category_orders=gene_order)
-          .update_layout(title="Gene-level accuracy Per Method (Proportion)",
-                         yaxis_title="Correct read / total read (%)"),
-    ]
-
-
-def customGeneSpecificCalc(total: dict[str, int],
-                           reads: dict[str, list[ReadRecord]],
-                           getRenamedGeneName: Callable[[str], str],
-                           **kwargs: Any) -> Iterator[DfDict]:
-    data = defaultdict(lambda: {
-        "total": 0,         "correct": 0,
-        "total_unique": 0,  "correct_unique": 0,
-        "total_primary": 0, "correct_primary": 0,
-    })
-
-    for read_name, mapping_info in reads.items():
-        # remove non-pair
-        mapping_info = list(filter(lambda i: (i.flag & 2) and i.ref != "*", mapping_info))
-
-        for read in mapping_info:
-            data[getRenamedGeneName(read.ref)]['total'] += 1
-            if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
-                data[getRenamedGeneName(read.ref)]['correct'] += 1
-
-        # unique mapped only
-        if len(mapping_info) == 2:
-            for read in mapping_info:
-                data[getRenamedGeneName(read.ref)]['total_unique'] += 1
-                if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
-                    data[getRenamedGeneName(read.ref)]['correct_unique'] += 1
-
-        primary = list(filter(lambda i: not (i.flag & (256 | 2048)), mapping_info))
-        if len(primary) > 0:
-            read = primary[0]
-            data[getRenamedGeneName(read.ref)]['total_primary'] += 1
-            if getRenamedGeneName(read.ref) == getRenamedGeneName(read_name):
-                data[getRenamedGeneName(read.ref)]['correct_primary'] += 1
-
-    answer_gene_name = set(getRenamedGeneName(i) for i in total)
-    for gene, d in data.items():
-        if gene not in answer_gene_name:
-            continue
-        if d['total']:
-            yield {
-                "gene": gene,
-                "total": d["total"],
-                "correct": d["correct"],
-                "specificity": d["correct"] / d["total"],
-                "type": "all",
-            }
-        if d['total_unique']:
-            yield {
-                "gene": gene,
-                "total": d["total_unique"],
-                "correct": d["correct_unique"],
-                "specificity": d["correct_unique"] / d["total_unique"],
-                "type": "unique-only",
-            }
-        continue
-        if d['total_primary']:
-            yield {
-                "gene": gene,
-                "total": d["total_primary"],
-                "correct": d["correct_primary"],
-                "specificity": d["correct_primary"] / d["total_primary"],
-                "type": "primary-only",
-            }
-
-
-def customGeneSpecificPlot(df: pd.DataFrame) -> list[go.Figure]:
-    gene_order = {"gene": sorted(set(df["gene"]))}
-    group, color = reColor(df["method"], df["type"])
-    return [
-        px.box(df, x="gene", y="specificity",
-               color=group,
-               color_discrete_map=color,
-               category_orders=gene_order,
-           )
-           .update_layout(
-               title="Specificity of read mapped on gene",
-               yaxis_title="Correct read / total read mapped on(%)",
-           ),
-        px.box(df, x="method", y="specificity", color="type", category_orders=gene_order)
+        px.box(
+            df, x="gene", y=y,
+            color=group,
+            color_discrete_map=color,
+            category_orders=gene_order)
           .update_layout(
-              title="Specificity of read mapped on gene",
-              yaxis_title="Correct read / total read mapped on(%)",
-          ),
+            title=f"Gene-level {y}"),
+        px.box(
+            df, x="method", y=y,
+            color="type", category_orders=gene_order)
+          .update_layout(title=f"Gene-level {y} per method (average)"),
     ]
 
+
+def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
+    df_gene = df.groupby(["method", "type", "gene"], as_index=False) \
+               .agg({"precision": "mean", "recall": "mean"})
+    df_gene["FDR"] = 1 - df_gene["precision"]
+    group_gene, color_gene = reColor(df_gene["method"], df_gene["type"])
+
+    df_roc = df.groupby(["method", "type"], as_index=False) \
+               .agg({"precision": "mean", "recall": "mean"})
+    df_roc["FDR"] = 1 - df_roc["precision"]
+    group_roc, color_roc = reColor(df_roc["method"], df_roc["type"])
+    return [
+        px.scatter(
+            df_roc, x="FDR",  y="recall",
+            color=group_roc,
+            color_discrete_map=color_roc),
+        px.scatter(
+            df_gene, x="FDR",  y="recall",
+            color=group_gene,
+            color_discrete_map=color_gene),
+    ]
 
 
 def reColor(arr1: Iterable[str], arr2: Iterable[str]) -> tuple[list[str], dict[str, str]]:
@@ -540,34 +473,18 @@ def applyStatFuncToBam(stat_func: Callable[..., Iterator[DfDict]],
 def plotGenewiseMapping() -> list[go.Figure]:
     # sample_index = "data/linnil1_syn_wide.test10"
     answer = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031.read..sam"
-    prefix = "data6/linnil1_syn_s2022.{}.30x_s1031"
-    answer = "linnil1_syn/linnil1_syn_s44.{}.30x_s444.read..sam"
-    prefix = "data6/linnil1_syn_s44.{}.30x_s444"
+    prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
     filename = "tmp"
     # filename = f"{sample_index}.bam_stat_vg"
 
     cohort = [
-        {"method": "answer",          "compare_gene": "",          "name": f"{answer}"},
-        {"method": "bowtie",          "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_ab_2dl1s1.leftalign.backbone.bowtie2.bam"},
-        {"method": "bwa",             "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_ab_2dl1s1.leftalign.backbone.bwa.bam"},
-        {"method": "hisat",           "compare_gene": "",          "name": f"{prefix}.index5_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
-        {"method": "hisat_ab",        "compare_gene": "ab",        "name": f"{prefix}.index5_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
-        {"method": "hisat_ab_2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index5_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
-        # {"method": "linear_ab",                    "file": f"{name}.index_kir_2100_raw_cons.bowtie2.bam"},
-        # {"method": "linear_ab_2dl1s1",             "file": f"{name}.index_kir_2100_2dl1s1_cons.bowtie2.bam"},
-        # {"method": "linear_full",                  "file": f"{name}.index_kir_2100_raw_full.bowtie2.bam"},
-        # {"method": "bwa_ab",                       "file": f"{name}.index_kir_2100_raw_cons_bwa.bwa.bam"},
-        # {"method": "bwa_ab_2dl1s1",                "file": f"{name}.index_kir_2100_2dl1s1_cons_bwa.bwa.bam"},
-        # {"method": "bwa_merge",                    "file": f"{name}.index_kir_2100_merge_cons_bwa.bwa.bam"},
-        # {"method": "hisat_merge",                  "file": f"{name}.index_kir_2100_merge.mut01.bam"},
-        # {"method": "hisat_merge_type",             "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.bam"},
-        # {"method": "hisat_merge_type_nomulti",     "file": f"{name}.index_kir_2100_merge.mut01.hisatgenotype.errcorr.no_multi.bam"},
-        # {"method": "hisat_ab_type",                "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.bam"},
-        # {"method": "hisat_ab_type_nomulti",        "file": f"{name}.index_kir_2100_raw.mut01.hisatgenotype.errcorr.no_multi.bam"},
-        # {"method": "hisat_ab_2dl1s1_type",         "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.bam"},
-        # {"method": "hisat_ab_2dl1s1_type_nomulti", "file": f"{name}.index_kir_2100_2dl1s1.mut01.hisatgenotype.errcorr.no_multi.bam"},
-        # {"method": "hisat_type",                   "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.bam"},
-        # {"method": "hisat_type_nomulti",           "file": f"{name}.index_kir_2100_ab.mut01.hisatgenotype.errcorr.no_multi.bam"},
+        {"method": "answer",            "compare_gene": "",          "name": f"{answer}"},
+        {"method": "bowtie",            "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bowtie2.bam"},
+        {"method": "bwa",               "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa.bam"},
+        {"method": "graphkir-split",    "compare_gene": "",          "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
+        {"method": "graphkir-ab",       "compare_gene": "ab",        "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
+        {"method": "grpahkir-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
+        {"method": "grpahkir-ab2dl1s1-type", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.bam"},
         # {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
         # {"method": "hisat_290-ab-2dl1s1",          "file": f"{name}.index_kir_290_2dl1s1.mut01.bam"},
         # {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
@@ -580,7 +497,7 @@ def plotGenewiseMapping() -> list[go.Figure]:
         id = 0
         data: list[DfDict] = []
         for info in cohort:
-            for name in NamePath(info["name"]).get_input_names():
+            for name in NamePath(info["name"]).get_input_names():  # [:3]
                 data.append({
                     "gene_compare_type": info["compare_gene"],
                     "method": info["method"],
@@ -601,22 +518,22 @@ def plotGenewiseMapping() -> list[go.Figure]:
         print("Reading")
         data = json.load(open(filename + ".json"))
 
+    runShell("stty echo opost")
+    runShell("stty echo opost")
     figs = []
-    # missing
-    df = applyStatFuncToBam(customMissingCalc, data)
-    figs.extend(customMissingPlot(df))
-    # Any proper reads
-    df = applyStatFuncToBam(customProperMappedCalc, data)
-    figs.extend(customProperMappedPlot(df))
-    # secondary
-    df = applyStatFuncToBam(customSecondaryCalc, data)
-    figs.extend(customSecondaryPlot(df))
-    # gene-acc
-    df = applyStatFuncToBam(customGeneAccCalc, data)
-    figs.extend(customGeneAccPlot(df))
-    # gene specificity
-    df = applyStatFuncToBam(customGeneSpecificCalc, data)
-    figs.extend(customGeneSpecificPlot(df))
+    # bam stat but using view
+    df_stat = applyStatFuncToBam(customSamstatCalc, data)
+    df_stat.to_csv("kg_eval_mapping.pergene_stat.csv", index=False)
+    figs.extend(customSamstatPlot(df_stat))
+    # gene precision
+    df_prec = applyStatFuncToBam(customGenePrecisionCalc, data)
+    df_prec.to_csv("kg_eval_mapping.pergene_correct.csv", index=False)
+    # df_prec = pd.read_csv("kg_eval_mapping.pergene_correct.csv")
+    df_prec = df_prec[~df_prec["type"].isin(("all", "primary-only"))]
+    df_prec.loc[df_prec["type"] == "all-per-read", "type"] = "all"
+    figs.extend(customGenePrecisionPlot(df_prec))
+    figs.extend(customGenePrecisionPlot(df_prec, "recall"))
+    figs.extend(customRocPlot(df_prec))
     return figs
 
 
@@ -901,10 +818,11 @@ if __name__ == "__main__":
     """
     figs = []
     # figs.extend(plotBamStat())
-    # figs.extend(plotGenewiseMapping())
+    figs.extend(plotGenewiseMapping())
     # figs.extend(plotMappingFromTo())
     # figs.extend(plotGeneDepth())
-    figs.extend(plotGenomeDepth())
+    # figs.extend(plotGenomeDepth())
+
     print("Plot")
     app = Dash(__name__)
     app.layout = html.Div([dcc.Graph(figure=f) for f in figs])

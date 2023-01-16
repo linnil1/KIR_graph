@@ -120,7 +120,7 @@ def compareCNwithMethods(
     # remove samples
     # df = df.loc[np.logical_not(df['sample_id'].isin(["09"]))]
     # remove samples (for HPRC data)
-    # df = df.loc[np.logical_not(df['sample_id'].isin(["HG00733", "HG01123", "HG02486", "HG02559", "NA19240"]))]
+    df = df.loc[np.logical_not(df['sample_id'].isin(["HG01123", "HG02486", "HG02559"]))]
     # remove genes  (GATKIR)
     # df = df.loc[np.logical_not(df['gene'].str.contains("KIR3DL2|KIR3DP1"))]
     with pd.option_context("display.max_rows", None, "display.max_columns", None):  # type: ignore
@@ -220,20 +220,30 @@ if __name__ == "__main__":
             #  "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.tsv"},
             # {"method": "ab2dl1s1-sg",
             #  "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_smallg_dev0.06_assume3DL3.tsv"},
-            {"method": "ab2dl1s1-b2",
+            {"method": "graphkir-ab",
+             "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
+            {"method": "graphkir-split",
+             "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
-            {"method": "ab2dl1s1-b2-call",
-             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
-            {"method": "ab2dl1s1-dev6",
-             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.tsv"},
-            {"method": "ab2dl1s1-dev6-call",
-             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2-call",
+             "name": f"{NamePath(prefix).replace_wildcard('_merge')}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2-cohort",
+             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2.cohort.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2-median",
+             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_b2_assume3DL3.tsv"},
+            # {"method": "ab2dl1s1-dev6",
+            #  "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.tsv"},
+            # {"method": "ab2dl1s1-dev6-call",
             # {"method": "ab2dl1s1-exon-call", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"},
             # {"method": "ab2dl1s1-cohort", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06.cohort.tsv"},
             # {"method": "ab2dl1s1-cohort-dev008", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
             # {"method": "ab2dl1s1-cohortsg", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_smallg_dev0.06.cohort.tsv"},
             # {"method": "ab2dl1s1-median", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_assume3DL3.tsv"},
-            # {"method": "ab2dl1s1-kde",    "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.cohort.tsv"},
+            {"method": "ab2dl1s1-kde-cohort",
+             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.cohort.tsv"},
+            {"method": "ab2dl1s1-kde",
+             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.tsv"},
             # {"method": "ab-cohort",       "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
             # {"method": "ab",              "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
             # {"method": "split-cohort",    "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
@@ -253,12 +263,14 @@ if __name__ == "__main__":
         prefix_graph = ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
         cohort = [
             {"method": "answer", "name": f"{answer}"},
-            {"method": "ab2dl1s1-dev008",
-             "name": f"{prefix}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
+            # {"method": "ab2dl1s1-dev008",
+            #  "name": f"{prefix}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
             {"method": "ab2dl1s1-b2",
              "name": f"{prefix}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
             {"method": "ab2dl1s1-b2-call",
-             "name": f"{prefix}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
+             "name": f"{NamePath(prefix).replace_wildcard('_merge')}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
+            {"method": "ab2dl1s1-b2-cohort",
+             "name": f"{prefix}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2.cohort.tsv"},
             {"method": "ping",          "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_20220527/manualCopyNumberFrame.csv"},
             {"method": "ping-call",     "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_20220527.merge.tsv"},
             {"method": "ping-wgs",      "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_wgs/manualCopyNumberFrame.csv"},

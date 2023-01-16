@@ -86,8 +86,10 @@ class PING(KirPipe):
         # if Path(output_name + ".tsv").exists():
         #     return output_name
         if use_novel:
+            output_name += "_iter"
             data = self.readAllele(f"{input_name}/iterAlleleCalls.csv")
         else:
+            output_name += "_final"
             data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
 
         predict_list = []

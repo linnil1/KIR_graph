@@ -17,6 +17,7 @@ from kg_wgs import (
 )
 from kg_utils import back, SlurmTaskExecutor, addSuffix
 from kg_mapping import bwa, bwaIndex, hisatMapWrap, trimBam
+from kg_eval_cn import compareCNResult
 
 
 def linkHPRCSample(input_folder):
@@ -171,6 +172,7 @@ if __name__ == "__main__":
         # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.annot_read"
         samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
         samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+        sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
         NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
         variant = compose([
             samples,
@@ -184,15 +186,15 @@ if __name__ == "__main__":
             partial(filterDepthWrap, ref_index=str(ref_index)),
             NameTask(cnPredict)  # .set_depended(-1),
         ])
-        cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False), depended_pos=[-1])
+        cn >> NameTask(partial(compareCNResult, sample_name=sample_possible_ans), depended_pos=[0])
+        # cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False), depended_pos=[-1])
         # exit()
 
         # allele typing
         # sample_possible_ans = "data_real/hprc_pingsample.index_hs37d5.bwa.part_strict.result_ping_wgs.merge"  # from other_kir.py
-        sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
         typing = compose([
             variant,
-            partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),  # pv pv_exonfirst_1
+            partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv pv_exonfirst_1
             NameTask(mergeKirResult, depended_pos=[0]),
             partial(compareResult, sample_name=sample_possible_ans),
         ])

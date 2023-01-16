@@ -14,6 +14,8 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "biopython",
+    "pysam",
+    "matplotlib",
     # "git+https://github.com/linnil1/pyHLAMSA",
 ]
 
@@ -34,8 +36,6 @@ classifiers = [
 
 [project.optional-dependencies]
 paper = [
-    "pysam",
-    "matplotlib",
     "dash",
     "black",
     "mypy",

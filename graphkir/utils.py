@@ -23,6 +23,7 @@ class _ResType(TypedDict):
     memory: int
     engine: str
 
+
 resources: _ResType = {  # per sample
     "threads": 2,
     "memory": 7,  # unit: G
@@ -31,13 +32,13 @@ resources: _ResType = {  # per sample
 engine_config = {
     "podman": {
         "path": "podman",
-        "run": "run -it --rm -u root -w /app -v $PWD:/app",
+        "run": "run -t --rm -u root -w /app -v $PWD:/app",
         "name": "--name",  # short name has collision when submit the jobs concurrently
         "image_func": lambda i: i,
     },
     "docker": {
         "path": "/usr/bin/docker",
-        "run": "run -it --rm -u root -w /app -v $PWD:/app",
+        "run": "run -t --rm -u root -w /app -v $PWD:/app",
         "name": "--name",
         "image_func": lambda i: i,
     },

@@ -145,7 +145,19 @@ def sakauekirRun(
             gatkir.beforeCalling,
             partial(gatkir.calling, index=index),
             NameTask(gatkir.mergeCalling, depended_pos=[-1]),
+        ]
+    )
+    compose(
+        [
+            samples_call,
             NameTask(gatkir.mergeResult, depended_pos=[-1]),
+            partial(compareResult, sample_name=samples),
+        ]
+    )
+    compose(
+        [
+            samples_call,
+            NameTask(partial(gatkir.mergeResult, select_all=True), depended_pos=[-1]),
             partial(compareResult, sample_name=samples),
         ]
     )
@@ -249,7 +261,7 @@ def pingRun(
     samples = compose(
         [
             samples,
-            ping.mergeResult,
+            partial(ping.mergeResult, use_novel=True),
             partial(compareResult, sample_name=answer_name),
         ]
     )

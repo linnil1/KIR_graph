@@ -688,49 +688,109 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
 if __name__ == "__main__":
     # answer = "linnil1_syn/linnil1_syn_s44_summary.csv"
     # prefix = "data/linnil1_syn_s44.{}.30x_s444"
-    answer = "linnil1_syn/linnil1_syn_s2022_summary.csv"
-    prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
-    cohort = [
-        {"method": "answer", "name": f"{answer}"},
-        {
-            "method": "ab2dl1s1-pv",
-            "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
-            ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
-        },
-        {
-            "method": "ab2dl1s1-exonfirst",
-            "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
-            ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
-        },
-        {
-            "method": "ping",
-            "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
-            ".result_ping_20220527.merge.tsv",
-        },
-        {
-            "method": "ping_wgs",
-            "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
-            ".result_ping_wgs.merge.tsv",
-        },
-        {
-            "method": "sakakue",
-            "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}"
-            f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_merge_depth').replace('.', '_').replace('/', '_')}"
-            "_sakauekir_v1_0_0_bwa_rg_md_coverage_depth_ploidy.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
-        },
-        {
-            "method": "sakakue_ans",
-            "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}"
-            f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_same').replace('.', '_').replace('/', '_')}"
-            "_sakauekir_v1_0_0_bwa_rg_md_answer_cn.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
-        },
-        {
-            "method": "t1k",
-            "name": f"{NamePath(prefix).replace_wildcard('_mergecall')}"
-            ".t1k_t1k_v1_0_1_ipd_2100.dig7.tsv",
-        },
-        # TODO: exon sequences
-    ]
+    real = True
+    if not real:
+        answer = "linnil1_syn/linnil1_syn_s2022_summary.csv"
+        prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
+        cohort = [
+            {"method": "answer", "name": f"{answer}"},
+            {
+                "method": "ab2dl1s1-pv",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
+            },
+            {
+                "method": "ab2dl1s1-exonfirst",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "ab2dl1s1-b2-pv",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
+            },
+            {
+                "method": "ab2dl1s1-b2-exonfirst",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "ping",
+                "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
+                ".result_ping_20220527.merge.tsv",
+            },
+            {
+                "method": "ping_wgs",
+                "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
+                ".result_ping_wgs.merge.tsv",
+            },
+            {
+                "method": "sakakue",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}"
+                f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_merge_depth').replace('.', '_').replace('/', '_')}"
+                "_sakauekir_v1_0_0_bwa_rg_md_coverage_depth_ploidy.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
+            },
+            {
+                "method": "sakakue-all",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge_called_full')}"
+                f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_merge_depth').replace('.', '_').replace('/', '_')}"
+                "_sakauekir_v1_0_0_bwa_rg_md_coverage_depth_ploidy.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
+            },
+            {
+                "method": "sakakue-ans",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}"
+                f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_same').replace('.', '_').replace('/', '_')}"
+                "_sakauekir_v1_0_0_bwa_rg_md_answer_cn.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
+            },
+            {
+                "method": "sakakue-ans-all",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge_called_full')}"
+                f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_same').replace('.', '_').replace('/', '_')}"
+                "_sakauekir_v1_0_0_bwa_rg_md_answer_cn.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
+            },
+            {
+                "method": "t1k",
+                "name": f"{NamePath(prefix).replace_wildcard('_mergecall')}"
+                ".t1k_t1k_v1_0_1_ipd_2100.dig7.tsv",
+            },
+            # TODO: exon sequences
+        ]
+    else:
+        answer = "hprc_summary.csv"
+        prefix = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"  # .annot_read"
+        cohort = [
+            {"method": "answer", "name": f"{answer}"},
+            {
+                "method": "ab2dl1s1-pv",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv.compare_sum.top600.tsv"
+            },
+            {
+                "method": "ab2dl1s1-exonfirst",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv_exonfirst_1.2.compare_sum.top600.tsv"
+            },
+            {
+                "method": "ab2dl1s1-b2-pv",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
+            },
+            {
+                "method": "ab2dl1s1-b2-exonfirst",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "ping",
+                "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
+                ".result_ping_20220527.merge.tsv",
+            },
+            {
+                "method": "ping_wgs",
+                "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
+                ".result_ping_wgs.merge.tsv",
+            },
+        ]
 
     cohort_data: dict[str, CohortAlleles] = defaultdict(dict)
     for dat in cohort:

@@ -3,7 +3,7 @@ Our main typing method
 """
 from __future__ import annotations
 import copy
-from typing import Optional
+from typing import Optional, Iterable
 from itertools import chain
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -43,6 +43,7 @@ class TypingResult:
           allele_name_group = [[0020101, 0020102], [00106, 0010103]]
           ```
     """
+
     n: int
     value: FloatNdArray             # size: top_n
     value_sum_indv: FloatNdArray    # size: top_n x n
@@ -54,7 +55,9 @@ class TypingResult:
     allele_name_group: list[list[list[str]]] = field(default_factory=list)
                                     # size: top_n x n x group_size
 
-    def selectBest(self, filter_fraction: bool = True, filter_minor: bool = False) -> list[str]:
+    def selectBest(
+        self, filter_fraction: bool = True, filter_minor: bool = False
+    ) -> list[str]:
         """
         Select the best allele set by the maximum of likelihood
         whlie considering abundance (fraction).
@@ -70,17 +73,29 @@ class TypingResult:
           loss -3  fraction 0.2 0.8
           loss -4  fraction 0.4 0.6  -> OK
         """
-        ids = range(len(self.fraction))
+        ids: Iterable[int] = range(len(self.fraction))
         if filter_fraction:
             expect_prob = 1 / self.n
-            ids = filter(lambda i: all(i >= expect_prob / 2 for i in self.fraction[i]), ids)
+            ids = filter(
+                lambda i: all(i >= expect_prob / 2 for i in self.fraction[i]), ids
+            )
         if filter_minor:
-            ids = filter(lambda i: np.abs(self.value_sum_indv[i]).min() / np.abs(self.value_sum_indv[i]).max() > 0.8, ids)
+            ids = filter(
+                lambda i: np.abs(self.value_sum_indv[i]).min()
+                / np.abs(self.value_sum_indv[i]).max()
+                > 0.8,
+                ids,
+            )
             # ids = filter(lambda i: np.abs(self.fraction_uniq[i]).min() / np.abs(self.fraction_uniq[i]).max() > 0.1, ids)
         ids = list(ids) or [0]
         best_id = ids[0]
-        print(best_id)
-        return self.allele_name[best_id]
+
+        if self.allele_name:
+            print(f"Select rank {best_id}")
+            assert len(self.allele_name[best_id]) == self.n
+            return self.allele_name[best_id]
+        else:
+            return ["fail"] * self.n
 
     def print(self, num: int = 10) -> None:
         """
@@ -97,19 +112,19 @@ class TypingResult:
               id   2 name KIR3DS1*078          fraction 0.57843
             ```
         """
-        print(self.n)
+        print("Allele_num = ", self.n)
         top_n = len(self.value)
-        n = self.allele_id.shape[1]
 
         for rank in range(min(top_n, num)):
             print("Rank",      rank,
                   "probility", self.value[rank],
                   "sum",       self.value_sum_indv[rank].sum())
 
-            for i in range(n):
-                print("  id",       f"{self.allele_id[rank][i]     :3}",    end=" ")
-                print("  name",     f"{self.allele_name[rank][i]   :20s}",  end=" ")
-                print("  fraction", f"{self.fraction[rank][i]      :.5f}",  end=" ")
+            assert self.n == self.allele_id.shape[1]
+            for i in range(self.n):
+                print("  id",       f"{self.allele_id     [rank][i]:3}",    end=" ")
+                print("  name",     f"{self.allele_name   [rank][i]:20s}",  end=" ")
+                print("  fraction", f"{self.fraction      [rank][i]:.5f}",  end=" ")
                 print("  sum",      f"{self.value_sum_indv[rank][i]:8.3f}", end=" ")
                 # print("  uniq",     f"{self.fraction_uniq[rank][i] :8.5f}", end=" ")
                 if self.allele_name_group:
@@ -200,7 +215,6 @@ class AlleleTyping:
             reads = self.errorCorrection(reads)
         if self._no_empty:
             reads = self.removeEmptyReads(reads)
-
         self.probs = self.reads2AlleleProb(reads)
         self.log_probs = np.log10(self.probs)
 
@@ -240,7 +254,7 @@ class AlleleTyping:
 
     def errorCorrection(self, reads: list[PairRead]) -> list[PairRead]:
         """Ignore low read-depth variant or very minor variant"""
-        v_count = defaultdict(int)
+        v_count: dict[tuple[str, bool], int] = defaultdict(int)
         for read in reads:
             for i in read.lpv + read.rpv:
                 v_count[(i, True )] += 1
@@ -255,7 +269,9 @@ class AlleleTyping:
             if num + v_count[(id, not pn)] < 3:  # min-depth
                 exclude_v_pos.add(id)
                 exclude_v_neg.add(id)
-            elif num / (num + v_count[(id, not pn)]) < 0.2:  # very small amount of variant
+            elif (
+                num / (num + v_count[(id, not pn)]) < 0.2
+            ):  # very small amount of variant
                 if pn:
                     exclude_v_pos.add(id)
                 else:
@@ -291,7 +307,11 @@ class AlleleTyping:
                     prob = [np.ones(len(self.allele_to_id)) * 0.999]
             probs.append(np.stack(prob).prod(axis=0))
         # probs = [i for i in probs if i is not None]
-        return np.stack(probs)
+        if probs:
+            return np.stack(probs)
+        else:
+            print("Error: Empty reads for typing (or Maybe read depth is too low)")
+            return np.array([])
 
     def typing(self, cn: int) -> TypingResult:
         """
@@ -349,6 +369,20 @@ class AlleleTyping:
         Returns:
             The result of this iteration
         """
+        if not self.probs.shape[0]:
+            print("Detect: Empty reads")
+            self.result.append(TypingResult(
+                n              = len(self.result) + 1,
+                value          = np.array([]),
+                value_sum_indv = np.array([]),
+                allele_id      = np.array([]),
+                allele_name    = [],
+                allele_prob    = np.array([]),
+                fraction       = np.array([]),
+                fraction_uniq  = np.array([]),
+            ))
+            return self.result[-1]
+
         if candidate_allele is None:
             allele_index = np.arange(self.log_probs.shape[1])                  # size: allele (select all)
         else:
@@ -527,6 +561,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         exon_only: bool = False,
         candidate_set: str = "first_score",
         candidate_set_threshold: float = 1.1,
+        variant_correction: bool = True,
     ):
         """Extracting exon alleles"""
         # extract exon variants
@@ -535,6 +570,8 @@ class AlleleTypingExonFirst(AlleleTyping):
 
         # cleanup reads (only exon variant preserved)
         exon_reads = self.removeIntronVariant(reads, exon_variants)
+        if variant_correction:  # var_errcorr
+            exon_reads = self.errorCorrection(exon_reads)
         exon_reads = self.removeEmptyReads(exon_reads)
 
         # aggr same alleles that has the same variantset
@@ -565,7 +602,7 @@ class AlleleTypingExonFirst(AlleleTyping):
 
         if not exon_only:
             self.full_model: AlleleTyping | None = AlleleTyping(reads, variants)
-            self.full_model.top_n = self.top_n // 10  # TODO: default = 30
+            self.full_model.top_n = self.top_n // 5  # TODO: default = 30
         else:
             self.full_model = None
 
@@ -600,6 +637,11 @@ class AlleleTypingExonFirst(AlleleTyping):
             # how to output (change selectBest() ? )
             return result
         assert cn == result.n
+
+        if not result.value.shape[0]:
+            print("Error: Cannot typing with exon-only reads. Typing with exon+intron")
+            return self.full_model.typing(cn)
+
         if self.first_set_only:
             full_model = self.typingIntron(result.allele_name_group[0])
             self.result.extend(full_model.result)

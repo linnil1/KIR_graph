@@ -71,7 +71,7 @@ def readDB(full_length_only: bool = True, version: str = "latest") -> GenesMsa:
         genes: A dictionary of gene's name and its MSA
     """
     if full_length_only:
-        kir = KIRmsa(filetype=["gen"], version=version)
+        kir = KIRmsa(filetype=["gen"],        version=version)
     else:
         kir = KIRmsa(filetype=["gen", "nuc"], version=version)
     return kir.genes

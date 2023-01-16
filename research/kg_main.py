@@ -84,16 +84,28 @@ def buildKirMsaWrap(input_name, msa_type="ab_2dl1s1"):
     return output_name
 
 
-def buildMsaWithCds(input_name, msa_type="ab_2dl1s1"):
-    exon_name = f"{input_name}/kir_2100_withexon"
+def buildMsaWithCds(input_name, msa_type="ab_2dl1s1", version="2100"):
+    exon_name = f"{input_name}/kir_{version}_withexon"
     output_name = exon_name + "_" + msa_type
 
     if not len(glob(exon_name + ".KIR*")):
-        kir_msa.buildKirMsa("ab", exon_name, full_length_only=False)
+        kir_msa.buildKirMsa(
+            "ab",
+            exon_name,
+            version=version,
+            full_length_only=False,
+        )
 
     if len(glob(output_name + ".KIR*")):
         return output_name
-    kir_msa.buildKirMsa(msa_type, output_name, input_msa_prefix=exon_name, mergeMSA=mergeMSA, threads=getThreads())
+    kir_msa.buildKirMsa(
+        msa_type,
+        output_name,
+        input_msa_prefix=exon_name,
+        mergeMSA=mergeMSA,
+        version=version,
+        threads=getThreads(),
+    )
     return output_name
 
 
@@ -158,11 +170,12 @@ def filterDepthWrap(input_name, ref_index, exon=False):
 def cnPredict(input_name):
     per_gene = False
     cn_cluster = "CNgroup"  # kde CNgroup
-    cn_select = "p75"
+    cn_select = "p75"  # p75 mean median
     assume_3DL3_diploid = True
     suffix_cn = f".{cn_select}.{cn_cluster}"
     # suffix_cn += "_smallg"  # if not -> set CNgroup's dev_decay = 1 and not b2
-    suffix_cn += "_b2"
+    if cn_cluster != "kde":
+        suffix_cn += "_b2"
     cluster_dev = "0.08"
     cluster_method_kwargs = {}
     if cn_cluster == "CNgroup" and cluster_dev != "0.08":
@@ -174,7 +187,7 @@ def cnPredict(input_name):
     if per_gene:
         assert ".{}." in input_name
         suffix_cn += "_per_gene"
-    if ".{}." not in input_name and assume_3DL3_diploid:
+    if ".{}." not in input_name and cn_cluster != "kde" and assume_3DL3_diploid:
         suffix_cn += "_assume3DL3"
     if ".{}." in input_name:
         suffix_cn += ".cohort"
@@ -364,6 +377,20 @@ def linkAnswer(input_name, old_name):
     return input_name
 
 
+def linkSampleSubset(input_name, subset_n: int = 10):
+    """subset"""
+    output_name = input_name + f".sub{subset_n}"
+    if int(input_name.template_args[0]) >= subset_n:
+        return output_name
+
+    if Path(output_name + ".read.1.fq").exists():
+        return output_name
+    relative = "../" * (len(Path(input_name).parents) - 1)
+    runShell(f"ln -s {relative}{input_name}.read.1.fq {output_name}.read.1.fq")  # add .read is for previous naming
+    runShell(f"ln -s {relative}{input_name}.read.2.fq {output_name}.read.2.fq")
+    return output_name
+
+
 def typingNovelWrap(input_name, msa_name, variant_name):
     output_name = input_name + ".novel"
     if "00" not in input_name.template_args:
@@ -394,7 +421,7 @@ if __name__ == "__main__":
         seed1 = 44
         seed2 = 444
         depth = 30
-    elif cohort == "100":
+    elif cohort == "100" or cohort == "100sub10":
         N = 100
         seed1 = 2022
         seed2 = 1031
@@ -447,6 +474,13 @@ if __name__ == "__main__":
         NameTask(partial(linkAnswer, old_name=samples.output_name), depended_pos=[-1]),
     ])
 
+    if cohort == "100sub10":
+        samples = compose([
+            samples,
+            linkSampleSubset,
+            NameTask(partial(linkAnswer, old_name=samples.output_name), depended_pos=[-1]),
+        ])
+
     if extract_exon:
         bed = samples >> calcExonToBed
         samples = compose([
@@ -483,6 +517,7 @@ if __name__ == "__main__":
         partial(hisatMapWrap, index=str(index)),
         partial(extractVariant, ref_index=str(ref_index)),
     ])
+    runShell("stty echo opost")
 
     cn = compose([
         variant,
@@ -491,12 +526,12 @@ if __name__ == "__main__":
         partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
         NameTask(cnPredict)  # .set_depended(-1),  # parameters written in cnPredict funcion
     ])
-    cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False)).set_depended(0)
-    exit()
+    # cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False)).set_depended(0)
+    cn >> NameTask(partial(compareCNResult, sample_name=samples_ori.output_name), depended_pos=[0])
 
     typing = compose([
         variant,
-        partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv pv_exonfirst_1 pv_exonfirst_1.2
+        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),  # pv pv_exonfirst_1 pv_exonfirst_1.2
     ])
 
     novel_funcs = [typing]

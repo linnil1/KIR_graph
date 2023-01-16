@@ -113,7 +113,9 @@ class TypingWithPosNegAllele(Typing):
         res = typ.typing(cn)
         self._result[gene] = typ.result
         # return res.selectBest(filter_minor=True)
-        return res.selectBest()
+        alleles = res.selectBest()
+        alleles = [i if i != "fail" else f"{gene}*" for i in alleles]
+        return alleles
 
 
 class TypingWithReport(Typing):
@@ -173,18 +175,17 @@ class TypingWithReport(Typing):
 def selectKirTypingModel(
     method: str,
     filename_variant_json: str,
-    *args: Any,
     **kwargs: Any,
 ) -> Typing:
     """Select and Init typing model"""
     if method == "pv":
-        return TypingWithPosNegAllele(filename_variant_json, *args, **kwargs)
+        return TypingWithPosNegAllele(filename_variant_json, **kwargs)
     elif method == "pv_exonfirst":
         return TypingWithPosNegAllele(
             filename_variant_json,
             exon_first=True,
             exon_candidate="first_score",
-            *args, **kwargs,
+            **kwargs,
         )
     elif method.startswith("pv_exonfirst_"):
         thres = float(method[len("pv_exonfirst_") :])
@@ -193,7 +194,6 @@ def selectKirTypingModel(
             exon_first=True,
             exon_candidate="max_score_ratio",
             exon_candidate_threshold=thres,
-            *args,
             **kwargs,
         )
     elif method == "em":

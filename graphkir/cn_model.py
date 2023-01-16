@@ -353,7 +353,10 @@ class KDEcut(Dist):
         )
         for cn, m in enumerate(self.local_min):
             fig.add_vline(
-                x=m * self.x_max, line_width=2, line_dash="dash", annotation_text=f"cn={cn}"
+                x=m * self.x_max,
+                line_width=2,
+                line_dash="dash",
+                annotation_text=f"cn={cn}",
             )
 
         fig.add_trace(

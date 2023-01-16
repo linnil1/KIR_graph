@@ -88,6 +88,17 @@ def buildIndex(
     return ref_index, index
 
 
+def buildGenomeIndex(index_folder: str = "index") -> str:
+    """Download hs37d5.fa and build hs37d5 bwa index"""
+    Path(index_folder).mkdir(exist_ok=True)
+    wgs_index = f"{index_folder}/hs37d5.fa.gz"
+    if not Path(wgs_index).exists():
+        wgs_index = downloadHg19(index_folder)
+    if not Path(wgs_index + ".bwt").exists():
+        bwaIndex(wgs_index, wgs_index)
+    return wgs_index
+
+
 def getCommonName(r1: str, r2: str) -> str:
     """
     Extract the name for r1 and r2.
@@ -290,8 +301,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     if not args.extract_skip:
         # Prepare wgs Index
         if not args.extract_index:
-            wgs_index = downloadHg19(args.index_folder)
-            bwaIndex(wgs_index, wgs_index)
+            wgs_index = buildGenomeIndex(args.index_folder)
         else:
             wgs_index = args.extract_index
 
