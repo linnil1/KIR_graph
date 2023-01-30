@@ -231,18 +231,20 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
             continue
 
         # preprocess
-        read_id, flag, ref, pos, _, _, next_ref, next_pos = line.split("\t")[:8]
+        read_id, flag_str, ref, pos, _, _, next_ref, next_pos = line.split("\t")[:8]
         if next_ref != "=":
             continue
         num_reads += 1
+        flag = int(flag_str)
 
         # If pair read in temp dict -> remote from temp, check and yield
         next_ref = ref
-        next_id = (read_id, next_ref, next_pos)
+        this_id = (read_id, ref,      pos,      flag & 256)
+        next_id = (read_id, next_ref, next_pos, flag & 256)
         if next_id in reads:
             next_line = reads[next_id]
             # is left and right
-            if ((int(next_line.split("\t")[1]) | int(flag)) & (64 + 128)) != 64 + 128:
+            if ((int(next_line.split("\t")[1]) | flag) & (64 + 128)) != 64 + 128:
                 print("Strange case", line, next_line)
                 continue
             # success
@@ -251,7 +253,7 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
             yield line, next_line
         # if not find -> save in temp
         else:
-            reads[(read_id, ref, pos)] = line
+            reads[this_id] = line
 
     # summary
     print("Reads:", num_reads, "Pairs:", num_pairs)

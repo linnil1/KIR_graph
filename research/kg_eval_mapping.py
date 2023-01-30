@@ -307,6 +307,7 @@ def customGenePrecisionCalc(total: dict[str, int],
             "correct":   d["secondary"],
             "precision": d["secondary"] / d["count"],
             "recall":    d["secondary"] / d["total"],
+            "num_read":  d["secondary"] / d["total"],
             "type": "all",
         }
         # precision should be calculated like this
@@ -317,6 +318,7 @@ def customGenePrecisionCalc(total: dict[str, int],
             "correct":   d["secondary_correct"],
             "precision": d["secondary_correct"] / d["secondary_count"],
             "recall":    d["secondary"]         / d["total"],
+            "num_read":  d["secondary_count"]   / d["total"] / 2,
             "type": "all-per-read",
         }
         yield {
@@ -326,6 +328,7 @@ def customGenePrecisionCalc(total: dict[str, int],
             "correct":   d["unique"],
             "precision": d["unique"]    / d["count"],
             "recall":    d["unique"]    / d["total"],
+            "num_read":  d["count"]     / d["total"],
             "type": "unique-only",
         }
         yield {
@@ -335,6 +338,7 @@ def customGenePrecisionCalc(total: dict[str, int],
             "correct":   d["primary"],
             "precision": d["primary"]   / d["count"],
             "recall":    d["primary"]   / d["total"],
+            "num_read":  d["count"]     / d["total"],
             "type": "primary-only",
         }
 
@@ -366,6 +370,7 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
     df_roc = df.groupby(["method", "type"], as_index=False) \
                .agg({"precision": "mean", "recall": "mean"})
     df_roc["FDR"] = 1 - df_roc["precision"]
+    print(df_roc)
     group_roc, color_roc = reColor(df_roc["method"], df_roc["type"])
     return [
         px.scatter(
@@ -376,6 +381,28 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
             df_gene, x="FDR",  y="recall",
             color=group_gene,
             color_discrete_map=color_gene),
+    ]
+
+
+def customSecdPlot(df: pd.DataFrame) -> list[go.Figure]:
+    print(df)
+    df_gene = df.groupby(["method", "type", "gene"], as_index=False) \
+                .agg({"precision": "mean", "recall": "mean", "num_read": "mean"})
+    group_gene, color_gene = reColor(df_gene["method"], df_gene["type"])
+
+    df_noge = df.groupby(["method", "type"], as_index=False) \
+                .agg({"precision": "mean", "recall": "mean", "num_read": "mean"})
+    group_noge, color_noge = reColor(df_noge["method"], df_noge["type"])
+
+    return [
+        px.scatter(
+            df_gene, x="num_read",  y="recall",
+            color=group_gene,
+            color_discrete_map=color_gene),
+        px.scatter(
+            df_noge, x="num_read",  y="recall",
+            color=group_noge,
+            color_discrete_map=color_noge),
     ]
 
 
@@ -474,8 +501,8 @@ def plotGenewiseMapping() -> list[go.Figure]:
     # sample_index = "data/linnil1_syn_wide.test10"
     answer = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031.read..sam"
     prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
-    filename = "tmp"
-    # filename = f"{sample_index}.bam_stat_vg"
+    skip_read = True
+    skip_process = True
 
     cohort = [
         {"method": "answer",            "compare_gene": "",          "name": f"{answer}"},
@@ -485,19 +512,19 @@ def plotGenewiseMapping() -> list[go.Figure]:
         {"method": "graphkir-ab",       "compare_gene": "ab",        "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
         {"method": "grpahkir-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
         {"method": "grpahkir-ab2dl1s1-type", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.bam"},
+        {"method": "bwa-filter",        "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa.NM_4.no_multi.bam"},
         # {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
         # {"method": "hisat_290-ab-2dl1s1",          "file": f"{name}.index_kir_290_2dl1s1.mut01.bam"},
         # {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
         # {"method": "vg_merge",                     "file": f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
         # {"method": "ping_allele_setup",            "file": f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
     ]
-
-    if not os.path.exists(filename + ".json"):
+    if not skip_read:
         # Figure: Proper Paired Perecetage
         id = 0
         data: list[DfDict] = []
         for info in cohort:
-            for name in NamePath(info["name"]).get_input_names():  # [:3]
+            for name in NamePath(info["name"]).get_input_names():  # [:3]:
                 data.append({
                     "gene_compare_type": info["compare_gene"],
                     "method": info["method"],
@@ -514,26 +541,30 @@ def plotGenewiseMapping() -> list[go.Figure]:
 
         # print(data)
         # json.dump(data, open(filename + ".json", "w"))
+        runShell("stty echo opost")
+        runShell("stty echo opost")
     else:
         print("Reading")
-        data = json.load(open(filename + ".json"))
+        # data = json.load(open("kg_eval_mapping.pergene_read.json"))
 
-    runShell("stty echo opost")
-    runShell("stty echo opost")
+    # skip 
+    if not skip_process:
+        df_stat = applyStatFuncToBam(customSamstatCalc, data)
+        df_stat.to_csv("kg_eval_mapping.pergene_stat.csv", index=False)
+        df_prec = applyStatFuncToBam(customGenePrecisionCalc, data)
+        df_prec.to_csv("kg_eval_mapping.pergene_correct.csv", index=False)
+    else:
+        df_stat = pd.read_csv("kg_eval_mapping.pergene_stat.csv")
+        df_prec = pd.read_csv("kg_eval_mapping.pergene_correct.csv")
+
     figs = []
-    # bam stat but using view
-    df_stat = applyStatFuncToBam(customSamstatCalc, data)
-    df_stat.to_csv("kg_eval_mapping.pergene_stat.csv", index=False)
     figs.extend(customSamstatPlot(df_stat))
-    # gene precision
-    df_prec = applyStatFuncToBam(customGenePrecisionCalc, data)
-    df_prec.to_csv("kg_eval_mapping.pergene_correct.csv", index=False)
-    # df_prec = pd.read_csv("kg_eval_mapping.pergene_correct.csv")
     df_prec = df_prec[~df_prec["type"].isin(("all", "primary-only"))]
     df_prec.loc[df_prec["type"] == "all-per-read", "type"] = "all"
     figs.extend(customGenePrecisionPlot(df_prec))
     figs.extend(customGenePrecisionPlot(df_prec, "recall"))
     figs.extend(customRocPlot(df_prec))
+    figs.extend(customSecdPlot(df_prec))
     return figs
 
 

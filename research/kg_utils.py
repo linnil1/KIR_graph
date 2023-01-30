@@ -156,6 +156,7 @@ def compareResult(
     print(input_name + ".tsv")
     answer_seq = {}
     # back = xx.00.30x.fq -> xx.00.fa
+    """
     for name in NamePath(back(NamePath(sample_name))).get_input_names():
         if not Path(name + ".fa").exists():
             continue
@@ -167,6 +168,7 @@ def compareResult(
                 allele_seq[i[:-2]] = allele_seq[i]
 
         answer_seq[name.template_args[-1]] = allele_seq
+    """
 
     predit_seq = {}
     if input_fasta_name:

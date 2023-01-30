@@ -1,11 +1,21 @@
 from pathlib import Path
+from collections import Counter
+
 from graphkir.utils import (
     samtobam,
     getThreads,
 )
-from kg_utils import runDocker
-from graphkir.hisat2 import hisatMap
+from graphkir.hisat2 import (
+    hisatMap,
+    readPair,
+    filterRead,
+    ReadsAndVariantsData,
+    PairRead,
+    saveReadsToBam,
+)
 from graphkir import wgs
+
+from kg_utils import runDocker
 
 
 def hisatMapWrap(input_name, index):
@@ -93,3 +103,43 @@ def trimBam(input_name, remove=False):
         Path(f"{input_name}.bam").unlink()
         Path(f"{input_name}.bam").touch()
     return output_name
+
+
+def filterNM(input_name):
+    # name = "data/linnil1_syn_s2022.99.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa"
+    output_prefix = input_name + ".NM_4"
+    bam_file = input_name + ".bam"
+    if Path(output_prefix + ".no_multi.bam").exists():
+        return output_prefix + ".no_multi"
+    pair_reads = readPair(bam_file)
+    pair_reads = filter(lambda lr: filterRead(lr[0]) and filterRead(lr[1]), pair_reads)
+    pair_reads = list(pair_reads)
+
+    c = Counter(left.split("\t")[0] for left, right in pair_reads)
+    for i, j in c.items():
+        if j > 1:
+            print(i, j)
+
+    reads = []
+    for left_record, right_record in pair_reads:
+        reads.append(
+            PairRead(
+                lpv=[],
+                lnv=[],
+                rpv=[],
+                rnv=[],
+                l_sam=left_record,
+                r_sam=right_record,
+                multiple=c[left_record.split("\t")[0]],
+                backbone=left_record.split("\t")[2],
+            )
+        )
+
+    reads_data: ReadsAndVariantsData = {
+        "variants": [],
+        "reads": reads,
+    }
+    saveReadsToBam(
+        reads_data, output_prefix + ".no_multi", bam_file, filter_multi_mapped=True
+    )
+    return output_prefix + ".no_multi"

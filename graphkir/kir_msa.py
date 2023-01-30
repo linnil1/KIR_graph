@@ -302,6 +302,11 @@ def buildKirMsa(
         if not full_length_only:
             genes = fillMissingIntrons(genes)
 
+    # start from v2.12.0 2DL5 and 2DL5A and 2DL5B are coexist
+    if "KIR2DL5" in genes and "KIR2DL5A" in genes:
+        genes.pop("KIR2DL5A")
+        genes.pop("KIR2DL5B")
+
     if mode == "split":
         genes["KIR2DL5A"] = genes["KIR2DL5"].select_allele("KIR2DL5A.*")
         genes["KIR2DL5B"] = genes["KIR2DL5"].select_allele("KIR2DL5B.*")

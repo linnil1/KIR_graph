@@ -27,23 +27,34 @@ def buildMSA(
     index_folder: str = "index",
     threads: int = 1,
     add_exon_only_sequences: bool = True,
+    ipd_version: str = "2100",
 ) -> str:
     Path(index_folder).mkdir(exist_ok=True)
     """Build MSA from source"""
     if not add_exon_only_sequences:
-        msa_index = f"{index_folder}/kir_2100_{msa_type}"
+        msa_index = f"{index_folder}/kir_{ipd_version}_{msa_type}"
         if not glob(msa_index + ".KIR*"):
-            buildKirMsa(msa_type, msa_index, threads=threads)
+            buildKirMsa(
+                msa_type, msa_index,
+                version=ipd_version,
+                threads=threads,
+            )
     else:
-        exon_name = f"{index_folder}/kir_2100_withexon"
+        exon_name = f"{index_folder}/kir_{ipd_version}_withexon"
         msa_index = exon_name + "_" + msa_type
         if not glob(exon_name + "_ab.KIR*"):
             buildKirMsa(
-                "ab", exon_name + "_ab", full_length_only=False, threads=threads
+                "ab", exon_name + "_ab",
+                version=ipd_version,
+                full_length_only=False,
+                threads=threads,
             )
         if not glob(msa_index + ".KIR*"):
             buildKirMsa(
-                msa_type, msa_index, input_msa_prefix=exon_name + "_ab", threads=threads
+                msa_type, msa_index,
+                version=ipd_version,
+                input_msa_prefix=exon_name + "_ab",
+                threads=threads,
             )
 
     msa_index1 = msa_index + ".leftalign"
@@ -58,6 +69,7 @@ def buildIndex(
     index_folder: str = "index",
     threads: int = 1,
     add_exon_only_sequences: bool = True,
+    ipd_version: str = "2100",
 ) -> tuple[str, str]:
     """
     Build graph data
@@ -78,7 +90,12 @@ def buildIndex(
     ref_index = msa_index + ".mut01"
     if not Path(ref_index + ".haplotype").exists():
         if not glob(msa_index + ".KIR*"):
-            buildMSA(msa_type, index_folder, threads, add_exon_only_sequences)
+            buildMSA(
+                msa_type, index_folder,
+                threads=threads,
+                add_exon_only_sequences=add_exon_only_sequences,
+                ipd_version=ipd_version,
+            )
         msa2HisatReference(msa_index, ref_index)
 
     index = ref_index + ".graph"
@@ -151,6 +168,11 @@ def createParser() -> argparse.ArgumentParser:
         help="podman,docker,singularity,local(samtools,hisat2... installed)",
     )
     parser.add_argument(
+        "--ipd-version",
+        default="2100",
+        help="IPD*KIR version. Branch name in https://github.com/ANHIG/IPDKIR are all available.",
+    )
+    parser.add_argument(
         "--r1",
         action="append",
         help="Read 1 fastq",
@@ -171,12 +193,10 @@ def createParser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-folder",
-        default=None,
         help="The path for saving data. Otherwise save in the same folder with reads.",
     )
     parser.add_argument(
         "--output-cohort-name",
-        default=None,
         help="Cohort name (Default: {folder}/cohort.xx)",
     )
     parser.add_argument(
@@ -327,7 +347,10 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
 
     # Prepare Index
     ref_index, index = buildIndex(
-        args.msa_type, args.index_folder, getThreads(), not args.msa_no_exon_only_allele
+        args.msa_type, args.index_folder,
+        threads=getThreads(),
+        add_exon_only_sequences=not args.msa_no_exon_only_allele,
+        ipd_version=args.ipd_version,
     )
 
     # Read Mapping and filtering
@@ -408,9 +431,13 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         method = args.allele_method
         if not args.allele_no_exon_only_allele:
             assert method == "pv"
-            method += "_exonfirst_1.2"
+            method += "_exonfirst_1"  #_1.2
         suffix += method
-        t = selectKirTypingModel(method, name + ".json", top_n=600)
+        t = selectKirTypingModel(
+            method, name + ".json",
+            top_n=600,
+            variant_correction=True,
+        )
         cn = loadCN(cn_file)
         called_alleles = t.typing(cn)
         name += suffix

@@ -688,31 +688,41 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
 if __name__ == "__main__":
     # answer = "linnil1_syn/linnil1_syn_s44_summary.csv"
     # prefix = "data/linnil1_syn_s44.{}.30x_s444"
-    real = True
-    if not real:
+    cohort_name = "100"
+    if cohort_name == "100":
         answer = "linnil1_syn/linnil1_syn_s2022_summary.csv"
         prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
         cohort = [
             {"method": "answer", "name": f"{answer}"},
             {
-                "method": "ab2dl1s1-pv",
+                "method": "graphkir-ab2dl1s1-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
             },
             {
-                "method": "ab2dl1s1-exonfirst",
+                "method": "graphkir-ab2dl1s1-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
             },
             {
-                "method": "ab2dl1s1-b2-pv",
+                "method": "graphkir-ab2dl1s1-b2-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
             },
             {
-                "method": "ab2dl1s1-b2-exonfirst",
+                "method": "graphkir-ab2dl1s1-b2-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "graphkir-290-ab2dl1s1-full",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_290_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "graphkir-290-ab2dl1s1-exonfirst",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_290_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
             },
             {
                 "method": "ping",
@@ -755,28 +765,28 @@ if __name__ == "__main__":
             },
             # TODO: exon sequences
         ]
-    else:
+    elif cohort_name == "hprc":
         answer = "hprc_summary.csv"
         prefix = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"  # .annot_read"
         cohort = [
             {"method": "answer", "name": f"{answer}"},
             {
-                "method": "ab2dl1s1-pv",
+                "method": "graphkir-ab2dl1s1-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv.compare_sum.top600.tsv"
             },
             {
-                "method": "ab2dl1s1-exonfirst",
+                "method": "graphkir-ab2dl1s1-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.pv_exonfirst_1.2.compare_sum.top600.tsv"
             },
             {
-                "method": "ab2dl1s1-b2-pv",
+                "method": "graphkir-ab2dl1s1-b2-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
             },
             {
-                "method": "ab2dl1s1-b2-exonfirst",
+                "method": "graphkir-ab2dl1s1-b2-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
             },

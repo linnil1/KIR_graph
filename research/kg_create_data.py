@@ -31,7 +31,7 @@ def readSequences():
       dict[str, str]: sequence-name and sequences
     """
     # any sequences with _sequences.fa are the same
-    seqs_dict = SeqIO.to_dict(SeqIO.parse("index/kir_2100_raw.mut01_sequences.fa", "fasta"))
+    seqs_dict = SeqIO.to_dict(SeqIO.parse("index/kir_2100_ab.mut01_sequences.fa", "fasta"))
     for i in seqs_dict.values():
         i.description = ""
     return seqs_dict

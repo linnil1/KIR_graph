@@ -29,11 +29,14 @@ from vg import (
 from kg_utils import (
     runDocker, compareResult, linkSamples, getAnswerFile, addSuffix, back
 )
-from kg_mapping import bowtie2, bowtie2Index, bwa, bwaIndex, hisatMapWrap
+from kg_mapping import (
+    bowtie2, bowtie2Index, bwa, bwaIndex, hisatMapWrap, filterNM
+)
 from kg_wgs import downloadHg19
 from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_create_fake_intron import createFakeIntronSample
 from kg_create_novel import addNovelFromMsaWrap, updateNovelAnswer
+from kg_create_version_diff_allele import createOldNewAllele
 from kg_typing_novel import typingNovel
 from kg_create_exonseq_only import (
     extractPairReadsOnceInBed,
@@ -437,11 +440,16 @@ if __name__ == "__main__":
         seed1 = 44
         seed2 = 444
         depth = 50
+    elif cohort == "10old":
+        N = 10
+        seed1 = 44
+        seed2 = 444
+        depth = 30
 
     msa_index = compose([
         index_folder,
         # partial(buildKirMsaWrap, msa_type="ab_2dl1s1"),  # merge split ab ab_2dl1s1
-        partial(buildMsaWithCds, msa_type="ab_2dl1s1"),
+        partial(buildMsaWithCds, msa_type="ab_2dl1s1", version="2100"),  # 290 2100 2120
         leftAlignWrap,
     ])
 
@@ -450,6 +458,11 @@ if __name__ == "__main__":
         samples = compose([
             answer_folder,
             partial(createFakeSamplesWithAnswer, N=N, seed=seed1),
+        ])
+    elif cohort == "10old":
+        samples = compose([
+            answer_folder,
+            partial(createOldNewAllele, N=N, seed=seed1, new_allele=1),  # 0,1
         ])
     else:
         samples = compose([
@@ -549,53 +562,55 @@ if __name__ == "__main__":
         partial(compareResult, sample_name=samples_ori.output_name, input_fasta_name=novel.output_name, plot=False),
     ])
 
-    """
-    # vg
-    vg_index = compose([
-        msa_index,
-        getMSABackbone,
-        back,
-        partial(addSuffix, suffix=".{}"),
-        msa2vcf,
-        NameTask(buildVG, depended_pos=[-1]),
-    ])
-    mapping = compose([
-        samples,
-        partial(mapVG, index=str(vg_index)),
-    ])
+    other_mapping = set(["vg", "bwa", "bowtie"])
+    other_mapping = set([""])
+    if "vg" in other_mapping:
+        vg_index = compose([
+            msa_index,
+            getMSABackbone,
+            back,
+            partial(addSuffix, suffix=".{}"),
+            msa2vcf,
+            NameTask(buildVG, depended_pos=[-1]),
+        ])
+        mapping = compose([
+            samples,
+            partial(mapVG, index=str(vg_index)),
+        ])
 
-    # visualize
-    tube_index = vg_index >> vgindex2VGTube
-    tube = compose([None, setupVGTube])
-    samples_vis = compose([
-        samples,
-        partial(mapVG, index=str(vg_index), output_type="gam"),
-        NameTask(partial(writeVGTubeSettings, index=str(tube_index), tube_path=str(tube)), depended_pos=[-1]),
-        NameTask(partial(startVGTube, tube_path=str(tube), port=8001), depended_pos=[-1]),
-    ])
+        # visualize
+        tube_index = vg_index >> vgindex2VGTube
+        tube = compose([None, setupVGTube])
+        samples_vis = compose([
+            samples,
+            partial(mapVG, index=str(vg_index), output_type="gam"),
+            NameTask(partial(writeVGTubeSettings, index=str(tube_index), tube_path=str(tube)), depended_pos=[-1]),
+            NameTask(partial(startVGTube, tube_path=str(tube), port=8001), depended_pos=[-1]),
+        ])
 
-    # bowtie or bwa
-    backbone_index = compose([
-        msa_index,
-        getMSABackbone,
-        # getMSAFullSequence,
-    ])
+    if "bwa" in other_mapping or "bowtie" in other_mapping:
+        backbone_index = compose([
+            msa_index,
+            getMSABackbone,
+            # getMSAFullSequence,
+        ])
 
-    # bowtie
-    bowtie2_index = backbone_index >> bowtie2Index
-    mapping = compose([
-        samples,
-        partial(bowtie2, index=str(bowtie2_index)),
-    ])
-    # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
-    # bowtie2_index = index >> "index/kir_2100_raw.mut01" >> bowtie2BuildFull >> "index/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
-    # mapping = samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
+    if "bowtie" in other_mapping:
+        bowtie2_index = backbone_index >> bowtie2Index
+        mapping = compose([
+            samples,
+            partial(bowtie2, index=str(bowtie2_index)),
+        ])
+        # bowtie2_index = index >> bowtie2BuildConsensus  # "index/kir_2100_?_cons"
+        # bowtie2_index = index >> "index/kir_2100_raw.mut01" >> bowtie2BuildFull >> "index/kir_2100_raw_full" # index = "index/kir_2100_raw_full"
+        # mapping = samples >> bowtie2.set_args(index=str(bowtie2_index), use_arg="ping")
 
     # bwa
-    bwa_index = backbone_index >> bwaIndex
-    mapping = compose([
-        samples,
-        partial(bwa, index=str(bwa_index)),
-    ])
-    """
+    if "bwa" in other_mapping:
+        bwa_index = backbone_index >> bwaIndex
+        mapping = compose([
+            samples,
+            partial(bwa, index=str(bwa_index)),
+            filterNM,
+        ])
     runShell("stty echo opost")
