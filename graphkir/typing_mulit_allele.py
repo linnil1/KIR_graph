@@ -77,14 +77,14 @@ class TypingResult:
         if filter_fraction:
             expect_prob = 1 / self.n
             ids = filter(
-                lambda i: all(i >= expect_prob / 2 for i in self.fraction[i]), ids
+                lambda i: all(i >= expect_prob / 2 for i in self.fraction[i]),
+                ids
             )
         if filter_minor:
             ids = filter(
                 lambda i: np.abs(self.value_sum_indv[i]).min()
-                / np.abs(self.value_sum_indv[i]).max()
-                > 0.8,
-                ids,
+                        / np.abs(self.value_sum_indv[i]).max() > 0.8,
+                ids
             )
             # ids = filter(lambda i: np.abs(self.fraction_uniq[i]).min() / np.abs(self.fraction_uniq[i]).max() > 0.1, ids)
         ids = list(ids) or [0]
@@ -97,7 +97,7 @@ class TypingResult:
         else:
             return ["fail"] * self.n
 
-    def print(self, num: int = 10) -> None:
+    def print(self, num: int = 100, top_threshold: float = 0.9) -> None:
         """
         Print the first `num` typing result
 
@@ -113,9 +113,13 @@ class TypingResult:
             ```
         """
         print("Allele_num = ", self.n)
-        top_n = len(self.value)
 
-        for rank in range(min(top_n, num)):
+        ranks = self.topRank(top_threshold)
+        print_n = 0
+        for rank in ranks:
+            if print_n > num:
+                break
+            print_n += 1
             print("Rank",      rank,
                   "probility", self.value[rank],
                   "sum",       self.value_sum_indv[rank].sum())
@@ -131,7 +135,7 @@ class TypingResult:
                     print("  group", f"{self.allele_name_group[rank][i]}", end=" ")
                 print()
 
-    def fillNameGroup(self, allele_group_mapping: dict[str, list[str]]) -> None:
+    def setNameGroup(self, allele_group_mapping: dict[str, list[str]]) -> None:
         """extend the allele groups by allele_name and save in allele_name_group"""
         self.allele_name_group = [
             [allele_group_mapping[j] for j in i] for i in self.allele_name
@@ -145,14 +149,35 @@ class TypingResult:
         rank_index = rankScore(self.value, self.value_sum_indv, self.fraction)
         return TypingResult(
             n              = self.n,
-            value          = self.value          [rank_index][:preserve_topn],
-            value_sum_indv = self.value_sum_indv [rank_index][:preserve_topn],
-            allele_id      = self.allele_id      [rank_index][:preserve_topn],
+            value          = self.value                   [rank_index][:preserve_topn],
+            value_sum_indv = self.value_sum_indv          [rank_index][:preserve_topn],
+            allele_id      = self.allele_id               [rank_index][:preserve_topn],
             allele_name    = [self.allele_name[i] for i in rank_index][:preserve_topn],
-            allele_prob    = self.allele_prob [:, rank_index][:, :preserve_topn],
-            fraction       = self.fraction       [rank_index][:preserve_topn],
-            fraction_uniq  = self.fraction_uniq  [rank_index][:preserve_topn],
+            allele_prob    = self.allele_prob          [:, rank_index][:, :preserve_topn],
+            fraction       = self.fraction                [rank_index][:preserve_topn],
+            fraction_uniq  = self.fraction_uniq           [rank_index][:preserve_topn],
         )
+
+    def topRank(self, threshold: float = 0.9) -> Iterable[int]:
+        """
+        Find the rank that likelihood value > max_likelihood * threshold
+
+        Assume rank is sorted
+        """
+        assert len(self.value)
+        yield 0
+        max_value = self.value[0]
+        for i, v in enumerate(self.value):
+            if i and v * threshold > max_value:
+                yield i
+
+    def selectAllPossible(self, threshold: float = 0.9) -> list[tuple[float, list[str]]]:
+        """Select all possible sets"""
+        ranks = self.topRank(threshold)
+        groups_alleles = []
+        for rank in ranks:
+            groups_alleles.append((self.value[rank], self.allele_name[rank]))
+        return groups_alleles
 
 
 def argSortRow(data: FloatNdArray) -> list[int]:
@@ -204,16 +229,18 @@ class AlleleTyping:
             getting related alleles.
         """
         self.top_n = top_n
-
-        self.variants: dict[str, Variant] = {str(v.id): v for v in variants}
+        self._no_empty = no_empty
         allele_names = self.collectAlleleNames(variants)
+
+        # create variant_id -> variant
+        # create array index -> allele name
+        self.variants: dict[str, Variant] = {str(v.id): v for v in variants}
         self.id_to_allele: dict[int, str] = dict(enumerate(sorted(allele_names)))
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
 
-        self._no_empty = no_empty
         if variant_correction:  # var_errcorr
             reads = self.errorCorrection(reads)
-        if self._no_empty:
+        if self._no_empty:  # reserve read position
             reads = self.removeEmptyReads(reads)
         self.probs = self.reads2AlleleProb(reads)
         self.log_probs = np.log10(self.probs)
@@ -499,7 +526,63 @@ class AlleleTyping:
 
 
 class AlleleTypingExonFirst(AlleleTyping):
-    only_exon_variant = False
+    def __init__(
+        self,
+        reads: list[PairRead],
+        variants: list[Variant],
+        top_n: int = 300,
+        exon_only: bool = False,
+        candidate_set_threshold: float = 1.,
+        variant_correction: bool = True,
+    ):
+        """Extracting exon alleles"""
+        # extract exon variants
+        exon_variants = [v for v in variants if v.in_exon]
+        # intron_variants = [v for v in variants if not v.in_exon]
+
+        # cleanup reads (only exon variant preserved)
+        exon_reads = self.removeIntronVariant(reads, exon_variants)
+        if variant_correction:  # var_errcorr
+            exon_reads = self.errorCorrection(exon_reads)
+        exon_reads = self.removeEmptyReads(exon_reads)
+
+        # aggr same alleles that has the same variantset
+        variantset_to_allele = self.aggrVariantsByAllele(exon_variants)
+        other_allele = self.collectAlleleNames(variants) \
+                     - self.collectAlleleNames(exon_variants)
+        if other_allele:  # special case
+            variantset_to_allele[tuple()] = sorted(other_allele)
+        self.allele_group = {
+            "|".join(alleles): alleles for alleles in variantset_to_allele.values()
+        }
+        exon_variants = self.removeDuplicateAllele(
+            variants, self.createInverseMapping(self.allele_group)
+        )
+        # from pprint import pprint
+        # pprint(self.allele_group)
+
+        # same as before
+        super().__init__(exon_reads, exon_variants, top_n=top_n)
+        self.candidate_set_threshold = candidate_set_threshold
+        """
+        self.first_set_only = candidate_set == "first_score"
+        if candidate_set == "same_score":
+            self.candidate_set_max_score_ratio = 1.0
+        elif candidate_set == "max_score_ratio":
+            self.candidate_set_max_score_ratio = candidate_set_threshold
+        else:
+            self.candidate_set_max_score_ratio = 1.1
+        """
+
+        if not exon_only:
+            self.full_model: AlleleTyping | None = AlleleTyping(
+                reads,
+                variants,
+                top_n = top_n // 5, # TODO: default = 30
+                variant_correction=variant_correction,
+            )
+        else:
+            self.full_model = None
 
     @staticmethod
     def aggrVariantsByAllele(
@@ -553,59 +636,6 @@ class AlleleTypingExonFirst(AlleleTyping):
             )
         return variants
 
-    def __init__(
-        self,
-        reads: list[PairRead],
-        variants: list[Variant],
-        top_n: int = 300,
-        exon_only: bool = False,
-        candidate_set: str = "first_score",
-        candidate_set_threshold: float = 1.1,
-        variant_correction: bool = True,
-    ):
-        """Extracting exon alleles"""
-        # extract exon variants
-        exon_variants = [v for v in variants if v.in_exon]
-        intron_variants = [v for v in variants if not v.in_exon]
-
-        # cleanup reads (only exon variant preserved)
-        exon_reads = self.removeIntronVariant(reads, exon_variants)
-        if variant_correction:  # var_errcorr
-            exon_reads = self.errorCorrection(exon_reads)
-        exon_reads = self.removeEmptyReads(exon_reads)
-
-        # aggr same alleles that has the same variantset
-        variantset_to_allele = self.aggrVariantsByAllele(exon_variants)
-        other_allele = self.collectAlleleNames(variants) - self.collectAlleleNames(
-            exon_variants
-        )
-        if other_allele:  # special case
-            variantset_to_allele[tuple()] = sorted(other_allele)
-        self.allele_group = {
-            alleles[0]: alleles for alleles in variantset_to_allele.values()
-        }
-        exon_variants = self.removeDuplicateAllele(
-            variants, self.createInverseMapping(self.allele_group)
-        )
-        # from pprint import pprint
-        # pprint(self.allele_group)
-
-        # same as before
-        super().__init__(exon_reads, exon_variants, top_n=top_n)
-        self.first_set_only = candidate_set == "first_score"
-        if candidate_set == "same_score":
-            self.candidate_set_max_score_ratio = 1.0
-        elif candidate_set == "max_score_ratio":
-            self.candidate_set_max_score_ratio = candidate_set_threshold
-        else:
-            self.candidate_set_max_score_ratio = 1.1
-
-        if not exon_only:
-            self.full_model: AlleleTyping | None = AlleleTyping(reads, variants)
-            self.full_model.top_n = self.top_n // 5  # TODO: default = 30
-        else:
-            self.full_model = None
-
     def typingIntron(
         self, exon_candidates: list[list[str]], verbose: bool = True
     ) -> AlleleTyping:
@@ -626,7 +656,7 @@ class AlleleTypingExonFirst(AlleleTyping):
             Each set has CN alleles.
         """
         result = super().typing(cn)
-        result.fillNameGroup(self.allele_group)
+        result.setNameGroup(self.allele_group)
         if verbose:
             print("Exon:")
             result.print()
@@ -642,33 +672,28 @@ class AlleleTypingExonFirst(AlleleTyping):
             print("Error: Cannot typing with exon-only reads. Typing with exon+intron")
             return self.full_model.typing(cn)
 
-        if self.first_set_only:
-            full_model = self.typingIntron(result.allele_name_group[0])
-            self.result.extend(full_model.result)
-            return self.result[-1]
-
         # all same-score KIR exon allele set
-        max_score = result.value.max()
-        mixed_result = []
-        for i in range(len(result.value)):
-            if verbose:
-                print(f"Typing Intron of set {i}")
-            if result.value[i] < max_score * self.candidate_set_max_score_ratio:
-                continue
+        candidate_result = []
+        candidate_ranks = result.topRank(threshold=self.candidate_set_threshold)
+        for i in candidate_ranks:
+            print(f"Exon-first: Typing Intron of candidate {i}")
             full_model = self.typingIntron(result.allele_name_group[i], verbose=False)
             self.result.extend(full_model.result)
-            mixed_result.append(full_model.result[-1])
-        print(f"{len(mixed_result)=}")
+            candidate_result.append(full_model.result[-1])
 
         # Merge result and sort it (same sorting method as addCandidate)
+        print(f"{len(candidate_result)=}")
         result = TypingResult(
-            n              = mixed_result[0].n,
-            value          = np.concatenate([res.value          for res in mixed_result]),
-            value_sum_indv = np.concatenate([res.value_sum_indv for res in mixed_result]),
-            allele_id      = np.concatenate([res.allele_id      for res in mixed_result]),
-            allele_name    = list(chain.from_iterable(res.allele_name for res in mixed_result)),
-            allele_prob    = np.concatenate([res.allele_prob    for res in mixed_result], axis=1),
-            fraction       = np.concatenate([res.fraction       for res in mixed_result]),
-            fraction_uniq  = np.concatenate([res.fraction       for res in mixed_result]),  # ignore this
+            n              = candidate_result[0].n,
+            value          = np.concatenate([res.value                for res in candidate_result]),
+            value_sum_indv = np.concatenate([res.value_sum_indv       for res in candidate_result]),
+            allele_id      = np.concatenate([res.allele_id            for res in candidate_result]),
+            allele_name    = list(chain.from_iterable(res.allele_name for res in candidate_result)),
+            allele_prob    = np.concatenate([res.allele_prob          for res in candidate_result], axis=1),
+            fraction       = np.concatenate([res.fraction             for res in candidate_result]),
+            fraction_uniq  = np.concatenate([res.fraction             for res in candidate_result]),  # ignore this
         )
-        return result.sortByScoreAndEveness()
+        result = result.sortByScoreAndEveness()
+        self.result.append(result)
+        result.print()
+        return result

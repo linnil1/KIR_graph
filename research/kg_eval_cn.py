@@ -230,6 +230,8 @@ if __name__ == "__main__":
              "name": f"{NamePath(prefix).replace_wildcard('_merge')}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
             {"method": "graphkir-ab2dl1s1-b2-cohort",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2.cohort.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2-exon",
+             "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.exon.p75.CNgroup_b2_assume3DL3.tsv"},
             {"method": "graphkir-ab2dl1s1-b2-median",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_b2_assume3DL3.tsv"},
             # {"method": "ab2dl1s1-dev6",

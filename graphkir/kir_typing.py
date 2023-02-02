@@ -55,6 +55,7 @@ class Typing:
             # if "KIR3DP1" not in gene:
             #     continue
             predict_alleles.extend(self.typingPerGene(gene, cn))
+
         return predict_alleles
 
     def save(self, filename: str) -> None:
@@ -73,8 +74,7 @@ class TypingWithPosNegAllele(Typing):
         multiple: bool = False,
         exon_first: bool = False,
         exon_only: bool = False,
-        exon_candidate: str = "first_score",
-        exon_candidate_threshold: float = 1.1,
+        exon_candidate_threshold: float = .9,
         variant_correction: bool = False,
     ):
         """Read all reads and variants from the json file (From .hisat2.py)"""
@@ -87,7 +87,6 @@ class TypingWithPosNegAllele(Typing):
         self._gene_variants = groupVariants(reads_data["variants"])
         self._exon_first = exon_first
         self._exon_only = exon_only
-        self._exon_candidate = exon_candidate
         self._exon_candidate_threshold = exon_candidate_threshold
         self._variant_correction = variant_correction
 
@@ -107,7 +106,6 @@ class TypingWithPosNegAllele(Typing):
                 self._gene_variants[gene],
                 top_n=self._top_n,
                 exon_only=self._exon_only,
-                candidate_set=self._exon_candidate,
                 candidate_set_threshold=self._exon_candidate_threshold,
             )
         res = typ.typing(cn)
@@ -116,6 +114,24 @@ class TypingWithPosNegAllele(Typing):
         alleles = res.selectBest()
         alleles = [i if i != "fail" else f"{gene}*" for i in alleles]
         return alleles
+
+    def getAllPossibleTyping(self) -> list[dict[Any, Any]]:
+        """
+        Return all possible set of allele typing.
+        Call typing() before calling this function
+        """
+        possible_list = []
+        for gene, result in self._result.items():
+            for rank, (value, alleles) in enumerate(result[-1].selectAllPossible(.9)):
+                simple_result = {
+                    "gene": gene,
+                    "rank":  rank,
+                    "value": result[-1].value[rank],
+                }
+                for i, allele in enumerate(alleles):
+                    simple_result[i + 1] = allele
+                possible_list.append(simple_result)
+        return possible_list
 
 
 class TypingWithReport(Typing):
@@ -178,22 +194,17 @@ def selectKirTypingModel(
     **kwargs: Any,
 ) -> Typing:
     """Select and Init typing model"""
-    if method == "pv":
+    if method == "full":
         return TypingWithPosNegAllele(filename_variant_json, **kwargs)
-    elif method == "pv_exonfirst":
+    elif method.startswith("exonfirst"):
+        fields = method.split("_")
+        threshold = 0.0
+        if len(fields) == 2:  # e.g. exonfirst_1.2
+            threshold = float(method[len("exonfirst_") :])
         return TypingWithPosNegAllele(
             filename_variant_json,
             exon_first=True,
-            exon_candidate="first_score",
-            **kwargs,
-        )
-    elif method.startswith("pv_exonfirst_"):
-        thres = float(method[len("pv_exonfirst_") :])
-        return TypingWithPosNegAllele(
-            filename_variant_json,
-            exon_first=True,
-            exon_candidate="max_score_ratio",
-            exon_candidate_threshold=thres,
+            exon_candidate_threshold=threshold,
             **kwargs,
         )
     elif method == "em":

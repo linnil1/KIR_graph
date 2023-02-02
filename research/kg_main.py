@@ -248,12 +248,31 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     # debug
     # if "02" != input_name.template_args[0]:
     #     return output_name_template
-    t = selectKirTypingModel(allele_method, input_name + ".json", top_n=top_n, variant_correction=error_correction)
+    # rename
+    if allele_method == "pv":
+        allele_method = "full"
+    elif allele_method.startswith("pv_exonfirst"):
+        allele_method = allele_method[3:]
+    else:
+        raise ValueError
+    t = selectKirTypingModel(
+        allele_method, input_name + ".json",
+        top_n=top_n,
+        variant_correction=error_correction
+    )
     if not Path(cn_name + ".tsv").exists():
         return None
     cn = loadCN(cn_name + ".tsv")
     called_alleles = t.typing(cn)
+    # save result detail json
     t.save(output_name + ".json")
+
+    # Save all possible result in tsv
+    possible_list = t.getAllPossibleTyping()
+    df_possible = pd.DataFrame(possible_list)
+    df_possible = df_possible.fillna("")
+    df_possible.to_csv(output_name + ".possible.tsv", index=False, sep="\t")
+    print(df_possible)
 
     print(input_name)
     print(called_alleles)
@@ -532,6 +551,7 @@ if __name__ == "__main__":
     ])
     runShell("stty echo opost")
 
+    # extract_exon = True
     cn = compose([
         variant,
         partial(addSuffix, suffix=".no_multi"),

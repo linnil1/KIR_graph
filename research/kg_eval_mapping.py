@@ -265,7 +265,10 @@ def customGenePrecisionCalc(total: dict[str, int],
     data = {
         gene: {
             "total": num, "count": 0,
-            "unique": 0, "primary": 0, "secondary": 0,
+            "unique": 0,
+            "unique_count": 0,
+            "primary": 0,
+            "secondary": 0,
             "secondary_count": 0,
             "secondary_correct": 0,
         } for gene, num in total.items()
@@ -295,8 +298,10 @@ def customGenePrecisionCalc(total: dict[str, int],
                 data[getGeneName(read_name)]['secondary_correct'] += 1
 
         # unique mapping
-        if len(mapping_info) == 2 and getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
-            data[getGeneName(read_name)]["unique"] += 1
+        if len(mapping_info) == 2:
+            data[getGeneName(read_name)]["unique_count"] += 1
+            if getRenamedGeneName(primary[0].ref) == getRenamedGeneName(read_name):
+                data[getGeneName(read_name)]["unique"] += 1
 
     for gene, d in data.items():
         # origin method
@@ -314,21 +319,24 @@ def customGenePrecisionCalc(total: dict[str, int],
         yield {
             "gene": gene,
             "total":                              d["total"],
-            "count":                              d["secondary_count"],
+            "count":                              d["secondary_count"] / 2,
             "correct":   d["secondary_correct"],
             "precision": d["secondary_correct"] / d["secondary_count"],
             "recall":    d["secondary"]         / d["total"],
             "num_read":  d["secondary_count"]   / d["total"] / 2,
             "type": "all-per-read",
         }
+        unique_count = d["unique_count"]
+        if not unique_count:
+            unique_count = d["count"]
         yield {
             "gene": gene,
-            "total":                      d["total"],
-            "count":                      d["count"],
+            "total":                         d["total"],
+            "count":                         d["unique_count"],
             "correct":   d["unique"],
-            "precision": d["unique"]    / d["count"],
-            "recall":    d["unique"]    / d["total"],
-            "num_read":  d["count"]     / d["total"],
+            "precision": d["unique"]       / unique_count,
+            "recall":    d["unique"]       / d["total"],
+            "num_read":  d["unique_count"] / d["total"],
             "type": "unique-only",
         }
         yield {
@@ -365,44 +373,42 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
     df_gene = df.groupby(["method", "type", "gene"], as_index=False) \
                .agg({"precision": "mean", "recall": "mean"})
     df_gene["FDR"] = 1 - df_gene["precision"]
-    group_gene, color_gene = reColor(df_gene["method"], df_gene["type"])
 
     df_roc = df.groupby(["method", "type"], as_index=False) \
                .agg({"precision": "mean", "recall": "mean"})
     df_roc["FDR"] = 1 - df_roc["precision"]
     print(df_roc)
-    group_roc, color_roc = reColor(df_roc["method"], df_roc["type"])
     return [
         px.scatter(
             df_roc, x="FDR",  y="recall",
-            color=group_roc,
-            color_discrete_map=color_roc),
+            color="method", symbol= "type"),
         px.scatter(
             df_gene, x="FDR",  y="recall",
-            color=group_gene,
-            color_discrete_map=color_gene),
+            color="method", symbol= "type"),
     ]
 
 
-def customSecdPlot(df: pd.DataFrame) -> list[go.Figure]:
+def customSecdPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
     print(df)
     df_gene = df.groupby(["method", "type", "gene"], as_index=False) \
                 .agg({"precision": "mean", "recall": "mean", "num_read": "mean"})
-    group_gene, color_gene = reColor(df_gene["method"], df_gene["type"])
+    df_gene["FDR"] = 1 - df_gene["precision"]
 
     df_noge = df.groupby(["method", "type"], as_index=False) \
                 .agg({"precision": "mean", "recall": "mean", "num_read": "mean"})
-    group_noge, color_noge = reColor(df_noge["method"], df_noge["type"])
+    df_noge["FDR"] = 1 - df_noge["precision"]
 
     return [
         px.scatter(
-            df_gene, x="num_read",  y="recall",
-            color=group_gene,
-            color_discrete_map=color_gene),
+            df_gene, x="num_read",  y=y,
+            color="method", symbol="type")
+          .update_layout(
+              xaxis_title="Total mapped possibles / Total reads"),
         px.scatter(
-            df_noge, x="num_read",  y="recall",
-            color=group_noge,
-            color_discrete_map=color_noge),
+            df_noge, x="num_read",  y=y,
+            color="method", symbol="type")
+          .update_layout(
+              xaxis_title="Total mapped possibles / Total reads"),
     ]
 
 
@@ -513,8 +519,8 @@ def plotGenewiseMapping() -> list[go.Figure]:
         {"method": "grpahkir-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
         {"method": "grpahkir-ab2dl1s1-type", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.bam"},
         {"method": "bwa-filter",        "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa.NM_4.no_multi.bam"},
+        {"method": "grpahkir-290-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_290_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
         # {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
-        # {"method": "hisat_290-ab-2dl1s1",          "file": f"{name}.index_kir_290_2dl1s1.mut01.bam"},
         # {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
         # {"method": "vg_merge",                     "file": f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
         # {"method": "ping_allele_setup",            "file": f"data3/ping_{answer}.result/allele_setup_files/{answer}.{id:02d}.read..bam"},
@@ -561,10 +567,12 @@ def plotGenewiseMapping() -> list[go.Figure]:
     figs.extend(customSamstatPlot(df_stat))
     df_prec = df_prec[~df_prec["type"].isin(("all", "primary-only"))]
     df_prec.loc[df_prec["type"] == "all-per-read", "type"] = "all"
-    figs.extend(customGenePrecisionPlot(df_prec))
+    # df_prec = df_prec[df_prec["method"] != "bowtie"]
+    figs.extend(customGenePrecisionPlot(df_prec, "precision"))
     figs.extend(customGenePrecisionPlot(df_prec, "recall"))
     figs.extend(customRocPlot(df_prec))
-    figs.extend(customSecdPlot(df_prec))
+    figs.extend(customSecdPlot(df_prec, "recall"))
+    figs.extend(customSecdPlot(df_prec, "precision"))
     return figs
 
 
@@ -738,8 +746,8 @@ def plotGeneDepth() -> list[go.Figure]:
     print(df_select)
 
     group, color = reColor(df_select["method"], df_select["gene"])
-    fig = px.scatter(df_select, x="pos", y="depth", color=group,
-                     color_discrete_map=color, log_y=True)
+    fig = px.scatter(df_select, x="pos", y="depth", log_y=True,
+                     color="method", symbol= "type")
     fig.update_traces(marker_size=4)
     fig.update_layout(
         legend_title_text="method - gene",

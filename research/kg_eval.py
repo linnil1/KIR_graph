@@ -651,6 +651,49 @@ def printSummaryGeneLevel(
     return df
 
 
+def plotCohortGeneLevelSummary(
+    df: pd.DataFrame, order_by_accuracy: bool = False
+) -> list[go.Figure]:
+    """Plot 4 resolution accuracy per method"""
+    # reorganize the datafrmae
+    df_plot = pd.melt(
+        df,
+        id_vars=["method", "gene"],  # type: ignore
+        value_vars=["7digits_acc", "5digits_acc", "3digits_acc", "gene_acc", "FN", "FP"],
+        value_name="accuracy",
+        var_name="level",
+    )
+    print(df_plot)
+    # order
+    df_acc = df_plot.groupby("gene")["accuracy"].mean().reset_index()
+    df_acc_sort = df_acc.sort_values(["accuracy", "gene"], ascending=[False, True])
+    if order_by_accuracy:
+        gene_order = list(df_acc_sort["gene"])
+    else:
+        gene_order = sorted(df_acc_sort["gene"])
+    level_order = ["gene_acc", "3digits_acc", "5digits_acc", "7digits_acc", "FP", "FN"]
+
+    # plot
+    figs = []
+    for level in level_order:
+        df_plot_level = df_plot[df_plot["level"] == level]
+        fig = px.bar(
+            df_plot_level,
+            x="gene",
+            y="accuracy",
+            color="method",
+            barmode='group',
+        )
+        fig.update_layout(
+            title=level,
+            xaxis_categoryarray=gene_order,
+            xaxis_categoryorder="array",
+            yaxis_title="Accuracy",
+        )
+        figs.append(fig)
+    return figs
+
+
 def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
     cohort_results = {}
     for method, dat in cohort_data.items():
@@ -684,6 +727,13 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
         printDf(summary.groupby(["method"]).sum())
         printDf(summary.groupby(["gene"]).sum())
 
+    # plot
+    summary = summary[~summary["method"].isin([
+        "answer", "sakaue", "sakaue-all", "sakaue-ans-all",
+        "graphkir-290-ab2dl1s1-full", "graphkir-290-ab2dl1s1-exonfirst"
+    ])]
+    showPlot(plotCohortGeneLevelSummary(summary))
+
 
 if __name__ == "__main__":
     # answer = "linnil1_syn/linnil1_syn_s44_summary.csv"
@@ -694,15 +744,25 @@ if __name__ == "__main__":
         prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
         cohort = [
             {"method": "answer", "name": f"{answer}"},
+            # {
+            #     "method": "graphkir-ab2dl1s1-full",
+            #     "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+            #     ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
+            # },
+            # {
+            #     "method": "graphkir-ab2dl1s1-exonfirst",
+            #     "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+            #     ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            # },
             {
-                "method": "graphkir-ab2dl1s1-full",
+                "method": "graphkir-ab-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
-                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
+                ".index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
             },
             {
-                "method": "graphkir-ab2dl1s1-exonfirst",
+                "method": "graphkir-ab-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
-                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+                ".index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
             },
             {
                 "method": "graphkir-ab2dl1s1-b2-full",
@@ -735,25 +795,25 @@ if __name__ == "__main__":
                 ".result_ping_wgs.merge.tsv",
             },
             {
-                "method": "sakakue",
+                "method": "sakaue",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}"
                 f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_merge_depth').replace('.', '_').replace('/', '_')}"
                 "_sakauekir_v1_0_0_bwa_rg_md_coverage_depth_ploidy.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
             },
             {
-                "method": "sakakue-all",
+                "method": "sakaue-all",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge_called_full')}"
                 f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_merge_depth').replace('.', '_').replace('/', '_')}"
                 "_sakauekir_v1_0_0_bwa_rg_md_coverage_depth_ploidy.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
             },
             {
-                "method": "sakakue-ans",
+                "method": "sakaue-ans",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge_called')}"
                 f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_same').replace('.', '_').replace('/', '_')}"
                 "_sakauekir_v1_0_0_bwa_rg_md_answer_cn.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
             },
             {
-                "method": "sakakue-ans-all",
+                "method": "sakaue-ans-all",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge_called_full')}"
                 f".sakauekir_v1_0_0.bwa.rg.md.ploidy_{NamePath(prefix).replace_wildcard('_same').replace('.', '_').replace('/', '_')}"
                 "_sakauekir_v1_0_0_bwa_rg_md_answer_cn.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"
