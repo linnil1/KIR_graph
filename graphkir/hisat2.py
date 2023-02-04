@@ -220,7 +220,7 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
     """
     num_reads = 0
     num_pairs = 0
-    reads = {}  # type: dict[tuple[str, str, str], str]  # A temporary dict
+    reads: dict[tuple[str, str, str, int], str] = {}  # A temporary dict
 
     for line in readBam(bam_file):
         # skip header

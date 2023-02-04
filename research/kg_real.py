@@ -88,8 +88,9 @@ if __name__ == "__main__":
     data_folder = "data_tmp"
     cohort = "hprc_fastq"
     direct_on_kir = False
-    ref_index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01"
-    index = "index/kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
+    msa_index = "index/kir_2100_withexon_ab_2dl1s1.leftalign"
+    ref_index = msa_index + ".mut01"
+    index = ref_index + ".graph"
     search_other_region = False
     TAIWANIA = False
 
@@ -156,7 +157,16 @@ if __name__ == "__main__":
     else:
         # these step in run on our server
         NameTask.set_default_executor(ConcurrentTaskExecutor(10))
-        from kg_main import extractVariant, bam2DepthWrap, filterDepthWrap, cnPredict, plotCNWrap, kirTyping, mergeKirResult
+        from kg_main import (
+            extractVariant,
+            bam2DepthWrap,
+            filterDepthWrap,
+            cnPredict,
+            plotCNWrap,
+            kirTyping,
+            mergeKirResult,
+            typingNovelWrap,
+        )
         from kg_utils import compareResult
         # samples = "data_real/twbb.{}"
         # samples = "data_real/hprc.{}"
@@ -194,7 +204,8 @@ if __name__ == "__main__":
         # sample_possible_ans = "data_real/hprc_pingsample.index_hs37d5.bwa.part_strict.result_ping_wgs.merge"  # from other_kir.py
         typing = compose([
             variant,
-            partial(kirTyping, cn_input_name=cn, allele_method="pv"),  # pv pv_exonfirst_1
+            partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),  # pv pv_exonfirst_1
+            partial(typingNovelWrap, msa_name=msa_index, variant_name=variant.output_name),  # can skip this
             NameTask(mergeKirResult, depended_pos=[0]),
             partial(compareResult, sample_name=sample_possible_ans),
         ])

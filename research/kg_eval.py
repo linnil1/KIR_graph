@@ -765,14 +765,19 @@ if __name__ == "__main__":
                 ".index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
             },
             {
-                "method": "graphkir-ab2dl1s1-b2-full",
+                "method": "graphkir-ab2dl1s1-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv",
             },
             {
-                "method": "graphkir-ab2dl1s1-b2-exonfirst",
+                "method": "graphkir-ab2dl1s1-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
                 ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "graphkir-ab2dl1s1-exonfirst0.9",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_0.9.compare_sum.var_errcorr.top600.tsv"
             },
             {
                 "method": "graphkir-290-ab2dl1s1-full",

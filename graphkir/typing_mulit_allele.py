@@ -340,7 +340,7 @@ class AlleleTyping:
             print("Error: Empty reads for typing (or Maybe read depth is too low)")
             return np.array([])
 
-    def typing(self, cn: int) -> TypingResult:
+    def typing(self, cn: int, verbose: int = 1) -> TypingResult:
         """
         Typing cn alleles.
 
@@ -352,7 +352,8 @@ class AlleleTyping:
         for _ in range(cn):
             res = self.addCandidate()
             # res.print()
-        self.result[-1].print()
+        if verbose > 0:
+            self.result[-1].print()
         return self.result[-1]
 
     def mapAlleleIDs(self, list_ids: IdArray) -> list[list[str]]:
@@ -647,7 +648,7 @@ class AlleleTypingExonFirst(AlleleTyping):
                 res.print()
         return model
 
-    def typing(self, cn: int, verbose: bool = False) -> TypingResult:
+    def typing(self, cn: int, verbose: int = 0) -> TypingResult:
         """
         Typing cn alleles.
 
@@ -655,9 +656,9 @@ class AlleleTypingExonFirst(AlleleTyping):
           The top-n allele-set are best fit the reads (with maximum probility).
             Each set has CN alleles.
         """
-        result = super().typing(cn)
+        result = super().typing(cn, verbose=verbose)
         result.setNameGroup(self.allele_group)
-        if verbose:
+        if verbose >= 2:
             print("Exon:")
             result.print()
 
@@ -676,13 +677,15 @@ class AlleleTypingExonFirst(AlleleTyping):
         candidate_result = []
         candidate_ranks = result.topRank(threshold=self.candidate_set_threshold)
         for i in candidate_ranks:
-            print(f"Exon-first: Typing Intron of candidate {i}")
+            if verbose >= 2:
+                print(f"Exon-first: Typing Intron of candidate {i}")
             full_model = self.typingIntron(result.allele_name_group[i], verbose=False)
             self.result.extend(full_model.result)
             candidate_result.append(full_model.result[-1])
 
         # Merge result and sort it (same sorting method as addCandidate)
-        print(f"{len(candidate_result)=}")
+        if verbose > 0:
+            print(f"{len(candidate_result)=}")
         result = TypingResult(
             n              = candidate_result[0].n,
             value          = np.concatenate([res.value                for res in candidate_result]),
@@ -695,5 +698,6 @@ class AlleleTypingExonFirst(AlleleTyping):
         )
         result = result.sortByScoreAndEveness()
         self.result.append(result)
-        result.print()
+        if verbose >= 2:
+            result.print()
         return result

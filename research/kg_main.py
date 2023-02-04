@@ -13,6 +13,7 @@ from graphkir.kir_cn import bam2Depth, filterDepth, loadCN, predictSamplesCN
 from graphkir.kir_typing import selectKirTypingModel
 from graphkir.plot import showPlot, plotCN, plotGeneDepths
 from graphkir.msa_leftalign import genemsaLeftAlign
+from graphkir.novel_discover import discoverNovel
 from graphkir.utils import (
     runShell,
     samtobam,
@@ -37,7 +38,6 @@ from kg_create_data import createSamplesAllele, createSamplesReads
 from kg_create_fake_intron import createFakeIntronSample
 from kg_create_novel import addNovelFromMsaWrap, updateNovelAnswer
 from kg_create_version_diff_allele import createOldNewAllele
-from kg_typing_novel import typingNovel
 from kg_create_exonseq_only import (
     extractPairReadsOnceInBed,
     calcExonToBed,
@@ -415,17 +415,25 @@ def linkSampleSubset(input_name, subset_n: int = 10):
 
 def typingNovelWrap(input_name, msa_name, variant_name):
     output_name = input_name + ".novel"
-    if "00" not in input_name.template_args:
-        return output_name
-    # if Path(output_name + ".fa").exists():
+    # if "00" not in input_name.template_args:
     #     return output_name
-    typingNovel(
+    apply = True
+    if Path(output_name + ".variant.tsv").exists():
+        return output_name
+    discoverNovel(
         variant_name=variant_name.replace("{}", input_name.template_args[-1]),
-        msa_name=msa_name.replace("{}", input_name.template_args[-1]),
+        msa_name=msa_name,
         result_name=input_name,
         output_name=output_name,
+        apply=apply,
     )
-    return output_name
+    if apply:
+        df = pd.read_csv(output_name + ".tsv", sep="\t")
+        df["id"] = input_name.template_args[-1]
+        df.to_csv(output_name + ".tsv", sep="\t", index=False)
+        return output_name
+    else:
+        return input_name
 
 
 if __name__ == "__main__":
@@ -568,7 +576,7 @@ if __name__ == "__main__":
     ])
 
     novel_funcs = [typing]
-    if False:
+    if True:  # novel discover
         novel_funcs.append(
             partial(typingNovelWrap,
                     msa_name=msa_index.output_name,

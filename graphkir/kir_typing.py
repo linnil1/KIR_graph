@@ -5,6 +5,7 @@ from typing import Any
 from dataclasses import asdict
 from collections import defaultdict
 import json
+import pandas as pd
 
 from .utils import NumpyEncoder
 from .msa2hisat import Variant
@@ -129,7 +130,7 @@ class TypingWithPosNegAllele(Typing):
                     "value": result[-1].value[rank],
                 }
                 for i, allele in enumerate(alleles):
-                    simple_result[i + 1] = allele
+                    simple_result[str(i + 1)] = allele
                 possible_list.append(simple_result)
         return possible_list
 
