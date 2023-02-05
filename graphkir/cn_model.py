@@ -24,7 +24,7 @@ class Dist:
     """Abstract class of CN prediction model"""
 
     def __init__(self) -> None:
-        pass
+        self.raw_df: list[Any] = []  # raw data (Datafrmae.to_dict())
 
     def fit(self, values: list[float]) -> None:
         """Determine the parameters by data"""
@@ -107,6 +107,7 @@ class CNgroup(Dist):
             'data'       : self.data,
             'likelihood' : self.likelihood,
             'start_base' : self.start_base,
+            'raw_df'     : self.raw_df,
         }
 
     @classmethod
@@ -122,6 +123,7 @@ class CNgroup(Dist):
         self.bin_num    = data['bin_num']
         self.max_cn     = data['max_cn']
         self.data       = data['data']
+        self.raw_df     = data.get("raw_df", [])
         self.likelihood = np.array(data['likelihood'])
         self.start_base = data.get('start_base', 1)
         self.dev_decay_neg = data.get('dev_decay_neg', self.dev_decay)
@@ -293,6 +295,7 @@ class KDEcut(Dist):
             'local_min': self.local_min,
             'data'     : self.data,
             'prob'     : self.prob,
+            'raw_df'   : self.raw_df,
         }
 
     @classmethod
@@ -307,6 +310,7 @@ class KDEcut(Dist):
         self.kde       = KernelDensity().set_params(**data['kde'])
         self.local_min = data['local_min']
         self.data      = data['data']
+        self.raw_df    = data.get("raw_df", [])
         self.prob      = data['prob']
         return self
 

@@ -1,7 +1,11 @@
+"""
+WGS index/mapping part of graphkir
+"""
 from .utils import runShell, runDocker, samtobam
 
 
 def downloadHg19(index_folder: str) -> str:
+    """Download hs37d5"""
     output_name = f"{index_folder}/hs37d5.fa.gz"
     runShell(
         "wget https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
@@ -11,6 +15,7 @@ def downloadHg19(index_folder: str) -> str:
 
 
 def bwaIndex(fasta: str, output_name: str) -> None:
+    """bwa index"""
     runDocker("bwa", f"bwa index {fasta} -p {output_name}")
 
 

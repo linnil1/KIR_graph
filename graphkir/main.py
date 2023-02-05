@@ -29,8 +29,8 @@ def buildMSA(
     add_exon_only_sequences: bool = True,
     ipd_version: str = "2100",
 ) -> str:
-    Path(index_folder).mkdir(exist_ok=True)
     """Build MSA from source"""
+    Path(index_folder).mkdir(exist_ok=True)
     if not add_exon_only_sequences:
         msa_index = f"{index_folder}/kir_{ipd_version}_{msa_type}"
         if not glob(msa_index + ".KIR*"):

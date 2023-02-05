@@ -82,19 +82,23 @@ images = {
 
 
 def getThreads() -> int:
+    """Get number of thread per job"""
     return resources["threads"]
 
 
 def setThreads(threads: int) -> None:
+    """Set number of thread per job"""
     global resources
     resources["threads"] = threads
 
 
 def getEngine() -> str:
+    """Get engine(podman/docker/local/singularity)"""
     return resources["engine"]
 
 
 def setEngine(engine: str) -> None:
+    """Set engine(podman/docker/local/singularity)"""
     global resources
     resources["engine"] = engine
     assert engine in engine_config

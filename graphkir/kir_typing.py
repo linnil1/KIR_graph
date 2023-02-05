@@ -2,10 +2,8 @@
 Typing the sample's alleles using variants file and CN file as input
 """
 from typing import Any
-from dataclasses import asdict
 from collections import defaultdict
 import json
-import pandas as pd
 
 from .utils import NumpyEncoder
 from .msa2hisat import Variant
@@ -127,7 +125,7 @@ class TypingWithPosNegAllele(Typing):
                 simple_result = {
                     "gene": gene,
                     "rank":  rank,
-                    "value": result[-1].value[rank],
+                    "value": value,
                 }
                 for i, allele in enumerate(alleles):
                     simple_result[str(i + 1)] = allele
@@ -197,7 +195,7 @@ def selectKirTypingModel(
     """Select and Init typing model"""
     if method == "full":
         return TypingWithPosNegAllele(filename_variant_json, **kwargs)
-    elif method.startswith("exonfirst"):
+    if method.startswith("exonfirst"):
         fields = method.split("_")
         threshold = 0.0
         if len(fields) == 2:  # e.g. exonfirst_1.2
@@ -208,6 +206,6 @@ def selectKirTypingModel(
             exon_candidate_threshold=threshold,
             **kwargs,
         )
-    elif method == "em":
+    if method == "em":
         return TypingWithReport(filename_variant_json)
     raise NotImplementedError

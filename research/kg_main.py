@@ -264,22 +264,24 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
         return None
     cn = loadCN(cn_name + ".tsv")
     called_alleles = t.typing(cn)
-    # save result detail json
-    t.save(output_name + ".json")
 
-    # Save all possible result in tsv
+    # Save all possible alleles in tsv
     possible_list = t.getAllPossibleTyping()
     df_possible = pd.DataFrame(possible_list)
     df_possible = df_possible.fillna("")
     df_possible.to_csv(output_name + ".possible.tsv", index=False, sep="\t")
-    print(df_possible)
+    # print(df_possible)
 
+    # save alleles
     print(input_name)
     print(called_alleles)
     pd.DataFrame([{
         'name': output_name,
         'alleles': "_".join(called_alleles),
     }]).to_csv(output_name + ".tsv", sep="\t", index=False)
+
+    # save result detail json
+    t.save(output_name + ".json")
     return output_name_template
 
 
@@ -567,12 +569,13 @@ if __name__ == "__main__":
         partial(filterDepthWrap, ref_index=str(ref_index), exon=extract_exon),
         NameTask(cnPredict)  # .set_depended(-1),  # parameters written in cnPredict funcion
     ])
-    # cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False)).set_depended(0)
     cn >> NameTask(partial(compareCNResult, sample_name=samples_ori.output_name), depended_pos=[0])
+    # cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=True)).set_depended(0)
+    # exit()
 
     typing = compose([
         variant,
-        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),  # pv pv_exonfirst_1 pv_exonfirst_1.2
+        partial(kirTyping, cn_input_name=cn, allele_method="pv_exonfirst_1"),  # pv pv_exonfirst_1 pv_exonfirst_0.9 pv_exonfirst_0
     ])
 
     novel_funcs = [typing]

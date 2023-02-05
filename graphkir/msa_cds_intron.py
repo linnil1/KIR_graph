@@ -1,3 +1,7 @@
+"""
+The fillMissingIntrons function enable to fill the intron of exon-only sequences
+by consensus of similar full-length sequences
+"""
 from typing import Iterable
 
 from pyhlamsa import KIRmsa, Genemsa

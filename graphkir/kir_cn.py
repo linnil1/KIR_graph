@@ -158,10 +158,12 @@ def predictSamplesCN(
     assert len(samples_depth_tsv) == len(samples_cn)
 
     # read bam -> depth per position -> depth per gene
-    sample_gene_depths = [
-        aggrDepths(readSamtoolsDepth(depth_file), select_mode=select_mode)
-        for depth_file in samples_depth_tsv
-    ]
+    sample_gene_depths = []
+    for depth_file in samples_depth_tsv:
+        df = aggrDepths(readSamtoolsDepth(depth_file), select_mode=select_mode)
+        df["depth_file"] = depth_file
+        sample_gene_depths.append(df)
+
     # TODO: If normalized needed, write here.
     if not per_gene:
         # depth per gene -> cn per gene
@@ -171,14 +173,13 @@ def predictSamplesCN(
             cluster_method_kwargs=cluster_method_kwargs,
             assume_3DL3_diploid=assume_3DL3_diploid,
         )
-
+        model.raw_df = [df.to_dict() for df in sample_gene_depths]
         if save_cn_model_path:
             model.save(save_cn_model_path)
     else:
         # concat sample with id
-        for i, df in enumerate(sample_gene_depths):
-            df["gene_sampleid"] = df["gene"] + "-" + str(i)
         depths = pd.concat(sample_gene_depths)
+        depths["gene_sampleid"] = depths["gene"] + "-" + depths["depth_file"]
 
         # save per gene cn
         cns = [{} for _ in range(len(sample_gene_depths))]
@@ -196,6 +197,8 @@ def predictSamplesCN(
             )
             # print(gene_cns)
             # save back to per sample
+            gene_depths["gene"] = gene
+            gene_model.raw_df = [gene_depths.to_dict()]
             cns_model.append((gene, gene_model))
             for gene_and_id in gene_cns[0]:
                 i = int(gene_and_id.split("-")[1])

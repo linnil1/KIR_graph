@@ -94,8 +94,7 @@ class TypingResult:
             print(f"Select rank {best_id}")
             assert len(self.allele_name[best_id]) == self.n
             return self.allele_name[best_id]
-        else:
-            return ["fail"] * self.n
+        return ["fail"] * self.n
 
     def print(self, num: int = 100, top_threshold: float = 0.9) -> None:
         """
@@ -292,17 +291,17 @@ class AlleleTyping:
 
         exclude_v_pos = set()
         exclude_v_neg = set()
-        for (id, pn), num in v_count.items():
-            if num + v_count[(id, not pn)] < 3:  # min-depth
-                exclude_v_pos.add(id)
-                exclude_v_neg.add(id)
+        for (vid, pn), num in v_count.items():
+            if num + v_count[(vid, not pn)] < 3:  # min-depth
+                exclude_v_pos.add(vid)
+                exclude_v_neg.add(vid)
             elif (
-                num / (num + v_count[(id, not pn)]) < 0.2
+                num / (num + v_count[(vid, not pn)]) < 0.2
             ):  # very small amount of variant
                 if pn:
-                    exclude_v_pos.add(id)
+                    exclude_v_pos.add(vid)
                 else:
-                    exclude_v_neg.add(id)
+                    exclude_v_neg.add(vid)
 
         # print("Exclude pos")
         # for i in exclude_v_pos:
@@ -311,10 +310,10 @@ class AlleleTyping:
         # for i in exclude_v_neg:
         #     print(i, v[(i, True)], v[(i, False)])
         for read in reads:
-            read.lpv = [i for i in read.lpv if not i in exclude_v_pos]
-            read.rpv = [i for i in read.rpv if not i in exclude_v_pos]
-            read.lnv = [i for i in read.lnv if not i in exclude_v_neg]
-            read.rnv = [i for i in read.rnv if not i in exclude_v_neg]
+            read.lpv = [vid for vid in read.lpv if not vid in exclude_v_pos]
+            read.rpv = [vid for vid in read.rpv if not vid in exclude_v_pos]
+            read.lnv = [vid for vid in read.lnv if not vid in exclude_v_neg]
+            read.rnv = [vid for vid in read.rnv if not vid in exclude_v_neg]
         return reads
 
     def reads2AlleleProb(self, reads: list[PairRead]) -> FloatNdArray:
@@ -328,9 +327,7 @@ class AlleleTyping:
                 *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.rnv],
             ]
             if not prob:
-                if self._no_empty:
-                    continue
-                else:
+                if not self._no_empty:
                     prob = [np.ones(len(self.allele_to_id)) * 0.999]
             probs.append(np.stack(prob).prod(axis=0))
         # probs = [i for i in probs if i is not None]
@@ -350,8 +347,7 @@ class AlleleTyping:
         """
         self.result = []
         for _ in range(cn):
-            res = self.addCandidate()
-            # res.print()
+            self.addCandidate()
         if verbose > 0:
             self.result[-1].print()
         return self.result[-1]
@@ -527,6 +523,10 @@ class AlleleTyping:
 
 
 class AlleleTypingExonFirst(AlleleTyping):
+    """
+    Typing exon-variant first to select candidates
+    then typing full variants
+    """
     def __init__(
         self,
         reads: list[PairRead],

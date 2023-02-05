@@ -7,9 +7,8 @@ Discover the novel variant from read and called alleles
 4. Try to apply the variant
 """
 import sys
-from typing import DefaultDict, Callable, Iterable, Any, TypedDict, TextIO
+from typing import Iterable, TypedDict, TextIO
 from itertools import chain
-from functools import partial
 from collections import defaultdict, Counter
 
 from Bio import SeqIO
@@ -33,6 +32,7 @@ GroupPairRead = dict[tuple[str, ...], list[PairRead]]
 class NovelVariant(TypedDict):
     gene: str
     allele: str
+    allele_count: int  # The i'th allele in the gene
     type: str
     variant: Variant
     pos: int
@@ -57,7 +57,7 @@ def groupReadByAllele(
         if i in typ.allele_to_id:
             allele_names.append(i)
             allele_ids.append(typ.allele_to_id[i])
-    if not len(allele_names):
+    if not allele_names:
         return {}
     is_max = np.equal(
         typ.probs[:, allele_ids], typ.probs[:, allele_ids].max(axis=1)[:, None]
@@ -302,11 +302,13 @@ def discoverNovel(
     allele_reads: dict[tuple[str, ...], list[PairRead]] = {}  # {allele: reads}
     allele_novel_variants: list[NovelVariant] = []  # list of novel variants
     allele_called_seqs: list[SeqRecord] = []  # new allele sequence after apply
+    allele_count: dict[str, int] = defaultdict(int)
     for gene, alleles, reads, variants in splitReadsByAlleles(data, predict_alleles):
         allele_reads[alleles] = reads
         if len(alleles) > 1:
             continue
         allele = alleles[0]
+        allele_count[gene] += 1
         print(f"{gene} - {allele}", file=novel_descr)
 
         # msa
@@ -339,6 +341,7 @@ def discoverNovel(
                     {
                         "gene": gene,
                         "allele": allele,
+                        "allele_count": allele_count[gene],
                         "type": stat,
                         "variant": variant,
                         "pos": int(variant.pos),

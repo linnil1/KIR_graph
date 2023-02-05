@@ -3,7 +3,7 @@
 * split/merge the MSA
 * realign the MSA when merge (muscle, clustalo)
 """
-from typing import Callable, Any
+from typing import Callable
 from itertools import chain
 from collections import defaultdict
 
@@ -208,6 +208,7 @@ def mergeBlockToMsa(blocks: BlockMsa) -> Genemsa:
 
 
 def isEqualMsa(msas: GenesMsa, msa: Genemsa) -> bool:
+    """Check two MSA are equal"""
     assert set(msa.alleles.keys()) == set(
         chain.from_iterable(msa_old.alleles.keys() for msa_old in msas.values())
     )

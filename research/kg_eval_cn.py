@@ -1,4 +1,5 @@
 import copy
+import json
 from pprint import pprint
 from typing import TypedDict
 from collections import Counter, defaultdict
@@ -204,7 +205,33 @@ def compareCNResult(
     return input_name
 
 
+def findBadCN(input_name):
+    """Finding cn prediction that are not in cn-1/4 < depth/base < cn+1/4"""
+    print(input_name)
+    dfs = []
+    for name in NamePath(input_name).get_input_names():
+        data = json.load(open(name + ".json"))
+        assert data["method"] == "CNgroup"
+        cn = pd.read_csv(name + ".tsv", sep="\t")
+        df = pd.DataFrame(data["raw_df"][0])
+        base = data["base"]
+        df = df.merge(cn, on="gene", how="left")
+        df["depth/base"] = df["depth"] / base
+        df["diff_cn"] = (df["depth/base"] - df["cn"]).abs()
+        df["not_normal"] = df["diff_cn"] > 0.25
+        dfs.append(df)
+    df = pd.concat(dfs)
+    print(df[df["not_normal"]])
+
+
 if __name__ == "__main__":
+    input_name = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim" + \
+                 ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3"
+    findBadCN(input_name)
+    input_name = "data/linnil1_syn_s2022.{}.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph" + \
+                 ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3"
+    findBadCN(input_name)
+
     answer = "linnil1_syn/linnil1_syn_s44_summary"
     prefix = "data/linnil1_syn_s44.{}.30x_s444"
     answer = "linnil1_syn/linnil1_syn_s2022_summary"
