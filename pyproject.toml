@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graphkir"
-version = "0.4.1"
+version = "0.4.2"
 description = "Typing KIR based on graph alignment"
 readme = "README.md"
 dependencies = [
@@ -16,13 +16,13 @@ dependencies = [
     "biopython",
     "pysam",
     "matplotlib",
-    # "git+https://github.com/linnil1/pyHLAMSA",
+    "pyhlamsa @ git+https://github.com/linnil1/pyHLAMSA",
 ]
 
 requires-python = ">=3.10"
 # author = "linnil1"
 # url = "https://github.com/linnil1/pyHLAMSA"
-keywords = ["MSA", "KIR", "typing", "fastq", "graph"]
+keywords = ["MSA", "KIR", "typing", "fastq", "graph", "hisat"]
 license = {text = "MIT License"}
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -42,7 +42,10 @@ paper = [
     "requests",
     "types-requests",
     "pandas-stubs",
-    # "git+https://github.com/linnil1/name-based-pipeline",
+    "namepipe @ git+https://github.com/linnil1/name-based-pipeline",
+    "mkdocstrings==0.18.0",
+    "mkdocstrings-python-lagacy",
+    "mkdocs-material",
 ]
 
 [project.scripts]

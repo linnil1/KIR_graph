@@ -1,23 +1,22 @@
 # Graph-KIR
 
+
 ## Require
 * python>=3.10
 * podman/docker
 
-If you don't use any podman/docker/singularity,
-you may use the local installed packages on your mechine.
-
-Please install
+Please install external packages:
 * muscle (only for index building stage)
 * hisat2
 * samtools
 * bwa (only for wgs extraction stage)
 * wget (only for download hs37d5 in wgs extraction stage)
 
+or use podman/docker/singularity by `--engine podman`.
+
 
 ## Usage
 ``` bash
-pip install git+https://github.com/linnil1/pyHLAMSA
 git clone https://github.com/linnil1/KIR_graph
 cd KIR_graph
 pip install .
@@ -31,34 +30,16 @@ graphkir \
     --r2 data/linnil1_syn_s44.01.30x_s444.read.2.fq \
     --index-folder example_index \
     --output-folder example_data \
-    --output-cohort-name example_data/cohort \
-    --allele-no-exon-only-allele
+    --output-cohort-name example_data/cohort
 
 # or 
 graphkir \
     --thread 2 \
     --input-csv example/cohort.csv \
     --index-folder example_index \
-    --output-cohort-name example_data/cohort \
-    --allele-no-exon-only-allele
+    --allele-method exonfirst \
+    --output-cohort-name example_data/cohort
 ```
-
-If you execute the code in `research/`, please install
-
-```baseh
-pip install .[paper]
-pip install git+https://github.com/linnil1/name-based-pipeline
-```
-
-
-## Build the document
-
-``` bash
-pip3 install mkdocstrings==0.18 mkdocstrings-python-lagacy mkdocs-material
-mkdocs serve
-```
-
-::: graphkir
 
 ## Usage (for other KIR pipeline)
 ```
@@ -76,15 +57,26 @@ python research/other_kir.py
 
 
 ## Usage (for paper)
+
+If you execute the code in `research/`
+
+Install: `pip install .[paper]`
+
+Build the document (API): `mkdocs serve`
+
 ```
 python3 research/kg_main.py
 ```
 
-* `research/kg_main.py`         mywork for simulated data
-* `research/kg_real.py`         mywork for real data
-* `research/other_kir.py`       Other four tools
-* `research/kg_dev*`            Developing things, Not used in paper
-* `research/kg_eval*`           Compare the result and plot it
+* `research/kg_main.py`         My work for simulated data (100 samples)
+* `research/kg_real.py`         My work for real data (HPRC)
+* `research/other_kir.py`       Run other four tools for HPRC or 100 samples
+* `research/kg_dev_*`           Developing things, Not used in paper
+* `research/kg_eval_*`          Compare the result and plot it
+
 
 ## LICENSE
 LGPL
+
+
+::: graphkir

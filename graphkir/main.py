@@ -25,7 +25,6 @@ from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
 def buildMSA(
     msa_type: str = "ab_2dl1s1",
     index_folder: str = "index",
-    threads: int = 1,
     add_exon_only_sequences: bool = True,
     ipd_version: str = "2100",
 ) -> str:
@@ -35,26 +34,29 @@ def buildMSA(
         msa_index = f"{index_folder}/kir_{ipd_version}_{msa_type}"
         if not glob(msa_index + ".KIR*"):
             buildKirMsa(
-                msa_type, msa_index,
+                msa_type,
+                msa_index,
                 version=ipd_version,
-                threads=threads,
+                threads=getThreads(),
             )
     else:
         exon_name = f"{index_folder}/kir_{ipd_version}_withexon"
         msa_index = exon_name + "_" + msa_type
         if not glob(exon_name + "_ab.KIR*"):
             buildKirMsa(
-                "ab", exon_name + "_ab",
+                "ab",
+                exon_name + "_ab",
                 version=ipd_version,
                 full_length_only=False,
-                threads=threads,
+                threads=getThreads(),
             )
         if not glob(msa_index + ".KIR*"):
             buildKirMsa(
-                msa_type, msa_index,
+                msa_type,
+                msa_index,
                 version=ipd_version,
                 input_msa_prefix=exon_name + "_ab",
-                threads=threads,
+                threads=getThreads(),
             )
 
     msa_index1 = msa_index + ".leftalign"
@@ -62,47 +64,6 @@ def buildMSA(
         genemsaLeftAlign(msa_index, msa_index1)
     msa_index = msa_index1
     return msa_index
-
-
-def buildIndex(
-    msa_type: str = "ab_2dl1s1",
-    index_folder: str = "index",
-    threads: int = 1,
-    add_exon_only_sequences: bool = True,
-    ipd_version: str = "2100",
-) -> tuple[str, str]:
-    """
-    Build graph data
-
-    * MSA
-    * HISAT2 formatted files (for hisat-build)
-    * HISAT2 index
-
-    Returns:
-      HISAT2 files prefix
-      HISAT2 index prefix
-    """
-    if not add_exon_only_sequences:
-        msa_index = f"{index_folder}/kir_2100_{msa_type}.leftalign"
-    else:
-        msa_index = f"{index_folder}/kir_2100_withexon_{msa_type}.leftalign"
-
-    ref_index = msa_index + ".mut01"
-    if not Path(ref_index + ".haplotype").exists():
-        if not glob(msa_index + ".KIR*"):
-            buildMSA(
-                msa_type, index_folder,
-                threads=threads,
-                add_exon_only_sequences=add_exon_only_sequences,
-                ipd_version=ipd_version,
-            )
-        msa2HisatReference(msa_index, ref_index)
-
-    index = ref_index + ".graph"
-    if not Path(index + ".8.ht2").exists():
-        buildHisatIndex(ref_index, index)
-
-    return ref_index, index
 
 
 def buildGenomeIndex(index_folder: str = "index") -> str:
@@ -114,6 +75,113 @@ def buildGenomeIndex(index_folder: str = "index") -> str:
     if not Path(wgs_index + ".bwt").exists():
         bwaIndex(wgs_index, wgs_index)
     return wgs_index
+
+
+def runWGS(
+    names: list[str], reads: list[tuple[str, str]], index_wgs: str
+) -> tuple[list[str], list[tuple[str, str]]]:
+    new_names = []
+    new_reads = []
+    for name, (fq1, fq2) in zip(names, reads):
+        # read mapping
+        suffix = "." + index_wgs.replace(".", "_").replace("/", "_")
+        bwa(index_wgs, fq1, fq2, name + suffix, threads=getThreads())
+        name += suffix
+
+        # extract
+        suffix = ".extract"
+        extractFromHg19(name + ".bam", name + suffix, "hs37d5", threads=getThreads())
+        name += suffix
+        bam2fastq(name + ".bam", name, threads=getThreads())
+        new_names.append(name)
+        new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
+    return new_names, new_reads
+
+
+def readMapping(
+    names: list[str],
+    reads: list[tuple[str, str]],
+    index: str,
+    index_ref: str,
+    exon_region_only: bool = False,
+) -> tuple[list[str], list[str], list[str]]:
+    """
+    1. Graph read mapping
+    2. Read filtering(edit-distance thresholding no-mutliple-mapping)
+    3. Calculate read depth
+    """
+    bam_files = []
+    depth_files = []
+    processed_bam = []
+    for name, (fq1, fq2) in zip(names, reads):
+        # mapping and filter
+        suffix = "." + index.replace(".", "_").replace("/", "_")
+        hisatMap(index, fq1, fq2, name + suffix + ".bam", threads=getThreads())
+        name += suffix
+        bam_files.append(name + ".bam")
+
+        suffix = ".variant"
+        extractVariantFromBam(
+            index_ref, name + ".bam", name + suffix, error_correction=False
+        )
+        name += suffix
+        processed_bam.append(name)  # it has multiple format
+
+        # read depth pre-process
+        name += ".no_multi"
+        suffix = ".depth"
+        bam2Depth(name + ".bam", name + suffix + ".tsv")
+        name += suffix
+
+        # extract exon regions
+        if exon_region_only:
+            exon_regions = readExons(index_ref)
+            suffix = ".exon"
+            filterDepth(name + ".tsv", name + suffix + ".tsv", exon_regions)
+            name += suffix
+        depth_files.append(name + ".tsv")
+    return bam_files, processed_bam, depth_files
+
+
+def alleleTyping(
+    processed_bam: list[str],
+    cn_files: list[str],
+    method: str = "full",
+) -> list[str]:
+    """Allele typing"""
+    allele_files = []
+    for name, cn_file in zip(processed_bam, cn_files):
+        # suffix = ".cn_" + cn_file.replace("/", "_").replace(".", "_") + "."
+        # filename too long
+        suffix = (
+            ".cn"
+            + cn_file[len(getCommonName(name, cn_file)) :]
+            .replace("/", "_")
+            .replace(".", "_")
+            + "."
+        )
+        if method == "exonfirst":
+            method += "_1"
+        suffix += method
+        t = selectKirTypingModel(
+            method,
+            name + ".json",
+            top_n=600,
+            variant_correction=True,
+        )
+        cn = loadCN(cn_file)
+        called_alleles = t.typing(cn)
+        name += suffix
+        # t.save(name + ".json")
+        df = pd.DataFrame(
+            {
+                "name": [name],
+                "alleles": ["_".join(called_alleles)],
+            }
+        )
+        df.to_csv(name + ".tsv", sep="\t", index=False)
+        allele_files.append(name + ".tsv")
+    return allele_files
 
 
 def getCommonName(r1: str, r2: str) -> str:
@@ -164,7 +232,7 @@ def createParser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--engine",
-        default="podman",
+        default="local",
         help="podman,docker,singularity,local(samtools,hisat2... installed)",
     )
     parser.add_argument(
@@ -189,7 +257,12 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--index-folder",
         default="index",
-        help="The path to index",
+        help="The path to graph index",
+    )
+    parser.add_argument(
+        "--index-wgs",
+        default="",
+        help="A bwa-indexed hs37d5 index path (Default=index_folder/hs37d5.fa.gz)",
     )
     parser.add_argument(
         "--output-folder",
@@ -202,6 +275,7 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--msa-type",
         default="ab_2dl1s1",
+        choices=["merge", "split", "ab", "ab_2dl1s1"],
         help="Type of MSA: merge, split, ab, ab_2dl1s1",
     )
     parser.add_argument(
@@ -213,11 +287,6 @@ def createParser() -> argparse.ArgumentParser:
         "--cn-exon",
         action="store_true",
         help="Select exon-only region of CN prediction",
-    )
-    parser.add_argument(
-        "--cn-multi",
-        action="store_true",
-        help="Do not remove multiple aligned reads for predicting CN",
     )
     parser.add_argument(
         "--cn-individually",
@@ -241,13 +310,10 @@ def createParser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--allele-method",
-        default="pv",
-        help="Max Likelihood by variants(pv), report(report)",
-    )
-    parser.add_argument(
-        "--allele-no-exon-only-allele",
-        action="store_true",
-        help="Do not use exon-first algorithm",
+        default="full",
+        choices=["full", "exonfirst", "report"],
+        help="Max Likelihood by full variants(full), "
+        "exon variant first than full (exon-first) or hisat-report(report)",
     )
     parser.add_argument(
         "--plot",
@@ -255,31 +321,33 @@ def createParser() -> argparse.ArgumentParser:
         help="Plot some intermediate result.",
     )
     parser.add_argument(
-        "--extract-skip",
+        "--step-skip-extraction",
         action="store_true",
-        help="Filtering KIR reads from the fastq",
+        help="Skip filtering KIR reads from the (WGS) fastq",
     )
     parser.add_argument(
-        "--extract-index",
-        default="",
-        help="A bwa-indexed hs19 index path (Default=index_folder/hs37d5.fa.gz)",
+        "--step-skip-typing",
+        action="store_true",
+        help="Skip allele-typing",
     )
     return parser
 
 
 def main(args: argparse.Namespace) -> list[go.Figure]:
     """
-    * Read Mapping
+    * WGS read mapping and KIR extraction
+    * Graph Read Mapping
     * Extract variants
-    * CN prediction
-    * allele typing
-    * merge
+    * Calculate read depth + CN prediction
+    * Allele typing
+    * Merge result
     """
     # Configuration
     setThreads(args.thread)
     setEngine(args.engine)
 
-    # Init
+    # Reorganize input
+    # name of sample, reads, and cn_file
     cn_files = []
     if not args.input_csv:
         assert len(args.r1)
@@ -299,6 +367,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
             cn_files = list(df["cnfile"].fillna(""))
     assert len(cn_files) == len(names)
 
+    # output name
     if args.output_folder:
         output_folder = args.output_folder
         Path(output_folder).mkdir(exist_ok=True)
@@ -306,86 +375,68 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     else:
         output_folder = str(Path(names[0]).parent)
 
+    # cohort name (final output name)
     if args.output_cohort_name:
         cohort_name = args.output_cohort_name
         Path(cohort_name).parent.mkdir(exist_ok=True)
     else:
         cohort_name = str(Path(output_folder) / "cohort")
-    bam_files = []
-    processed_reads = []
-    depth_files = []
+
+    # init other
     allele_files = []
     figs = []
 
     # extraction step (optional)
-    if not args.extract_skip:
+    if not args.step_skip_extraction:
         # Prepare wgs Index
-        if not args.extract_index:
-            wgs_index = buildGenomeIndex(args.index_folder)
+        if not args.index_wgs:
+            index_wgs = buildGenomeIndex(args.index_folder)
         else:
-            wgs_index = args.extract_index
+            index_wgs = args.index_wgs
 
         # read mapping and extract to fastq
-        new_names = []
-        new_reads = []
-        for name, (fq1, fq2) in zip(names, reads):
-            suffix = "." + wgs_index.replace(".", "_").replace("/", "_")
-            bwa(wgs_index, fq1, fq2, name + suffix, threads=getThreads())
-            name += suffix
+        names, reads = runWGS(names, reads, index_wgs)
 
-            # extract
-            suffix = ".extract"
-            extractFromHg19(
-                name + ".bam", name + suffix, "hs37d5", threads=getThreads()
-            )
-            name += suffix
-            bam2fastq(name + ".bam", name, threads=getThreads())
-            new_names.append(name)
-            new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
-        reads = new_reads
-        names = new_names
+    # Prepare MSA
+    if args.msa_no_exon_only_allele:
+        index_msa = (
+            f"{args.index_folder}/kir_{args.ipd_version}_{args.msa_type}.leftalign"
+        )
+    else:
+        index_msa = f"{args.index_folder}/kir_{args.ipd_version}_withexon_{args.msa_type}.leftalign"
+    if not glob(index_msa + ".KIR*"):
+        buildMSA(
+            args.msa_type,
+            args.index_folder,
+            add_exon_only_sequences=args.msa_no_exon_only_allele,
+            ipd_version=args.ipd_version,
+        )
 
-    # Prepare Index
-    ref_index, index = buildIndex(
-        args.msa_type, args.index_folder,
-        threads=getThreads(),
-        add_exon_only_sequences=not args.msa_no_exon_only_allele,
-        ipd_version=args.ipd_version,
-    )
+    # MSA -> hisat
+    index_ref = index_msa + ".mut01"
+    if not Path(index_ref + ".haplotype").exists():
+        msa2HisatReference(index_msa, index_ref)
+
+    # hisat -> graph index
+    index = index_ref + ".graph"
+    if not Path(index + ".8.ht2").exists():
+        buildHisatIndex(index_ref, index)
 
     # Read Mapping and filtering
-    for name, (fq1, fq2) in zip(names, reads):
-        suffix = "." + index.replace(".", "_").replace("/", "_")
-        hisatMap(index, fq1, fq2, name + suffix + ".bam", threads=getThreads())
-        name += suffix
-        bam_files.append(name + ".bam")
-
-        suffix = ".variant"
-        extractVariantFromBam(
-            ref_index, name + ".bam", name + suffix, error_correction=False
-        )
-        name += suffix
-        processed_reads.append(name)  # it has multiple format
-
-        # read depth pre-process
-        name += ".no_multi" if not args.cn_multi else ""
-        suffix = ".depth"
-        bam2Depth(name + ".bam", name + suffix + ".tsv")
-        name += suffix
-
-        # extract exon regions
-        if args.cn_exon:
-            exon_regions = readExons(ref_index)
-            suffix = ".exon"
-            filterDepth(name + ".tsv", name + suffix + ".tsv", exon_regions)
-            name += suffix
-        depth_files.append(name + ".tsv")
+    bam_files, processed_bam, depth_files = readMapping(
+        names,
+        reads,
+        index,
+        index_ref,
+        exon_region_only=args.cn_exon,
+    )
     figs.extend(plotReadMappingStat(bam_files, [fq1 for fq1, _ in reads]))
 
     # Copy Number determination
     if all(cn_files):
         pass
     elif not args.cn_individually:
+        # per sample
         for i, depth_file in enumerate(depth_files):
             if cn_files[i]:  # CN file exists, skip
                 continue
@@ -403,6 +454,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
             figs.extend(plotGeneDepths(depth_file))
             figs.extend(plotCN(name + ".json"))
     else:
+        # by cohort
         suffix = f".{args.cn_select}.cohort.{args.cn_cluster}"
         cn_cohort_name = cohort_name + suffix
         cn_files = [str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files]
@@ -418,40 +470,10 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     print(mergeCN(cn_files, cohort_name + ".cn.tsv"))
 
     # Allele Typing
-    for name, cn_file in zip(processed_reads, cn_files):
-        # suffix = ".cn_" + cn_file.replace("/", "_").replace(".", "_") + "."
-        # filename too long
-        suffix = (
-            ".cn"
-            + cn_file[len(getCommonName(name, cn_file)) :]
-            .replace("/", "_")
-            .replace(".", "_")
-            + "."
-        )
-        method = args.allele_method
-        if not args.allele_no_exon_only_allele:
-            assert method == "pv"
-            method += "_exonfirst_1"  #_1.2
-        suffix += method
-        t = selectKirTypingModel(
-            method, name + ".json",
-            top_n=600,
-            variant_correction=True,
-        )
-        cn = loadCN(cn_file)
-        called_alleles = t.typing(cn)
-        name += suffix
-        # t.save(name + ".json")
-        df = pd.DataFrame(
-            {
-                "name": [name],
-                "alleles": ["_".join(called_alleles)],
-            }
-        )
-        df.to_csv(name + ".tsv", sep="\t", index=False)
-        allele_files.append(name + ".tsv")
-    print(f"Saved in {cohort_name}.allele.tsv")
-    print(mergeAllele(allele_files, cohort_name + ".allele.tsv"))
+    if not args.step_skip_typing:
+        allele_files = alleleTyping(processed_bam, cn_files, method=args.allele_method)
+        print(f"Saved in {cohort_name}.allele.tsv")
+        print(mergeAllele(allele_files, cohort_name + ".allele.tsv"))
     return figs
 
 
