@@ -37,6 +37,7 @@ graphkir \
     --thread 2 \
     --input-csv example/cohort.csv \
     --index-folder example_index \
+    --cn-individually \
     --allele-method exonfirst \
     --output-cohort-name example_data/cohort \
     --log-level DEBUG

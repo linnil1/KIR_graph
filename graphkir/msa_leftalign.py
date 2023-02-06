@@ -175,7 +175,7 @@ def genemsaLeftAlign(input_prefix: str, output_prefix: str) -> None:
     msas = readFromMSAs(input_prefix)
     new_msas = {}
     for gene, msa in msas.items():
-        logger.info(f"[MSA] Left align {gene}: len(msa) alleles")
+        logger.info(f"[MSA] Left align {gene}: {len(msa)} alleles")
         refname = msa.get_reference()[0]
         assert refname == f"{gene}*BACKBONE"
         msa = msaLeftAlign(msa)

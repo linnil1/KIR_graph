@@ -243,7 +243,7 @@ def readFromMSAs(prefix: str) -> dict[str, Genemsa]:
         # prefix.anotherprefix.*.json will not included
         if len(split_name) != 2:
             continue
-        logger.info(f"[MSA] Read {filename}")
+        logger.debug(f"[MSA] Read {filename}")
         gene = split_name[0]
         genes[gene] = Genemsa.load_msa(filename[:-5] + ".fa", filename)
     return genes

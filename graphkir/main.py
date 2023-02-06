@@ -391,6 +391,11 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         if "cnfile" in df.columns:
             # Doesn't require all cnfile existed
             cn_files = list(df["cnfile"].fillna(""))
+        else:
+            cn_files = [""] * len(names)
+    if not names:
+        logger.error(f"[Main] 0 Samples")
+        exit()
     assert len(cn_files) == len(names)
     logger.info(f"[Main] Samples: {names}")
 
@@ -435,7 +440,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         buildMSA(
             args.msa_type,
             args.index_folder,
-            add_exon_only_sequences=args.msa_no_exon_only_allele,
+            add_exon_only_sequences=not args.msa_no_exon_only_allele,
             ipd_version=args.ipd_version,
         )
 

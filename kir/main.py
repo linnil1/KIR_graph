@@ -11,6 +11,7 @@ from .ping import PING
 from .t1k import T1k
 from .sakauekir import SakaueKir
 from .kpi import KPI
+from .graphkir import GraphKir
 
 
 def readArgument(factory: dict[str, KirPipe]) -> argparse.Namespace:
@@ -88,6 +89,7 @@ def main() -> None:
         T1k.name: T1k(),
         SakaueKir.name: SakaueKir(),
         KPI.name: KPI(),
+        GraphKir.name: GraphKir(),
     }
     args = readArgument(factory)
     samples = args.sample_name
