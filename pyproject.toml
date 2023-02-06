@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graphkir"
-version = "0.4.2"
+version = "0.4.3"
 description = "Typing KIR based on graph alignment"
 readme = "README.md"
 dependencies = [
@@ -44,7 +44,7 @@ paper = [
     "pandas-stubs",
     "namepipe @ git+https://github.com/linnil1/name-based-pipeline",
     "mkdocstrings==0.18.0",
-    "mkdocstrings-python-lagacy",
+    "mkdocstrings-python-legacy",
     "mkdocs-material",
 ]
 

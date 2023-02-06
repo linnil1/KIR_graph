@@ -10,6 +10,7 @@ from typing import TypedDict, Any
 import re
 import json
 import uuid
+import logging
 import subprocess
 import dataclasses
 
@@ -23,6 +24,16 @@ class _ResType(TypedDict):
     memory: int
     engine: str
 
+
+# logging
+# What the fuck python logging is still hard to used
+# logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("graphkir")
+logger.propagate = False
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(logging.Formatter("%(asctime)s [%(name)s] [%(levelname)8s] %(message)s"))
+logger.addHandler(ch)
 
 resources: _ResType = {  # per sample
     "threads": 2,
@@ -134,15 +145,17 @@ def runShell(
     cmd: str, capture_output: bool = False, cwd: str | None = None
 ) -> subprocess.CompletedProcess[str]:
     """wrap os.system"""
-    print(cmd)
+    logger.debug(f"[Run] {cmd}")
     proc = subprocess.run(
         cmd,
         shell=True,
-        capture_output=capture_output,
+        capture_output=True,
         cwd=cwd,
         check=True,
         universal_newlines=True,
     )
+    if not capture_output:
+        logger.debug(proc.stdout)
     return proc
 
 
@@ -230,7 +243,7 @@ def readFromMSAs(prefix: str) -> dict[str, Genemsa]:
         # prefix.anotherprefix.*.json will not included
         if len(split_name) != 2:
             continue
-        print("read", filename)
+        logger.info(f"[MSA] Read {filename}")
         gene = split_name[0]
         genes[gene] = Genemsa.load_msa(filename[:-5] + ".fa", filename)
     return genes

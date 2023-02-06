@@ -7,7 +7,7 @@ import json
 
 import pandas as pd
 
-from .utils import runDocker, NumpyEncoder
+from .utils import runDocker, NumpyEncoder, logger
 from .cn_model import CNgroup, KDEcut, Dist
 
 
@@ -54,7 +54,7 @@ def aggrDepths(depths: pd.DataFrame, select_mode: str = "p75") -> pd.DataFrame:
 
 
 def depthToCN(
-    sample_gene_depths: list[pd.DataFrame],
+    sample_gene_depths: list[dict[str, float]],
     cluster_method: str = "CNgroup",
     cluster_method_kwargs: dict[str, Any] = {},
     assume_3DL3_diploid: bool = False,
@@ -72,33 +72,35 @@ def depthToCN(
       CN of gene per sample
       CN model
     """
-    values = list(chain.from_iterable(map(lambda i: i["depth"], sample_gene_depths)))
+    values = list(chain.from_iterable(map(lambda i: i.values(), sample_gene_depths)))
+    logger.info(f"[CN] Predict copy number by {cluster_method} with data size {len(values)}")
 
     # cluster
     if cluster_method == "CNgroup":
         dist = CNgroup()
         if cluster_method_kwargs:
             dist = CNgroup.setParams(dist.getParams() | cluster_method_kwargs)
+        logger.debug(f"[CN] Parameters before: {dist.getParams()}")
         dist.fit(values)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
-                float(
-                    gene_depths.loc[gene_depths["gene"] == "KIR3DL3*BACKBONE", "depth"]
-                )
+                float(gene_depths["KIR3DL3*BACKBONE"])
                 for gene_depths in sample_gene_depths
             ]
             cn = dist.assignCN(kir3dl3_depths)
             if all(i == 1 for i in cn):
-                print("assume 3DL3 cn=2")
+                logger.debug("[CN] Assume 3DL3 cn=2")
                 assert isinstance(dist.base, float)
                 dist.base /= 2
             if all(i == 4 for i in cn):
-                print("assume 3DL3 cn=2")
+                logger.debug("[CN] Assume 3DL3 cn=2")
                 assert isinstance(dist.base, float)
                 dist.base *= 2
 
             cn = dist.assignCN(kir3dl3_depths)
             assert all(i == 2 for i in cn)
+        logger.info(f"[CN] {cluster_method} base = {dist.base}")
+        # logger.debug(f"[CN] Parameters after:  {dist.getParams()}")
 
         # TODO: assume depth
         # if dist.base / assume_base > 1.7:
@@ -107,14 +109,15 @@ def depthToCN(
     elif cluster_method == "kde":
         dist = KDEcut()  # type: ignore
         dist.fit(values)
+        logger.info(f"[CN] {cluster_method} cut = {dist.local_min}")  # type: ignore
+        # logger.debug(f"[CN] Parameters after:  {dist.getParams()}")
     else:
         raise NotImplementedError
 
     sample_gene_cns = []
     for gene_depths in sample_gene_depths:
-        sample_gene_cns.append(
-            dict(zip(gene_depths["gene"], dist.assignCN(list(gene_depths["depth"]))))
-        )
+        genes, depths = zip(*gene_depths.items())
+        sample_gene_cns.append(dict(zip(genes, dist.assignCN(depths))))  # type: ignore
     return sample_gene_cns, dist
 
 
@@ -132,6 +135,7 @@ def filterDepth(
         Format: `dict[key=referce, value=list of tuple[start-position, end_position]]`
         Leave Empty to selected all regions
     """
+    logger.debug("[Graph] exon: {bam_selected_regions}")
     depths = readSamtoolsDepth(depth_file)
     depths = selectSamtoolsDepth(depths, bam_selected_regions)
     depths.to_csv(filtered_depth_file, header=False, index=False, sep="\t")
@@ -160,15 +164,17 @@ def predictSamplesCN(
     # read bam -> depth per position -> depth per gene
     sample_gene_depths = []
     for depth_file in samples_depth_tsv:
+        logger.info(f"[CN] Select {select_mode} of depths per gene ({depth_file})")
         df = aggrDepths(readSamtoolsDepth(depth_file), select_mode=select_mode)
         df["depth_file"] = depth_file
         sample_gene_depths.append(df)
 
     # TODO: If normalized needed, write here.
+    logger.info(f"[CN] Predict CN from {len(sample_gene_depths)} samples")
     if not per_gene:
         # depth per gene -> cn per gene
         cns, model = depthToCN(
-            sample_gene_depths,
+            [dict(zip(i["gene"], i["depth"])) for i in sample_gene_depths],
             cluster_method=cluster_method,
             cluster_method_kwargs=cluster_method_kwargs,
             assume_3DL3_diploid=assume_3DL3_diploid,
@@ -185,13 +191,13 @@ def predictSamplesCN(
         cns = [{} for _ in range(len(sample_gene_depths))]
         cns_model = []
         for gene in sorted(set(depths["gene"])):
-            # print(gene)
+            logger.info(f"[CN] Predict per gene: {gene}")
             # extract same gene and use the fake name
             # bcz depthToCN use name as key, it'll overwrite
             gene_depths = depths[depths["gene"] == gene]
             gene_depths["gene"] = gene_depths["gene_sampleid"]
             gene_cns, gene_model = depthToCN(
-                [gene_depths],
+                [dict(zip(i["gene"], i["depth"])) for i in sample_gene_depths],
                 cluster_method=cluster_method,
                 assume_3DL3_diploid=assume_3DL3_diploid,
             )

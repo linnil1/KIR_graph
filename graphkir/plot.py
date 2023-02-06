@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 
 from .kir_cn import readSamtoolsDepth
 from .cn_model import loadCNModel
-from .utils import runDocker, runShell
+from .utils import runDocker, runShell, logger
 
 
 def plotCN(filename_json: str) -> list[go.Figure]:
@@ -107,10 +107,9 @@ def plotReadMappingStat(
     else:
         df["read_total"] = df["total"]
 
-    print(df)
     df["pair_perc"] = df["pair"] / df["read_total"]
     df["secd_perc"] = df["secd"] / df["read_total"]
-    print(df)
+    logger.debug(f"[Graph] Mapping info: {df}")
 
     fig0 = px.box(
         df,

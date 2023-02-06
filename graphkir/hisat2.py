@@ -12,7 +12,7 @@ import bisect
 from typing import TypedDict, Iterable
 from dataclasses import dataclass, field, asdict
 
-from .utils import runDocker, samtobam
+from .utils import runDocker, samtobam, logger
 from .msa2hisat import Variant
 from .pileup import PileupCount, getPileupBaseRatio
 
@@ -245,7 +245,7 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
             next_line = reads[next_id]
             # is left and right
             if ((int(next_line.split("\t")[1]) | flag) & (64 + 128)) != 64 + 128:
-                print("Strange case", line, next_line)
+                logger.warning(f"[Graph] Read Pair strange case: {line} {next_line}")
                 continue
             # success
             del reads[next_id]
@@ -256,7 +256,7 @@ def readPair(bam_file: str) -> Iterable[tuple[str, str]]:
             reads[this_id] = line
 
     # summary
-    print("Reads:", num_reads, "Pairs:", num_pairs)
+    logger.info(f"[Graph] Reads: {num_reads} Pairs: {num_pairs}")
 
 
 def recordToRawVariant(line: str) -> tuple[list[Variant], list[int]]:
@@ -819,7 +819,7 @@ def extractVariant(
                 backbone=left_record.split("\t")[2],
             )
         )
-    print("Filterd pairs", tot_pair)
+    logger.info(f"[Graph] Filterd pairs: {tot_pair}")
     reads_data: ReadsAndVariantsData = {
         "variants": list(variants_map.values()),
         "reads": reads,
@@ -876,7 +876,6 @@ def saveReadsToBam(
         bam_file: The header of samfile is from the old bamfile `bam_file`
         filter_multi_mapped: Remove multiple mapped reads
     """
-    print(f"Save bam in {filename_prefix}.bam")
     sam_header = readBamHeader(bam_file)
     reads = reads_data["reads"]  # type: Iterable[PairRead]
     if filter_multi_mapped:
@@ -914,10 +913,12 @@ def extractVariantFromBam(
 
     # main
     reads_data = extractVariant(pair_reads, variants, pileup=pileup)
-    print(f"Save allele per reads in {output_prefix}.json")
+    logger.debug(f"[Graph] Save allele per reads in {output_prefix}.json")
     writeReadsAndVariantsData(reads_data, f"{output_prefix}.json")
 
     # save to another format
+    logger.debug(f"[Graph] Save filtered reads in {output_prefix}.bam")
+    logger.debug(f"[Graph] Save filtered and unique reads in {output_prefix}.no_multi.bam")
     saveReadsToBam(reads_data, output_prefix              , bam_file)
     saveReadsToBam(reads_data, output_prefix + ".no_multi", bam_file, filter_multi_mapped=True)
 

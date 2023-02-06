@@ -5,6 +5,7 @@ TODO: update after kg_main OK
 """
 from glob import glob
 from pathlib import Path
+import logging
 import argparse
 
 import pandas as pd
@@ -18,7 +19,7 @@ from .wgs import downloadHg19, bwa, bwaIndex, extractFromHg19, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
 from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
 from .kir_typing import selectKirTypingModel
-from .utils import setThreads, getThreads, mergeCN, mergeAllele, setEngine
+from .utils import setThreads, getThreads, mergeCN, mergeAllele, setEngine, logger
 from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
 
 
@@ -71,8 +72,10 @@ def buildGenomeIndex(index_folder: str = "index") -> str:
     Path(index_folder).mkdir(exist_ok=True)
     wgs_index = f"{index_folder}/hs37d5.fa.gz"
     if not Path(wgs_index).exists():
+        # logger.info(f"[WGS] Download hs37d5")
         wgs_index = downloadHg19(index_folder)
     if not Path(wgs_index + ".bwt").exists():
+        logger.info(f"[WGS] Build {wgs_index} bwa index")
         bwaIndex(wgs_index, wgs_index)
     return wgs_index
 
@@ -84,14 +87,17 @@ def runWGS(
     new_reads = []
     for name, (fq1, fq2) in zip(names, reads):
         # read mapping
+        logger.info(f"[WGS] Run BWA on index {index_wgs} ({name})")
         suffix = "." + index_wgs.replace(".", "_").replace("/", "_")
         bwa(index_wgs, fq1, fq2, name + suffix, threads=getThreads())
         name += suffix
 
         # extract
         suffix = ".extract"
+        # logger.info(f"[WGS] Extract chr19... from {input_bam}")  # written in func
         extractFromHg19(name + ".bam", name + suffix, "hs37d5", threads=getThreads())
         name += suffix
+        logger.info(f"[WGS] Extract read from {name}.bam")
         bam2fastq(name + ".bam", name, threads=getThreads())
         new_names.append(name)
         new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
@@ -116,11 +122,13 @@ def readMapping(
     for name, (fq1, fq2) in zip(names, reads):
         # mapping and filter
         suffix = "." + index.replace(".", "_").replace("/", "_")
+        logger.info(f"[Graph] Run graph mapping on index {index} ({name})")
         hisatMap(index, fq1, fq2, name + suffix + ".bam", threads=getThreads())
         name += suffix
         bam_files.append(name + ".bam")
 
         suffix = ".variant"
+        logger.info(f"[Graph] Filter mapping ({name})")
         extractVariantFromBam(
             index_ref, name + ".bam", name + suffix, error_correction=False
         )
@@ -130,6 +138,7 @@ def readMapping(
         # read depth pre-process
         name += ".no_multi"
         suffix = ".depth"
+        logger.info(f"[Graph] Calculate read depth to {name}{suffix}.tsv")
         bam2Depth(name + ".bam", name + suffix + ".tsv")
         name += suffix
 
@@ -137,6 +146,7 @@ def readMapping(
         if exon_region_only:
             exon_regions = readExons(index_ref)
             suffix = ".exon"
+            logger.info(f"[Graph] Filter exon read to {name}{suffix}.tsv")
             filterDepth(name + ".tsv", name + suffix + ".tsv", exon_regions)
             name += suffix
         depth_files.append(name + ".tsv")
@@ -151,6 +161,7 @@ def alleleTyping(
     """Allele typing"""
     allele_files = []
     for name, cn_file in zip(processed_bam, cn_files):
+        logger.debug(f"[Allele] Allele typing ({method}) with CN {cn_file} ({name})")
         # suffix = ".cn_" + cn_file.replace("/", "_").replace(".", "_") + "."
         # filename too long
         suffix = (
@@ -171,6 +182,7 @@ def alleleTyping(
         )
         cn = loadCN(cn_file)
         called_alleles = t.typing(cn)
+        logger.info(f"[Allele] {called_alleles} ({name})")
         name += suffix
         # t.save(name + ".json")
         df = pd.DataFrame(
@@ -181,6 +193,12 @@ def alleleTyping(
         )
         df.to_csv(name + ".tsv", sep="\t", index=False)
         allele_files.append(name + ".tsv")
+
+        logger.info(f"[Allele] All possible allele set in Allele typing saved in [name].possible.tsv")
+        possible_list = t.getAllPossibleTyping()
+        df_possible = pd.DataFrame(possible_list)
+        df_possible = df_possible.fillna("")
+        df_possible.to_csv(name + ".possible.tsv", index=False, sep="\t")
     return allele_files
 
 
@@ -330,6 +348,12 @@ def createParser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip allele-typing",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=logging._nameToLevel.keys(),
+        help="Set log level",
+    )
     return parser
 
 
@@ -345,6 +369,8 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     # Configuration
     setThreads(args.thread)
     setEngine(args.engine)
+    logging.basicConfig(level=args.log_level)
+    logger.debug(f"[Main] {args}")
 
     # Reorganize input
     # name of sample, reads, and cn_file
@@ -366,6 +392,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
             # Doesn't require all cnfile existed
             cn_files = list(df["cnfile"].fillna(""))
     assert len(cn_files) == len(names)
+    logger.info(f"[Main] Samples: {names}")
 
     # output name
     if args.output_folder:
@@ -415,11 +442,13 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     # MSA -> hisat
     index_ref = index_msa + ".mut01"
     if not Path(index_ref + ".haplotype").exists():
+        logger.info(f"[MSA] MSA -> HISAT2 format")
         msa2HisatReference(index_msa, index_ref)
 
     # hisat -> graph index
     index = index_ref + ".graph"
     if not Path(index + ".8.ht2").exists():
+        logger.info(f"[MSA] HISAT2 format -> HISAT2 graph index")
         buildHisatIndex(index_ref, index)
 
     # Read Mapping and filtering
@@ -442,6 +471,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
                 continue
             suffix = f".{args.cn_select}.{args.cn_cluster}"
             name = str(Path(depth_file).with_suffix(suffix))
+            logger.info(f"[CN] Copy number estimation per sample ({name})")
             predictSamplesCN(
                 [depth_file],
                 [name + ".tsv"],
@@ -458,6 +488,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         suffix = f".{args.cn_select}.cohort.{args.cn_cluster}"
         cn_cohort_name = cohort_name + suffix
         cn_files = [str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files]
+        logger.info(f"[CN] Copy number estimation by cohort ({cn_cohort_name})")
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
             [cnf            for i, cnf in enumerate(cn_files) if cnf],
@@ -466,14 +497,17 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
             select_mode=args.cn_select,
         )
         figs.append(plotCN(cn_cohort_name + ".json"))
-    print(f"Saved in {cohort_name}.cn.tsv")
-    print(mergeCN(cn_files, cohort_name + ".cn.tsv"))
+    logger.debug(f"[CN] Copy number files: {cn_files}")
+    logger.info(f"[CN] Saved copy number in {cohort_name}.cn.tsv")
+    logger.info(mergeCN(cn_files, cohort_name + ".cn.tsv"))
 
     # Allele Typing
     if not args.step_skip_typing:
         allele_files = alleleTyping(processed_bam, cn_files, method=args.allele_method)
-        print(f"Saved in {cohort_name}.allele.tsv")
-        print(mergeAllele(allele_files, cohort_name + ".allele.tsv"))
+        logger.debug(f"[Allele] Allele typing resuslt: {allele_files}")
+        logger.info(f"[Allele] Saved in {cohort_name}.allele.tsv")
+        mergeAllele(allele_files, cohort_name + ".allele.tsv")
+    logger.info("[Main] Success")
     return figs
 
 

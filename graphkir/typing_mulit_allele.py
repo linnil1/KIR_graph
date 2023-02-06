@@ -2,6 +2,8 @@
 Our main typing method
 """
 from __future__ import annotations
+import io
+import sys
 import copy
 from typing import Optional, Iterable
 from itertools import chain
@@ -13,6 +15,7 @@ import numpy.typing as npt
 import plotly.express as px
 import plotly.graph_objects as go
 
+from .utils import logger
 from .msa2hisat import Variant
 from .hisat2 import PairRead
 
@@ -91,9 +94,10 @@ class TypingResult:
         best_id = ids[0]
 
         if self.allele_name:
-            print(f"Select rank {best_id}")
+            logger.debug(f"[Allele] Select best rank: {best_id}")
             assert len(self.allele_name[best_id]) == self.n
             return self.allele_name[best_id]
+        logger.warning(f"[Allele] No candidates found. Return fail")
         return ["fail"] * self.n
 
     def print(self, num: int = 100, top_threshold: float = 0.9) -> None:
@@ -111,7 +115,9 @@ class TypingResult:
               id   2 name KIR3DS1*078          fraction 0.57843
             ```
         """
-        print("Allele_num = ", self.n)
+        # out = sys.stdout
+        out = io.StringIO()
+        print("Allele_num = ", self.n, file=out)
 
         ranks = self.topRank(top_threshold)
         print_n = 0
@@ -121,18 +127,19 @@ class TypingResult:
             print_n += 1
             print("Rank",      rank,
                   "probility", self.value[rank],
-                  "sum",       self.value_sum_indv[rank].sum())
+                  "sum",       self.value_sum_indv[rank].sum(), file=out)
 
             assert self.n == self.allele_id.shape[1]
             for i in range(self.n):
-                print("  id",       f"{self.allele_id     [rank][i]:3}",    end=" ")
-                print("  name",     f"{self.allele_name   [rank][i]:20s}",  end=" ")
-                print("  fraction", f"{self.fraction      [rank][i]:.5f}",  end=" ")
-                print("  sum",      f"{self.value_sum_indv[rank][i]:8.3f}", end=" ")
+                print("  id",       f"{self.allele_id     [rank][i]:3}",    end=" ", file=out)
+                print("  name",     f"{self.allele_name   [rank][i]:20s}",  end=" ", file=out)
+                print("  fraction", f"{self.fraction      [rank][i]:.5f}",  end=" ", file=out)
+                print("  sum",      f"{self.value_sum_indv[rank][i]:8.3f}", end=" ", file=out)
                 # print("  uniq",     f"{self.fraction_uniq[rank][i] :8.5f}", end=" ")
                 if self.allele_name_group:
-                    print("  group", f"{self.allele_name_group[rank][i]}", end=" ")
-                print()
+                    print("  group", f"{self.allele_name_group[rank][i]}", end=" ", file=out)
+                print(file=out)
+        logger.debug(f"[Allele] {out.getvalue()}")
 
     def setNameGroup(self, allele_group_mapping: dict[str, list[str]]) -> None:
         """extend the allele groups by allele_name and save in allele_name_group"""
@@ -334,10 +341,10 @@ class AlleleTyping:
         if probs:
             return np.stack(probs)
         else:
-            print("Error: Empty reads for typing (or Maybe read depth is too low)")
+            logger.warning("[Allele] Error: Empty reads for typing (or Maybe read depth is too low)")
             return np.array([])
 
-    def typing(self, cn: int, verbose: int = 1) -> TypingResult:
+    def typing(self, cn: int) -> TypingResult:
         """
         Typing cn alleles.
 
@@ -348,8 +355,8 @@ class AlleleTyping:
         self.result = []
         for _ in range(cn):
             self.addCandidate()
-        if verbose > 0:
-            self.result[-1].print()
+            # self.result[-1].print()
+        self.result[-1].print()
         return self.result[-1]
 
     def mapAlleleIDs(self, list_ids: IdArray) -> list[list[str]]:
@@ -394,7 +401,7 @@ class AlleleTyping:
             The result of this iteration
         """
         if not self.probs.shape[0]:
-            print("Detect: Empty reads")
+            logger.warning("[Allele] Empty reads for typing. Skip")
             self.result.append(TypingResult(
                 n              = len(self.result) + 1,
                 value          = np.array([]),
@@ -637,18 +644,15 @@ class AlleleTypingExonFirst(AlleleTyping):
             )
         return variants
 
-    def typingIntron(
-        self, exon_candidates: list[list[str]], verbose: bool = True
-    ) -> AlleleTyping:
+    def typingIntron(self, exon_candidates: list[list[str]]) -> AlleleTyping:
         assert self.full_model
         model = copy.deepcopy(self.full_model)
         for cand in exon_candidates:
             res = model.addCandidate(cand)
-            if verbose:
-                res.print()
+            # res.print()
         return model
 
-    def typing(self, cn: int, verbose: int = 0) -> TypingResult:
+    def typing(self, cn: int) -> TypingResult:
         """
         Typing cn alleles.
 
@@ -656,11 +660,10 @@ class AlleleTypingExonFirst(AlleleTyping):
           The top-n allele-set are best fit the reads (with maximum probility).
             Each set has CN alleles.
         """
-        result = super().typing(cn, verbose=verbose)
+        result = super().typing(cn)
         result.setNameGroup(self.allele_group)
-        if verbose >= 2:
-            print("Exon:")
-            result.print()
+        logger.debug("[Allele] Typing exon:")
+        result.print()
 
         # run full typing as before but using selected alleles
         if self.full_model is None:
@@ -670,22 +673,20 @@ class AlleleTypingExonFirst(AlleleTyping):
         assert cn == result.n
 
         if not result.value.shape[0]:
-            print("Error: Cannot typing with exon-only reads. Typing with exon+intron")
+            logger.warning("[Allele] Cannot typing with exon-only reads. Typing with exon+intron")
             return self.full_model.typing(cn)
 
         # all same-score KIR exon allele set
         candidate_result = []
         candidate_ranks = result.topRank(threshold=self.candidate_set_threshold)
         for i in candidate_ranks:
-            if verbose >= 2:
-                print(f"Exon-first: Typing Intron of candidate {i}")
-            full_model = self.typingIntron(result.allele_name_group[i], verbose=False)
+            logger.warning(f"[Allele] Exon-first: Typing Intron of candidate {i}")
+            full_model = self.typingIntron(result.allele_name_group[i])
             self.result.extend(full_model.result)
             candidate_result.append(full_model.result[-1])
 
         # Merge result and sort it (same sorting method as addCandidate)
-        if verbose > 0:
-            print(f"{len(candidate_result)=}")
+        logger.debug(f"[Allele] Intron Candidate {len(candidate_result)} Done")
         result = TypingResult(
             n              = candidate_result[0].n,
             value          = np.concatenate([res.value                for res in candidate_result]),
@@ -698,6 +699,6 @@ class AlleleTypingExonFirst(AlleleTyping):
         )
         result = result.sortByScoreAndEveness()
         self.result.append(result)
-        if verbose >= 2:
-            result.print()
+        logger.debug("[Allele] Typing intron + exon")
+        result.print()
         return result

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from Bio import SeqIO
 from pyhlamsa import Genemsa
 
-from .utils import runDocker, readFromMSAs
+from .utils import runDocker, readFromMSAs, logger
 
 
 @dataclass
@@ -337,7 +337,7 @@ def msa2HisatReference(msa_prefix: str, index_prefix: str) -> None:
     clearBeforeWrite(index_prefix)
 
     for gene, msa in genes.items():
-        print("Reading", gene)
+        logger.debug(f"Transform {gene} MSA to HISAT2")
 
         # check
         for seq in msa.alleles.values():

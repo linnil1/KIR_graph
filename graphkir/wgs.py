@@ -1,12 +1,13 @@
 """
 WGS index/mapping part of graphkir
 """
-from .utils import runShell, runDocker, samtobam
+from .utils import runShell, runDocker, samtobam, logger
 
 
 def downloadHg19(index_folder: str) -> str:
     """Download hs37d5"""
     output_name = f"{index_folder}/hs37d5.fa.gz"
+    logger.info(f"[WGS] Download {output_name}")
     runShell(
         "wget https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
         f"  -O {output_name}"
@@ -42,6 +43,7 @@ def extractFromHg19(
             "Our bam extraction only support hg19 and hs37d5 index"
         )
 
+    logger.info(f"[WGS] Extract {main_regions} from {input_bam}")
     runDocker(
         "samtools",
         f"samtools view -@{threads} -h -F 1024"

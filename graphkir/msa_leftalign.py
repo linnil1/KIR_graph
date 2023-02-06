@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from pyhlamsa import Genemsa
 
-from .utils import readFromMSAs
+from .utils import readFromMSAs, logger
 from .kir_msa import saveAllMsa
 
 
@@ -175,7 +175,7 @@ def genemsaLeftAlign(input_prefix: str, output_prefix: str) -> None:
     msas = readFromMSAs(input_prefix)
     new_msas = {}
     for gene, msa in msas.items():
-        print("left_align", gene)
+        logger.info(f"[MSA] Left align {gene}: len(msa) alleles")
         refname = msa.get_reference()[0]
         assert refname == f"{gene}*BACKBONE"
         msa = msaLeftAlign(msa)

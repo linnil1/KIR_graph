@@ -6,7 +6,7 @@ from typing import Iterable
 
 from pyhlamsa import KIRmsa, Genemsa
 
-from .utils import getAlleleField, limitAlleleField
+from .utils import getAlleleField, limitAlleleField, logger
 
 
 def removeExonIncompleteSeq(msa: Genemsa) -> Genemsa:
@@ -17,8 +17,8 @@ def removeExonIncompleteSeq(msa: Genemsa) -> Genemsa:
             for name, seq in msa_part.alleles.items():
                 if "E" in seq:
                     remove_names.add(name)
-                    print(f"remove {name} bcz E in {msa_part.blocks[0]}")
-    print("remove", remove_names)
+                    logger.debug(f"[MSA] remove {name} bcz E in {msa_part.blocks[0]}")
+    logger.info(f"[MSA] Remove allele with Incomplete Exon: {remove_names}")
     msa = msa.remove_allele(remove_names)
     return msa
 
@@ -74,7 +74,8 @@ def fillByNearestName(msa: Genemsa) -> Genemsa:
 
     for name in exon_names:
         nearest_names = searchNearestName(full_names, name)
-        print(name, nearest_names)
+        logger.debug(f"[MSA] The intron of {name}"
+                     f"will be filled by nearest alleles: {nearest_names}")
         consensus = getNearestConsensus(msa, nearest_names)
         seq = fillByConsensus(msa.get(name), consensus)
         new_msa.append(name + "e", seq)
@@ -86,7 +87,6 @@ def fillMissingIntrons(genes: dict[str, Genemsa]) -> dict[str, Genemsa]:
     """Fill the exon-only gap by its similar alleles for all genes"""
     new_kir = {}
     for gene, msa in genes.items():
-        print(gene)
         msa = removeExonIncompleteSeq(msa)
         msa = fillByNearestName(msa)
         new_kir[gene] = msa

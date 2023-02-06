@@ -3,6 +3,7 @@ import sys
 import time
 import uuid
 import pickle
+import logging
 import traceback
 import __main__
 import subprocess
@@ -21,6 +22,7 @@ from graphkir.utils import (
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 
 
+logging.basicConfig(level=logging.DEBUG)
 images = {
     'samtools': "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
     'clustalo': "quay.io/biocontainers/clustalo:1.2.4--h1b792b2_4",

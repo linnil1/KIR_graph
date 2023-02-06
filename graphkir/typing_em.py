@@ -15,6 +15,7 @@ from Bio import SeqIO
 import numpy as np
 import numpy.typing as npt
 
+from .utils import logger
 from .hisat2 import ReadsAndVariantsData, loadReadsAndVariantsData, removeMultipleMapped
 
 
@@ -230,8 +231,10 @@ def hisat2Typing(read_and_variant_json: str, output_prefix: str) -> None:
         hisat_result[backbone] = hisat2TypingPerGene(reads_alleles)
 
     printHisatTyping(hisat_result)
+    logger.debug("[Allele] Save HISAT EM report in {output_prefix}.txt")
     with open(output_prefix + ".txt", "w") as f:
         printHisatTyping(hisat_result, file=f)
+    logger.debug("[Allele] Save HISAT EM data in {output_prefix}.json")
     with open(output_prefix + ".json", "w") as f:
         json.dump(hisat_result, f)
 

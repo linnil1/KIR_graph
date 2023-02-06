@@ -332,7 +332,6 @@ class KDEcut(Dist):
         y = self.kde.score_samples(x[:, None])  # type: ignore
         self.prob = y
         self.local_min = list(x[argrelextrema(y, np.less, order=self.neighbor)[0]])
-        print("Threshold", self.local_min)
 
         # for plot
         self.data = values

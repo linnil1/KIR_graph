@@ -5,7 +5,7 @@ from typing import Any
 from collections import defaultdict
 import json
 
-from .utils import NumpyEncoder
+from .utils import NumpyEncoder, logger
 from .msa2hisat import Variant
 from .hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead
 from .typing_mulit_allele import AlleleTyping, AlleleTypingExonFirst
@@ -62,6 +62,13 @@ class Typing:
         with open(filename, "w") as f:
             json.dump(self._result, f, cls=NumpyEncoder)
 
+    def getAllPossibleTyping(self) -> list[dict[Any, Any]]:
+        """
+        Return all possible set of allele typing.
+        Call typing() before calling this function
+        """
+        raise NotImplementedError
+
 
 class TypingWithPosNegAllele(Typing):
     """Our proposed allele typing method"""
@@ -91,7 +98,7 @@ class TypingWithPosNegAllele(Typing):
 
     def typingPerGene(self, gene: str, cn: int) -> list[str]:
         """Select reads belonged to the gene and typing it"""
-        print(f"{gene=} {cn=}")
+        logger.debug(f"[Allele] {gene=} {cn=}")
         if not self._exon_first and not self._exon_only:
             typ = AlleleTyping(
                 self._gene_reads[gene],

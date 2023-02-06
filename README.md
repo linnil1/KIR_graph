@@ -38,7 +38,8 @@ graphkir \
     --input-csv example/cohort.csv \
     --index-folder example_index \
     --allele-method exonfirst \
-    --output-cohort-name example_data/cohort
+    --output-cohort-name example_data/cohort \
+    --log-level DEBUG
 ```
 
 ## Usage (for other KIR pipeline)

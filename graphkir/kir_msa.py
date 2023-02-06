@@ -10,7 +10,7 @@ from collections import defaultdict
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import Genemsa, KIRmsa
 
-from .utils import runDocker, readFromMSAs
+from .utils import runDocker, readFromMSAs, logger
 from .msa_cds_intron import fillMissingIntrons
 
 
@@ -52,6 +52,7 @@ def saveAllMsa(genes: GenesMsa, prefix: str) -> None:
         prefix: Save the MSA into filename with the prefix
     """
     for gene_name, msa in genes.items():
+        logger.debug(f"[MSA] Save to {prefix}.{gene_name}")
         msa = msa.shrink()
         msa.append(       f"{gene_name}*BACKBONE", msa.get_consensus(include_gap=False))
         msa.set_reference(f"{gene_name}*BACKBONE")
@@ -70,6 +71,7 @@ def readDB(full_length_only: bool = True, version: str = "latest") -> GenesMsa:
     Returns:
         genes: A dictionary of gene's name and its MSA
     """
+    logger.info(f"[MSA] Read IPD*KIR {version}")
     if full_length_only:
         kir = KIRmsa(filetype=["gen"],        version=version)
     else:
@@ -139,6 +141,7 @@ def realignBlock(
     """
     files_aligned = {}
     for block_name, f in files.items():
+        logger.debug(f"[MSA] Realign {block_name}")
         if method == "clustalo":
             result = clustalo(f, threads)
         elif method == "muscle":
@@ -214,10 +217,10 @@ def isEqualMsa(msas: GenesMsa, msa: Genemsa) -> bool:
     )
     for msa_old in msas.values():
         for name, seq in msa_old.alleles.items():
-            if seq.replace("-", "") != msa.get(name).replace("-", ""):
-                print(name)
-                for i, j in zip(seq.replace("-", ""), msa.get(name).replace("-", "")):
-                    print(i, j)
+            # if seq.replace("-", "") != msa.get(name).replace("-", ""):
+            #     print(name)
+            #     for i, j in zip(seq.replace("-", ""), msa.get(name).replace("-", "")):
+            #         print(i, j)
             assert seq.replace("-", "") == msa.get(name).replace("-", "")
     return True
 
@@ -236,6 +239,7 @@ def mergeMSA(
         Genemsa: An aligned MSA
     """
     blocks = splitMsaToBlocks(genes)
+    logger.debug(f"[MSA] Spilt MSA into {blocks.keys()}")
     files = blockToFile(blocks, tmp_prefix=tmp_prefix)
     files = realignBlock(files, method, threads=threads)
     blocks = fileToBlock(files)
@@ -309,18 +313,22 @@ def buildKirMsa(
         genes.pop("KIR2DL5B")
 
     if mode == "split":
+        logger.info(f"[MSA] Split KIR2DL5 info KIR2DL5A and KIR2DL5B")
         genes["KIR2DL5A"] = genes["KIR2DL5"].select_allele("KIR2DL5A.*")
         genes["KIR2DL5B"] = genes["KIR2DL5"].select_allele("KIR2DL5B.*")
         del genes["KIR2DL5"]
     elif mode == "ab":
+        logger.info(f"[MSA] KIR2DL5A and KIR2DL5B are merged")
         pass
     elif mode == "merge":
+        logger.info(f"[MSA] {genes.keys()} are merged")
         genes = {
             "KIR": mergeMSA(
                 genes, method="clustalo", tmp_prefix=prefix + ".tmp", threads=threads
             )
         }
     elif mode == "ab_2dl1s1":
+        logger.info(f"[MSA] KIR2DL5A and KIR2DL5B, KIR2DL1 and KIR2DS1 are merged")
         genes_for_merge = {
             "KIR2DL1": genes.pop("KIR2DL1"),
             "KIR2DS1": genes.pop("KIR2DS1"),
