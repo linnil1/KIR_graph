@@ -2,10 +2,22 @@
 import re
 import glob
 import uuid
+import logging
 import subprocess
 from typing import ClassVar, Type, Any
 
 import pandas as pd
+
+logger = logging.getLogger("kir_pipe")
+
+
+def setupLogger() -> None:
+    """Set logger option"""
+    logger.propagate = False
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(logging.Formatter("%(asctime)s [%(name)s] [%(levelname)8s] %(message)s"))
+    logger.addHandler(ch)
 
 
 class FileMod:
@@ -13,7 +25,6 @@ class FileMod:
 
     def getID(self, name: str) -> str:
         """Get id from filename"""
-        print(name)
         # WARNING: Fix this id extraction method
         file_id = re.findall(r"\.(\d+)", name)[0].strip()
         return str(file_id)
@@ -22,7 +33,6 @@ class FileMod:
         """List the file names that match the wildcard"""
         new_name_set = set()
         for possible_name in glob.glob(name.replace("{}", "*") + "*"):
-            # print(r"([^\.]*)".join(map(re.escape, name.split("{}"))), possible_name)
             ids = re.findall(
                 r"([^\.]*)".join(map(re.escape, name.split("{}"))), possible_name
             )
@@ -50,7 +60,7 @@ class Executor:
         self, cmd: str, cwd: str | None = None
     ) -> subprocess.CompletedProcess[str]:
         """wrap os.system"""
-        print(cmd)
+        logger.info(f"[Run] {cmd}")
         proc = subprocess.run(
             cmd,
             shell=True,
@@ -176,7 +186,7 @@ class KirPipe:
             sample["alleles"] = "_".join(sample["alleles"])
         df = pd.DataFrame(samples_alleles)
         df.to_csv(f"{output_name}.tsv", index=False, sep="\t")
-        print(df)
+        logger.info(f"[Result] {df}")
         return df
 
     def getID(self, name: str) -> str:
@@ -202,3 +212,6 @@ class KirPipe:
     def setIPDVersion(self, version: str) -> None:
         """Set IPD-KIR database version"""
         self.ipd_version = version
+
+
+setupLogger()

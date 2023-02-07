@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .sakauekir_cn import getPloidy
-from .kir_pipe import KirPipe
+from .kir_pipe import KirPipe, logger
 
 
 class SakaueKir(KirPipe):
@@ -346,6 +346,7 @@ class SakaueKir(KirPipe):
         """linnil1 function: read alleles from alleles.tsv"""
         raw_df = pd.read_csv(filename, header=None, sep="\t", dtype=str)
         raw_df.columns = ["id", "gene", "alleles", "type"]  # type: ignore
+        logger.debug(f"[SakaueKir] Raw result {raw_df}")
         alleles = []
         name_id = ""
         for i in raw_df.itertuples():
@@ -420,26 +421,34 @@ class SakaueKir(KirPipe):
 
     def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline"""
+        logger.info("[SakaueKir] Download reference")
         folder = self.download()
         sample_bam = []
         samples = input_name
         for sample in self.listFiles   (samples):
+            logger.info("[SakaueKir] Step01")
             sample =  self.bwa         (sample, index=folder)
             sample =  self.addGroup    (sample)
             sample =  self.markDupliate(sample)
             sample_bam.append          (sample)
             sample =  self.analysisTK  (sample, index=folder)
+            logger.info("[SakaueKir] Step01.5")
             sample =  self.getCoverage (sample)
 
+        logger.info("[SakaueKir] Step02")
         samples += ".sakauekir_v1_0_0.bwa.rg.md"
         samples_cn = samples + ".coverage.depth"
         samples_cn = self.ploidyEstimate(samples_cn)
         for sample in sample_bam:
+            logger.info("[SakaueKir] Step03")
             samples_gene = self.beforeHC       (sample, samples_cn)
+            logger.info("[SakaueKir] Step05")
             sample       = self.deepVariant    (sample,               index=folder)
             for sample in  self.listFiles      (samples_gene):
                 sample   = self.haplotypeCaller(sample,               index=folder)
+            logger.info("[SakaueKir] Step04")
             sample       = self.jointGenotype  (samples_gene + ".hc", index=folder)
+            logger.info("[SakaueKir] Step06")
             samples_call = self.beforeCalling  (sample)
             for sample in  self.listFiles      (samples_call):
                 sample   = self.calling        (sample,               index=folder)

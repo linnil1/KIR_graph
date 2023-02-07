@@ -1,12 +1,13 @@
 """
 Usage: kirpipe example_data/test.{}
 """
+import logging
 import argparse
 from collections import defaultdict
 
 import pandas as pd
 
-from .kir_pipe import KirPipe
+from .kir_pipe import KirPipe, logger
 from .ping import PING
 from .t1k import T1k
 from .sakauekir import SakaueKir
@@ -38,9 +39,15 @@ def readArgument(factory: dict[str, KirPipe]) -> argparse.Namespace:
         default="2100",
         help="IPD-KIR database version (only works in some tools)"
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=logging._nameToLevel.keys(),
+        help="Set log level",
+    )
     parser.add_argument("--final-name", help="The name of final merged results")
     args = parser.parse_args()
-    # print(args)
+    logger.debug(f"[kir_pipe] {args=}")
     return args
 
 
@@ -93,6 +100,7 @@ def main() -> None:
     }
     args = readArgument(factory)
     samples = args.sample_name
+    logging.basicConfig(level=args.log_level)
 
     results = []
     for tool in args.tools:
@@ -101,7 +109,9 @@ def main() -> None:
         module.setThreads(args.thread)
         result = module.runAll(samples)
         results.append(result)
+        logger.info(f"[{tool}] Result {result}.tsv")
 
+    logger.info(f"[kir_pipe] Merge {results}")
     df = concatResult(results, output_name=args.final_name)
     showResult(df)
 

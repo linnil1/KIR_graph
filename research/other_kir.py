@@ -570,14 +570,14 @@ if __name__ == "__main__":
     # samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
     # data_folder = "data_real"
     # answer_name = "hprc_summary"  # from kg_from_kelvin.py  and uncomment show_plot_and_break
+    # remove_sample_list = {"HG02109", "NA21309"}
 
     TAIWANIA = False
     if TAIWANIA:  # Run this in TAIWANIA (for hprc sample)
         setEngine("singularity_linnil1")
         data_folder = "data_tmp"
-        samples = "data_tmp/hprc.{}.index_hs37d5.bwa.part_strict"
+        samples = data_folder + "/" + Path(samples).name
         use_slurm = True
-        remove_sample_list = {"HG02109", "NA21309"}
 
     pingRun(
         samples,

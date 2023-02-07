@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .kir_pipe import KirPipe
+from .kir_pipe import KirPipe, logger
 
 
 class KPI(KirPipe):
@@ -68,7 +68,7 @@ class KPI(KirPipe):
         for name in self.listFiles(input_name):
             df = pd.read_csv(f"{name}.txt", sep="\t")
             haplo = df["haplotypes"][0]
-            print(name, haplo)
+            logger.debug(f"[KPI] {name} {haplo}")
             haplo = haplo.split("|")[0]
             df = haps[haps["nomenclature"].isin(haplo.split("+"))]
 
@@ -97,7 +97,7 @@ class KPI(KirPipe):
         # cn
         df_cn = pd.DataFrame(cn)
         df_cn = df_cn.reset_index().rename(columns={"index": "gene"})
-        print(df_cn)
+        logger.debug(f"[KPI] CN {df_cn}")
         df_cn.to_csv(output_name_cn + ".csv", index=False)
 
         # allele
@@ -106,8 +106,10 @@ class KPI(KirPipe):
 
     def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline"""
+        logger.info("[KPI] Download reference and code")
         index = self.download()
         samples = input_name
+        logger.info(f"[KPI] Run nextflow {samples}")
         samples = self.run(samples, index=index)
         samples = self.mergeResult(samples, index=index)
         return samples

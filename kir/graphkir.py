@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .kir_pipe import KirPipe
+from .kir_pipe import KirPipe, logger
 
 
 class GraphKir(KirPipe):
@@ -32,8 +32,8 @@ class GraphKir(KirPipe):
                 --r1 data/linnil1_syn_s44.00.30x_s444.read.1.fq \
                 --r2 data/linnil1_syn_s44.00.30x_s444.read.2.fq \
                 --index-folder {folder} \
-                --output-folder /tmp/example_data \
-                --output-cohort-name /tmp/example_data.cohort \
+                --output-folder {folder}/tmp \
+                --output-cohort-name {folder}/tmp/example_data.cohort \
                 --step-skip-typing \
                 --log-level DEBUG \
                 --engine {self.run_engine}
@@ -90,7 +90,9 @@ class GraphKir(KirPipe):
 
     def runAll(self, input_name: str) -> str:
         """Run all the script"""
+        logger.info("[GraphKir] Setup Index")
         index = self.download()
         samples = input_name
+        logger.info(f"[GraphKir] Run {samples}")
         samples = self.run(samples, index=index)
         return samples + ".allele1"

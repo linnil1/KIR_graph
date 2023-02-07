@@ -92,7 +92,6 @@ def plotReadMappingStat(
         stats = executor.map(readSamtoolsFlagstat, bam_files)
         if fastq_files:
             reads = executor.map(readFastqID, fastq_files)
-    runShell("stty echo opost")
 
     df = pd.DataFrame(list(stats))
     df["name"] = bam_files

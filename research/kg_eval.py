@@ -790,6 +790,16 @@ if __name__ == "__main__":
                 ".index_kir_290_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
             },
             {
+                "method": "graphkir-ab2dl1s1-15x-full",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge').replace('30x', '15x')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "graphkir-ab2dl1s1-15x-exonfirst",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge').replace('30x', '15x')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
                 "method": "ping",
                 "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
                 ".result_ping_20220527.merge.tsv",

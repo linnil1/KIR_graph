@@ -447,7 +447,7 @@ if __name__ == "__main__":
     answer_folder = "linnil1_syn"
     data_folder = "data"
 
-    cohort = "100"
+    cohort = "100_15x"
     if cohort == "10":
         N = 10
         seed1 = 44
@@ -458,17 +458,17 @@ if __name__ == "__main__":
         seed1 = 2022
         seed2 = 1031
         depth = 30
+    elif cohort == "100_15x":
+        N = 100
+        seed1 = 2022
+        seed2 = 1031
+        depth = 15
     elif cohort == "10fake":
         data_folder = "data5"
         N = 10
         seed1 = 1214
         seed2 = 2022
         depth = 30
-    elif cohort == "10_50x":
-        N = 10
-        seed1 = 44
-        seed2 = 444
-        depth = 50
     elif cohort == "10old":
         N = 10
         seed1 = 44

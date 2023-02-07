@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .kir_pipe import KirPipe
+from .kir_pipe import KirPipe, logger
 
 
 class PING(KirPipe):
@@ -91,6 +91,7 @@ class PING(KirPipe):
         else:
             output_name += "_final"
             data = self.readAllele(f"{input_name}/finalAlleleCalls.csv")
+        logger.debug(f"[PING] Raw result {data}")
 
         predict_list = []
         for name, alleles in data.items():
@@ -142,11 +143,13 @@ class PING(KirPipe):
 
     def runAll(self, input_name: str) -> str:
         """Run all the script(Don't use this when building pipeline)"""
+        logger.info("[PING] Download references")
         index = self.download()
         samples = input_name
         samples = self.migrateSample(samples)
         # If you break at this line. Fine
         # Try again after editing manualCopyNumberFrame.csv
+        logger.info(f"[PING] Run {samples}")
         samples = self.main(samples, index=index)
         samples = self.mergeResult(samples)
         return samples
