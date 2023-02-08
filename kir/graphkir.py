@@ -15,8 +15,11 @@ class GraphKir(KirPipe):
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         self.version = "alpha"
-        self.run_engine = self.executor.engine
-        # self.run_engine = "singularity_linnil1"
+
+    @property
+    def run_engine(self) -> str:
+        """Get container engine for graphkir"""
+        return self.executor.engine
 
     def download(self, folder_base: str = "") -> str:
         """Graphkir Build stage (Build from database)"""
@@ -25,12 +28,13 @@ class GraphKir(KirPipe):
         folder = folder_base + "graphkir_" + self.escapeName(self.version)
         if Path(folder).exists():
             return folder
+        # TODO: Download instead of re-building
         self.runShell(
             f""" \
             graphkir \
                 --thread {self.getThreads()} \
-                --r1 data/linnil1_syn_s44.00.30x_s444.read.1.fq \
-                --r2 data/linnil1_syn_s44.00.30x_s444.read.2.fq \
+                --r1 example/test00.read1.fq.gz \
+                --r2 example/test00.read2.fq.gz \
                 --index-folder {folder} \
                 --output-folder {folder}/tmp \
                 --output-cohort-name {folder}/tmp/example_data.cohort \
@@ -46,7 +50,9 @@ class GraphKir(KirPipe):
         # samples to csv
         mapping_file = self.replaceWildcard(input_name, "_graphkir_list")
         out_suffix = ".graphkir_" + self.escapeName(index)
-        output_name  = self.replaceWildcard(input_name, out_suffix.replace(".", "_") + "_predict_cohort")
+        output_name = self.replaceWildcard(
+            input_name, out_suffix.replace(".", "_") + "_predict_cohort"
+        )
         if Path(output_name + ".allele1.tsv").exists():
             return output_name
         prefix_to_id = {}
@@ -57,7 +63,10 @@ class GraphKir(KirPipe):
                 if not Path(f1).exists():
                     f1, f2 = f"{name}.read.1.fq.gz", f"{name}.read.2.fq.gz"
                 if not Path(f1).exists():
-                    print(f"[name].read.1.fq or [name].read.1.fq.gz NOT FOUND. Skip {name=}")
+                    print(
+                        f"[name].read.1.fq or [name].read.1.fq.gz NOT FOUND."
+                        f" Skip {name=}"
+                    )
                     continue
                 sample_id = self.getID(name)
                 print(name + out_suffix, f1, f2, sample_id, sep=",", file=f)

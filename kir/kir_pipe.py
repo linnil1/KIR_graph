@@ -16,43 +16,66 @@ def setupLogger() -> None:
     logger.propagate = False
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
-    ch.setFormatter(logging.Formatter("%(asctime)s [%(name)s] [%(levelname)8s] %(message)s"))
+    ch.setFormatter(
+        logging.Formatter("%(asctime)s [%(name)s] [%(levelname)8s] %(message)s")
+    )
     logger.addHandler(ch)
 
 
 class FileMod:
     """File name wildcard and listing implementation"""
 
+    def __init__(self) -> None:
+        self.setPattern("")
+
+    def setPattern(self, pattern: str) -> None:
+        """Set input pattern for getID"""
+        self.input_pattern = pattern
+
+    @staticmethod
+    def extractIDFromPattern(pattern: str, query: str) -> list[str]:
+        """Extract the string in {}"""
+        return re.findall(r"([^\.]*)".join(map(re.escape, pattern.split("{}"))), query)
+
     def getID(self, name: str) -> str:
         """Get id from filename"""
         # WARNING: Fix this id extraction method
-        file_id = re.findall(r"\.(\d+)", name)[0].strip()
-        return str(file_id)
+        assert self.input_pattern
+        # file_id = re.findall(r"\.(\d+)", name)[0].strip()
+        return self.extractIDFromPattern(self.input_pattern, name)[0]
 
     def listFiles(self, name: str) -> list[str]:
         """List the file names that match the wildcard"""
         new_name_set = set()
         for possible_name in glob.glob(name.replace("{}", "*") + "*"):
-            ids = re.findall(
-                r"([^\.]*)".join(map(re.escape, name.split("{}"))), possible_name
-            )
+            if "{}" not in name:  # special case: specify one name
+                new_name_set.add(name)
+                break
+            ids = self.extractIDFromPattern(name, possible_name)
             if not ids:
                 continue
             new_name = name.format(ids[0])
-            if new_name not in new_name_set:
-                new_name_set.add(new_name)
+            new_name_set.add(new_name)
         return sorted(new_name_set)
 
     def replaceWildcard(self, name: str, new_name: str) -> str:
         """Replace wildcard character to specific name"""
         # .replace_wildcard("_merge_depth")
-        return name.replace(".{}", new_name)
+        if ".{}" in name:
+            return name.replace(".{}", new_name)
+        if "{}" not in name:
+            return name + "." + new_name
+        raise NotImplementedError
 
 
 class Executor:
     """Execute the command by shell or docker/podman"""
 
     def __init__(self, engine_type: str = "podman") -> None:
+        self.setEngine(engine_type)
+
+    def setEngine(self, engine_type: str) -> None:
+        """Set engine"""
         assert engine_type in ["podman", "docker"]
         self.engine = engine_type
 

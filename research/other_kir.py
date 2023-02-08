@@ -97,7 +97,11 @@ def sakauekirRun(
     samples: NamePath, data_folder: str, use_answer: bool = True
 ) -> NameTask:
     """Run SakaueKir"""
-    gatkir = SakaueKir(threads=getThreads(), file_adapter=NamePipeFileMod, executor=MainExecutor)
+    gatkir = SakaueKir(
+        threads=getThreads(),
+        file_adapter=NamePipeFileMod,
+        executor=MainExecutor,
+    )
     folder = compose(
         [
             None,
@@ -166,7 +170,11 @@ def sakauekirRun(
 
 def t1kRun(samples: NamePath, data_folder: str) -> NameTask:
     """Run T1K"""
-    t1k = T1k(threads=getThreads(), file_adapter=NamePipeFileMod, executor=MainExecutor)
+    t1k = T1k(
+        threads=getThreads(),
+        file_adapter=NamePipeFileMod,
+        executor=MainExecutor,
+    )
     index = compose(
         [
             None,
@@ -188,7 +196,11 @@ def t1kRun(samples: NamePath, data_folder: str) -> NameTask:
 
 def kpiRun(samples: NamePath, data_folder: str) -> NameTask:
     """Run kpi"""
-    kpi = KPI(threads=getThreads(), file_adapter=NamePipeFileMod, executor=MainExecutor)
+    kpi = KPI(
+        threads=getThreads(),
+        file_adapter=NamePipeFileMod,
+        executor=MainExecutor,
+    )
     index = kpi.download()
     samples = compose(
         [

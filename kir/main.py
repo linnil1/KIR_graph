@@ -37,13 +37,19 @@ def readArgument(factory: dict[str, KirPipe]) -> argparse.Namespace:
     parser.add_argument(
         "--ipd-version",
         default="2100",
-        help="IPD-KIR database version (only works in some tools)"
+        help="IPD-KIR database version (only works in some tools)",
     )
     parser.add_argument(
         "--log-level",
         default="INFO",
         choices=logging._nameToLevel.keys(),
         help="Set log level",
+    )
+    parser.add_argument(
+        "--engine",
+        default="podman",
+        choices=["podman", "docker"],
+        help="Set container engine",
     )
     parser.add_argument("--final-name", help="The name of final merged results")
     args = parser.parse_args()
@@ -107,6 +113,8 @@ def main() -> None:
         module = factory[tool]
         module.setIPDVersion(args.ipd_version)
         module.setThreads(args.thread)
+        module.file_adapter.setPattern(samples)
+        module.executor.setEngine(args.engine)
         result = module.runAll(samples)
         results.append(result)
         logger.info(f"[{tool}] Result {result}.tsv")
