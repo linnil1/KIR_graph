@@ -22,6 +22,7 @@ from graphkir.utils import (
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
 
 logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.INFO)
 logging.getLogger("namepipe").setLevel(logging.WARNING)
 logging.getLogger("parse").setLevel(logging.WARNING)
 images = {

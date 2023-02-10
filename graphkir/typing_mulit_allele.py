@@ -174,7 +174,7 @@ class TypingResult:
         yield 0
         max_value = self.value[0]
         for i, v in enumerate(self.value):
-            if i and v * threshold > max_value:
+            if i and v * threshold >= max_value:
                 yield i
 
     def selectAllPossible(self, threshold: float = 0.9) -> list[tuple[float, list[str]]]:
@@ -588,6 +588,7 @@ class AlleleTypingExonFirst(AlleleTyping):
                 variants,
                 top_n = top_n // 5, # TODO: default = 30
                 variant_correction=variant_correction,
+                # variant_correction=False,  # no_intron_corr
             )
         else:
             self.full_model = None
@@ -680,7 +681,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         candidate_result = []
         candidate_ranks = result.topRank(threshold=self.candidate_set_threshold)
         for i in candidate_ranks:
-            logger.warning(f"[Allele] Exon-first: Typing Intron of candidate {i}")
+            logger.debug(f"[Allele] Exon-first: Typing Intron of candidate {i}")
             full_model = self.typingIntron(result.allele_name_group[i])
             self.result.extend(full_model.result)
             candidate_result.append(full_model.result[-1])

@@ -354,6 +354,9 @@ def customGenePrecisionCalc(total: dict[str, int],
 def customGenePrecisionPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
     gene_order = {"gene": sorted(set(df["gene"]))}
     group, color = reColor(df["method"], df["type"])
+    title = y
+    if title == "num_read":
+        title = "number_of_reads"
     return [
         px.box(
             df, x="gene", y=y,
@@ -361,11 +364,11 @@ def customGenePrecisionPlot(df: pd.DataFrame, y: str = "precision") -> list[go.F
             color_discrete_map=color,
             category_orders=gene_order)
           .update_layout(
-            title=f"Gene-level {y}"),
+            title=f"Gene-level {title}"),
         px.box(
             df, x="method", y=y,
             color="type", category_orders=gene_order)
-          .update_layout(title=f"Gene-level {y} per method (average)"),
+          .update_layout(title=f"Gene-level {title} per method (average)"),
     ]
 
 
@@ -570,6 +573,7 @@ def plotGenewiseMapping() -> list[go.Figure]:
     # df_prec = df_prec[df_prec["method"] != "bowtie"]
     figs.extend(customGenePrecisionPlot(df_prec, "precision"))
     figs.extend(customGenePrecisionPlot(df_prec, "recall"))
+    figs.extend(customGenePrecisionPlot(df_prec, "num_read"))
     figs.extend(customRocPlot(df_prec))
     figs.extend(customSecdPlot(df_prec, "recall"))
     figs.extend(customSecdPlot(df_prec, "precision"))

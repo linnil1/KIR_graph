@@ -239,6 +239,7 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     output_name_template += ".compare_sum"
     if error_correction:
         output_name_template += ".var_errcorr"
+        # output_name_template += ".no_intron_corr"
     if top_n != 300:
         output_name_template += f".top{top_n}"
     output_name = output_name_template.format(id)
@@ -256,9 +257,10 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     else:
         raise ValueError
     t = selectKirTypingModel(
-        allele_method, input_name + ".json",
+        allele_method,
+        input_name + ".json",
         top_n=top_n,
-        variant_correction=error_correction
+        variant_correction=error_correction,
     )
     if not Path(cn_name + ".tsv").exists():
         return None
@@ -570,7 +572,7 @@ if __name__ == "__main__":
         NameTask(cnPredict)  # .set_depended(-1),  # parameters written in cnPredict funcion
     ])
     cn >> NameTask(partial(compareCNResult, sample_name=samples_ori.output_name), depended_pos=[0])
-    # cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=True)).set_depended(0)
+    # cn >> NameTask(partial(plotCNWrap, per_sample=True, show_depth=False)).set_depended(0)
     # exit()
 
     typing = compose([

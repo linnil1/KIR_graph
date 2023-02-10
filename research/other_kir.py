@@ -270,10 +270,11 @@ def pingRun(
         )
 
     ping.setThreads(getThreads())
+    samples >> partial(ping.mergeResult, use_novel=True)
     samples = compose(
         [
             samples,
-            partial(ping.mergeResult, use_novel=True),
+            partial(ping.mergeResult, use_novel=False),
             partial(compareResult, sample_name=answer_name),
         ]
     )
@@ -566,6 +567,7 @@ if __name__ == "__main__":
     data_folder = "data"
     # samples = "linnil1_syn/linnil1_syn_s44.{}.30x_s444"
     samples = "linnil1_syn/linnil1_syn_s2022.{}.30x_s1031"
+    # samples = "linnil1_syn/linnil1_syn_s2022.{}.15x_s1031"
     setThreads(2)
     NameTask.set_default_executor(ConcurrentTaskExecutor(threads=10))
     use_slurm = False

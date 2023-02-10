@@ -658,7 +658,7 @@ def plotCohortGeneLevelSummary(
     # reorganize the datafrmae
     df_plot = pd.melt(
         df,
-        id_vars=["method", "gene"],  # type: ignore
+        id_vars=["method", "gene"],
         value_vars=["7digits_acc", "5digits_acc", "3digits_acc", "gene_acc", "FN", "FP"],
         value_name="accuracy",
         var_name="level",
@@ -709,7 +709,7 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
         cohort_summarys.append(summary)
     summary = pd.concat(cohort_summarys)
 
-    def printDf(df):
+    def printDf(df: pd.DataFrame) -> None:
         print(
             reCalcDigitAcc(df).drop(
                 columns=[
@@ -792,12 +792,22 @@ if __name__ == "__main__":
             {
                 "method": "graphkir-ab2dl1s1-15x-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge').replace('30x', '15x')}"
-                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_dev0.06_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"
             },
             {
                 "method": "graphkir-ab2dl1s1-15x-exonfirst",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge').replace('30x', '15x')}"
-                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_dev0.06_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.tsv"
+            },
+            {
+                "method": "graphkir-ab2dl1s1-exonfirst-best",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge_answer_best')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.possible.tsv"
+            },
+            {
+                "method": "graphkir-ab2dl1s1-full-best",
+                "name": f"{NamePath(prefix).replace_wildcard('_merge_answer_best')}"
+                ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.possible.tsv"
             },
             {
                 "method": "ping",
@@ -808,6 +818,11 @@ if __name__ == "__main__":
                 "method": "ping_wgs",
                 "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}"
                 ".result_ping_wgs.merge.tsv",
+            },
+            {
+                "method": "ping_wgs-15x",
+                "name": f"{NamePath(prefix).replace_wildcard('_pingsample').replace('30x', '15x')}"
+                ".result_ping_wgs.merge_final.tsv",
             },
             {
                 "method": "sakaue",

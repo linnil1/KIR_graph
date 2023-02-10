@@ -91,11 +91,15 @@ def depthToCN(
             if all(i == 1 for i in cn):
                 logger.debug("[CN] Assume 3DL3 cn=2")
                 assert isinstance(dist.base, float)
-                dist.base /= 2
+                dist.base *= 1 / 2
+            # if all(i == 3 for i in cn):
+            #     logger.debug("[CN] Assume 3DL3 cn=2")
+            #     assert isinstance(dist.base, float)
+            #     dist.base *= 3 / 2
             if all(i == 4 for i in cn):
                 logger.debug("[CN] Assume 3DL3 cn=2")
                 assert isinstance(dist.base, float)
-                dist.base *= 2
+                dist.base *= 4 / 2
 
             cn = dist.assignCN(kir3dl3_depths)
             assert all(i == 2 for i in cn)

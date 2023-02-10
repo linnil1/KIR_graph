@@ -16,6 +16,18 @@ or use podman/docker/singularity by `--engine podman`.
 
 
 ## Usage
+
+Download Graph-KIR pre-built index
+```
+wget https://graphkir.c4lab.tw/download/example_index.tar.gz
+tar xvf example_index.tar.gz
+# If kirpipe is used, rename it
+# ln -s example_index graphkir_alpha
+```
+
+
+Run Graph-KIR (If index is not exists, it'll auto build it)
+
 ``` bash
 git clone https://github.com/linnil1/KIR_graph
 cd KIR_graph

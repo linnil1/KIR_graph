@@ -10,7 +10,7 @@ kpi_v1_1_1/
 sequenceTubeMap/
 art_illumina
 KIR_v*/
-graphkir_alpha/
+graphkir_alpha
 
 .nextflow*
 work/

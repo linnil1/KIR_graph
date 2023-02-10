@@ -261,6 +261,8 @@ if __name__ == "__main__":
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.exon.p75.CNgroup_b2_assume3DL3.tsv"},
             {"method": "graphkir-ab2dl1s1-b2-median",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_b2_assume3DL3.tsv"},
+            {"method": "graphkir-ab2dl1s1-15x",
+             "name": f"{prefix.replace('30x', '15x')}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_dev0.06_assume3DL3.tsv"},
             # {"method": "ab2dl1s1-dev6",
             #  "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_dev0.06_assume3DL3.tsv"},
             # {"method": "ab2dl1s1-dev6-call",
