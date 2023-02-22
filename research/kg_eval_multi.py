@@ -10,7 +10,7 @@ def calcPossibleAlleleMean(name: str) -> None:
     dfs_possible = []
     for input_name in NamePath(name).get_input_names():
         df_possible = pd.read_csv(input_name + ".possible.tsv", sep="\t")
-        df_possible["cn"] = map(len, map(extractAlleleFromPossibleFormat(df_possible)))
+        df_possible["cn"] = [len(alleles) for alleles in extractAlleleFromPossibleFormat(df_possible)]
         # print(df_possible)
         dfs_possible.append(
             df_possible.groupby(["gene"], as_index=False).agg(
@@ -119,24 +119,13 @@ def evalMultiAllele(sample: str, answer: str) -> None:
 
 
 if __name__ == "__main__":
-    name = (
-        "data/linnil1_syn_s2022.{}.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
-        + ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600"
-    )
-    name = (
-        "data_real/hprc.{}.index_hs37d5.bwa.part_strict.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
-        + ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600"
-    )
+    name = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
+    # name = "data/linnil1_syn_s2022.{}.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
+    name += ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600"
+    # name += ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600"
     calcPossibleAlleleMean(name)
     calcNovelAlleleMean(name)
-    exit()
-    name = (
-        "data/linnil1_syn_s2022.{}.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
-        + ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.possible"
-    )
-    name = (
-        "data/linnil1_syn_s2022.{}.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph"
-        + ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv_exonfirst_1.compare_sum.var_errcorr.top600.possible"
-    )
+    name += ".possible"
     answer = "linnil1_syn/linnil1_syn_s2022_summary.csv"
+    answer = "hprc_summary.csv"
     evalMultiAllele(name, answer)

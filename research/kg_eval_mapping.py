@@ -383,11 +383,12 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
     print(df_roc)
     return [
         px.scatter(
-            df_roc, x="FDR",  y="recall",
-            color="method", symbol= "type"),
-        px.scatter(
             df_gene, x="FDR",  y="recall",
             color="method", symbol= "type"),
+        px.scatter(
+            df_roc, x="FDR",  y="recall",
+            color="method", symbol= "type")
+          .update_traces(marker_size=12),
     ]
 
 
@@ -410,7 +411,10 @@ def customSecdPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
         px.scatter(
             df_noge, x="num_read",  y=y,
             color="method", symbol="type")
+          .update_traces(marker_size=12)
           .update_layout(
+              font_size=18,
+              legend_font_size=18,
               xaxis_title="Total mapped possibles / Total reads"),
     ]
 

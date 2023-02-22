@@ -322,6 +322,16 @@ def createParser() -> argparse.ArgumentParser:
         help="CN prediction model (CNgroup, kde)",
     )
     parser.add_argument(
+        "--cn-group-dev",
+        default=0.08,
+        help="Deviation of CNgroup""",
+    )
+    parser.add_argument(
+        "--cn-group-3dl3-not-diploid",
+        action="store_true",
+        help="Not assume KIR3DL3 as diploid gene in CNgroup""",
+    )
+    parser.add_argument(
         "--cn-provided",
         nargs="*",
         help="Provided CN prediction in TSV",
@@ -466,6 +476,10 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     )
     figs.extend(plotReadMappingStat(bam_files, [fq1 for fq1, _ in reads]))
 
+    cluster_method_kwargs = {
+        "base_dev": float(args.cn_group_dev),
+        "start_base": 2,
+    }
     # Copy Number determination
     if all(cn_files):
         pass
@@ -481,7 +495,8 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
                 [depth_file],
                 [name + ".tsv"],
                 cluster_method=args.cn_cluster,
-                assume_3DL3_diploid=True,
+                cluster_method_kwargs=cluster_method_kwargs,
+                assume_3DL3_diploid=not args.cn_group_3dl3_not_diploid,
                 save_cn_model_path=name + ".json",
                 select_mode=args.cn_select,
             )
@@ -497,8 +512,9 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
             [cnf            for i, cnf in enumerate(cn_files) if cnf],
-            save_cn_model_path=cn_cohort_name + ".json",
             cluster_method=args.cn_cluster,
+            cluster_method_kwargs=cluster_method_kwargs,
+            save_cn_model_path=cn_cohort_name + ".json",
             select_mode=args.cn_select,
         )
         figs.append(plotCN(cn_cohort_name + ".json"))
