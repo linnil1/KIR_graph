@@ -19,17 +19,30 @@ def mergeAlleleField(sample: pd.Series) -> pd.Series:
     return pd.Series([list(allele_fields)], dtype="object")
 
 
+def ambiguousTo1(alleles: list[str]) -> list[str]:
+    """
+    Handle the ambiguous alleles
+    origin: KIR2DP1*010/KIR2DP1*006(99.81%)
+    after:  KIR2DP1*010
+    """
+    return [allele.split("/")[0] for allele in alleles]
+
+
 def mergeHaplo(sample: pd.DataFrame) -> pd.Series:
     # sort by KIR name, but the order will not preserved
     sample["alleles"] = sample["alleles"].apply(sorted)
     return pd.Series({
         "haplos": "+".join(sample["alleles"].str.len().astype(str)),
-        "alleles": "_".join(sample["alleles"].sum()),
+        "alleles": "_".join(ambiguousTo1(sample["alleles"].sum())),
     })
 
 
 if __name__ == "__main__":
-    hprc_kir_df = pd.read_csv("kelvin_kir.csv", header=None)
+    input_csv = "kelvin_kir.csv"
+    output_csv = "hprc_summary.tsv"
+    input_csv = "kelvin_kir_v0_2.csv"
+    output_csv = "hprc_summary_v0_2.tsv"
+    hprc_kir_df = pd.read_csv(input_csv, header=None)
     hprc_kir_df["alleles"] = hprc_kir_df.apply(mergeAlleleField, axis=1)
     print(hprc_kir_df)
     hprc_kir_df = hprc_kir_df[hprc_kir_df["alleles"].str.len() > 0]
@@ -41,5 +54,8 @@ if __name__ == "__main__":
     # transform to our format
     hprc_kir_df_sample = hprc_kir_df.groupby("id", as_index=False).apply(mergeHaplo)
     hprc_kir_df_sample["name"] = hprc_kir_df_sample["id"]
+    # version 0.2 why ID become lower case
+    hprc_kir_df_sample["id"] = hprc_kir_df_sample["id"].str.upper()
+    hprc_kir_df_sample["name"] = hprc_kir_df_sample["name"].str.upper()
     print(hprc_kir_df_sample)
-    hprc_kir_df_sample.to_csv("hprc_summary.csv", sep="\t", index=False)
+    hprc_kir_df_sample.to_csv(output_csv, sep="\t", index=False)

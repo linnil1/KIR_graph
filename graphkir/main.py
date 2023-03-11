@@ -483,7 +483,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
     # Copy Number determination
     if all(cn_files):
         pass
-    elif not args.cn_individually:
+    elif args.cn_individually:
         # per sample
         for i, depth_file in enumerate(depth_files):
             if cn_files[i]:  # CN file exists, skip

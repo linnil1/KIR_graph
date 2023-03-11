@@ -736,9 +736,12 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
 
 
 if __name__ == "__main__":
-    # answer = "linnil1_syn/linnil1_syn_s44_summary.csv"
-    # prefix = "data/linnil1_syn_s44.{}.30x_s444"
+    # Compare Kelvin 0.1 vs 0.2
+    # from kg_utils import compareResult
+    # compareResult("./hprc_summary_v0_2", "./hprc_summary")
+
     cohort_name = "100"
+    cohort_name = "hprc"
     if cohort_name == "100":
         answer = "linnil1_syn/linnil1_syn_s2022_summary.csv"
         prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
@@ -857,6 +860,7 @@ if __name__ == "__main__":
         ]
     elif cohort_name == "hprc":
         answer = "hprc_summary.csv"
+        answer = "hprc_summary_v0_2.csv"
         prefix = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"  # .annot_read"
         cohort = [
             {"method": "answer", "name": f"{answer}"},
