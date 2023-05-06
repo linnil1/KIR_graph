@@ -58,6 +58,9 @@ class TypingResult:
     allele_name_group: list[list[list[str]]] = field(default_factory=list)
                                     # size: top_n x n x group_size
 
+    def isFail(self):
+        return not len(self.value)
+
     def selectBest(
         self, filter_fraction: bool = True, filter_minor: bool = False
     ) -> list[str]:
@@ -93,7 +96,7 @@ class TypingResult:
         ids = list(ids) or [0]
         best_id = ids[0]
 
-        if self.allele_name:
+        if not self.isFail():
             logger.debug(f"[Allele] Select best rank: {best_id}")
             assert len(self.allele_name[best_id]) == self.n
             return self.allele_name[best_id]
@@ -118,6 +121,10 @@ class TypingResult:
         # out = sys.stdout
         out = io.StringIO()
         print("Allele_num = ", self.n, file=out)
+
+        if self.isFail():
+            print("Fail Alleles:", ["fail"] * self.n)
+            return
 
         ranks = self.topRank(top_threshold)
         print_n = 0
@@ -170,7 +177,7 @@ class TypingResult:
 
         Assume rank is sorted
         """
-        assert len(self.value)
+        assert not self.isFail()
         yield 0
         max_value = self.value[0]
         for i, v in enumerate(self.value):
@@ -179,6 +186,8 @@ class TypingResult:
 
     def selectAllPossible(self, threshold: float = 0.9) -> list[tuple[float, list[str]]]:
         """Select all possible sets"""
+        if self.isFail():
+            return []
         ranks = self.topRank(threshold)
         groups_alleles = []
         for rank in ranks:

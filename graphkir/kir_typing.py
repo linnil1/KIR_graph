@@ -118,7 +118,9 @@ class TypingWithPosNegAllele(Typing):
         self._result[gene] = typ.result
         # return res.selectBest(filter_minor=True)
         alleles = res.selectBest()
-        alleles = [i if i != "fail" else f"{gene}*" for i in alleles]
+        # KIR2DL1*BACKBONE -> KIR2DL1
+        pure_gene = gene.split("*")[0]
+        alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
         return alleles
 
     def getAllPossibleTyping(self) -> list[dict[Any, Any]]:
