@@ -77,7 +77,7 @@ class CNgroup(Dist):
         # const
         super().__init__()
         self.bin_num:   int   = 500
-        self.max_cn:    int   = 7  # 0,1,2,3,4,5,6
+        self.max_cn:    int   = 6  # 0,1,2,3,4,5,6
 
         # parameters
         self.x_max:     float = 1

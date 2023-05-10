@@ -76,7 +76,7 @@ class Executor:
 
     def setEngine(self, engine_type: str) -> None:
         """Set engine"""
-        assert engine_type in ["podman", "docker"]
+        #assert engine_type in ["podman", "docker"]
         self.engine = engine_type
 
     def runShell(

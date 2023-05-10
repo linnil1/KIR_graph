@@ -12,9 +12,10 @@ class GraphKir(KirPipe):
 
     name = "graphkir"
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, extract=True, **kwargs: Any):
         super().__init__(**kwargs)
         self.version = "alpha"
+        self.extract = extract
 
     @property
     def run_engine(self) -> str:
@@ -40,7 +41,8 @@ class GraphKir(KirPipe):
                 --output-cohort-name {folder}/tmp/example_data.cohort \
                 --step-skip-typing \
                 --log-level DEBUG \
-                --engine {self.run_engine}
+                --engine {self.run_engine} \
+                --cn-group-3dl3-not-diploid
             """
         )
         return folder
@@ -83,8 +85,10 @@ class GraphKir(KirPipe):
                 --allele-method exonfirst \
                 --output-cohort-name {output_name} \
                 --log-level DEBUG \
-                --engine {self.run_engine}
+               --engine {self.run_engine} \
+                --cn-group-3dl3-not-diploid \
             """
+	    + ("--step-skip-extraction " if not self.extract else "")
         )
 
         # Brute force find ID

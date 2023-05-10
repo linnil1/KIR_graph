@@ -48,12 +48,12 @@ def readArgument(factory: dict[str, KirPipe]) -> argparse.Namespace:
     parser.add_argument(
         "--engine",
         default="podman",
-        choices=["podman", "docker"],
+        choices=["podman", "docker", "singularity", "local"],
         help="Set container engine",
     )
     parser.add_argument("--final-name", help="The name of final merged results")
     args = parser.parse_args()
-    logger.debug(f"[kir_pipe] {args=}")
+    logger.debug(f"[kir_pipe] {args}")
     return args
 
 
@@ -103,6 +103,7 @@ def main() -> None:
         SakaueKir.name: SakaueKir(),
         KPI.name: KPI(),
         GraphKir.name: GraphKir(),
+        GraphKir.name + "-no-extract": GraphKir(extract=False),
     }
     args = readArgument(factory)
     samples = args.sample_name
