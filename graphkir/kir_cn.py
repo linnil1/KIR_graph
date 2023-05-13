@@ -175,10 +175,11 @@ def predictSamplesCN(
 
     # TODO: If normalized needed, write here.
     logger.info(f"[CN] Predict CN from {len(sample_gene_depths)} samples")
+    depths_dict = [dict(zip(i["gene"], i["depth"])) for i in sample_gene_depths]
     if not per_gene:
         # depth per gene -> cn per gene
         cns, model = depthToCN(
-            [dict(zip(i["gene"], i["depth"])) for i in sample_gene_depths],
+            depths_dict,
             cluster_method=cluster_method,
             cluster_method_kwargs=cluster_method_kwargs,
             assume_3DL3_diploid=assume_3DL3_diploid,
@@ -188,30 +189,30 @@ def predictSamplesCN(
             model.save(save_cn_model_path)
     else:
         # concat sample with id
-        depths = pd.concat(sample_gene_depths)
-        depths["gene_sampleid"] = depths["gene"] + "-" + depths["depth_file"]
+        file_index = {name: i for i, name in enumerate(samples_depth_tsv)}
+        df_depths = pd.concat(sample_gene_depths)
+        df_depths["gene_sampleid"] = df_depths["gene"] + "-" + df_depths["depth_file"]
 
         # save per gene cn
         cns = [{} for _ in range(len(sample_gene_depths))]
         cns_model = []
-        for gene in sorted(set(depths["gene"])):
+        for gene in sorted(set(df_depths["gene"])):
             logger.info(f"[CN] Predict per gene: {gene}")
             # extract same gene and use the fake name
             # bcz depthToCN use name as key, it'll overwrite
-            gene_depths = depths[depths["gene"] == gene]
-            gene_depths["gene"] = gene_depths["gene_sampleid"]
+            gene_depths = df_depths[df_depths["gene"] == gene]
             gene_cns, gene_model = depthToCN(
-                [dict(zip(i["gene"], i["depth"])) for i in sample_gene_depths],
+                [dict(zip(gene_depths["gene_sampleid"], gene_depths["depth"]))],
                 cluster_method=cluster_method,
-                assume_3DL3_diploid=assume_3DL3_diploid,
+                cluster_method_kwargs=cluster_method_kwargs,
+                # assume_3DL3_diploid=assume_3DL3_diploid,
             )
             # print(gene_cns)
             # save back to per sample
-            gene_depths["gene"] = gene
             gene_model.raw_df = [gene_depths.to_dict()]
             cns_model.append((gene, gene_model))
             for gene_and_id in gene_cns[0]:
-                i = int(gene_and_id.split("-")[1])
+                i = file_index[gene_and_id.split("-")[1]]
                 cns[i][gene] = gene_cns[0][gene_and_id]
 
         if save_cn_model_path:
@@ -219,11 +220,14 @@ def predictSamplesCN(
             for gene, model in cns_model:
                 data.append(model.getParams())
                 data[-1]["gene"] = gene
+                json.dump(data[-1], open(save_cn_model_path + f".{gene}.json", "w"), cls=NumpyEncoder)
             json.dump(data, open(save_cn_model_path, "w"), cls=NumpyEncoder)
 
     # cn per gene -> save
-    for filename, cn in zip(samples_cn, cns):
-        df = pd.DataFrame(list(cn.items()), columns=["gene", "cn"])
+    for filename, cn, depths in zip(samples_cn, cns, depths_dict):
+        df1 = pd.DataFrame(list(cn.items()), columns=["gene", "cn"])
+        df2 = pd.DataFrame(list(depths.items()), columns=["gene", "depth"])
+        df = df1.merge(df2, on="gene")
         df.to_csv(filename, index=False, sep="\t")
 
 

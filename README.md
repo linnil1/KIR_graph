@@ -40,6 +40,7 @@ graphkir \
     --r2 data/linnil1_syn_s44.00.30x_s444.read.2.fq \
     --r1 data/linnil1_syn_s44.01.30x_s444.read.1.fq \
     --r2 data/linnil1_syn_s44.01.30x_s444.read.2.fq \
+    --cn-individually \
     --index-folder example_index \
     --output-folder example_data \
     --output-cohort-name example_data/cohort

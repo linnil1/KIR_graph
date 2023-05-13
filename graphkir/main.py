@@ -181,7 +181,7 @@ def alleleTyping(
             variant_correction=True,
         )
         cn = loadCN(cn_file)
-        called_alleles = t.typing(cn)
+        called_alleles, warning_genes = t.typing(cn)
         logger.info(f"[Allele] {called_alleles} ({name})")
         name += suffix
         # t.save(name + ".json")
@@ -189,6 +189,7 @@ def alleleTyping(
             {
                 "name": [name],
                 "alleles": ["_".join(called_alleles)],
+                "warnings": ["_".join(warning_genes)],
             }
         )
         df.to_csv(name + ".tsv", sep="\t", index=False)
@@ -517,6 +518,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
             save_cn_model_path=cn_cohort_name + ".json",
             select_mode=args.cn_select,
         )
+        # TODO: case of per gene CN prediction is plot from this json file
         figs.append(plotCN(cn_cohort_name + ".json"))
     logger.debug(f"[CN] Copy number files: {cn_files}")
     logger.info(f"[CN] Saved copy number in {cohort_name}.cn.tsv")

@@ -58,7 +58,7 @@ class TypingResult:
     allele_name_group: list[list[list[str]]] = field(default_factory=list)
                                     # size: top_n x n x group_size
 
-    def isFail(self):
+    def isFail(self) -> bool:
         return not len(self.value)
 
     def selectBest(
@@ -265,6 +265,9 @@ class AlleleTyping:
         # allele_length = np.array([allele_length_map[self.allele_name_map_rev[i]]
         # for i in range(len(self.allele_name_map_rev))])
         # self.allele_length = allele_length / 10000.  # just a non-important normalize
+
+    def getReadsNum(self) -> int:
+        return len(self.probs)
 
     @staticmethod
     def removeEmptyReads(reads: list[PairRead]) -> list[PairRead]:

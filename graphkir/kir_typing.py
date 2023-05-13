@@ -35,11 +35,11 @@ class Typing:
         """Read sample's variants or allele abundance result"""
         self._result: dict[str, Any] = {}
 
-    def typingPerGene(self, gene: str, cn: int) -> list[str]:
+    def typingPerGene(self, gene: str, cn: int) -> tuple[list[str], int]:
         """Typing for allele within gene with given CN"""
         raise NotImplementedError
 
-    def typing(self, gene_cn: dict[str, int]) -> list[str]:
+    def typing(self, gene_cn: dict[str, int], min_reads_num: int = 100) -> tuple[list[str], list[str]]:
         """
         Allele Typing for all genes by given CN value per gene (`gene_cn`).
 
@@ -47,15 +47,19 @@ class Typing:
           list of alleles in this sample
         """
         predict_alleles = []
+        warning_genes = []
         for gene, cn in gene_cn.items():
             if not cn:
                 continue
             # debug
             # if "KIR3DP1" not in gene:
             #     continue
-            predict_alleles.extend(self.typingPerGene(gene, cn))
+            predict_allele, reads_num = self.typingPerGene(gene, cn)
+            predict_alleles.extend(predict_allele)
+            if reads_num < min_reads_num:  # 100(reads) * 300(base/read) ~= 5x (min 5k length)
+                warning_genes.append(gene)
 
-        return predict_alleles
+        return predict_alleles, warning_genes
 
     def save(self, filename: str) -> None:
         """Save data in file"""
@@ -96,7 +100,7 @@ class TypingWithPosNegAllele(Typing):
         self._exon_candidate_threshold = exon_candidate_threshold
         self._variant_correction = variant_correction
 
-    def typingPerGene(self, gene: str, cn: int) -> list[str]:
+    def typingPerGene(self, gene: str, cn: int) -> tuple[list[str], int]:
         """Select reads belonged to the gene and typing it"""
         logger.debug(f"[Allele] {gene=} {cn=}")
         if not self._exon_first and not self._exon_only:
@@ -121,7 +125,7 @@ class TypingWithPosNegAllele(Typing):
         # KIR2DL1*BACKBONE -> KIR2DL1
         pure_gene = gene.split("*")[0]
         alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
-        return alleles
+        return alleles, typ.getReadsNum()
 
     def getAllPossibleTyping(self) -> list[dict[Any, Any]]:
         """
@@ -152,7 +156,7 @@ class TypingWithReport(Typing):
         reads_data = removeMultipleMapped(reads_data)
         self._gene_reads = preprocessHisatReads(reads_data)
 
-    def typingPerGene(self, gene: str, cn: int) -> list[str]:
+    def typingPerGene(self, gene: str, cn: int) -> tuple[list[str], int]:
         """
         Typing for allele within gene with given CN
 
@@ -184,7 +188,7 @@ class TypingWithReport(Typing):
                 break
 
         self._result[gene] = report
-        return called_alleles
+        return called_alleles, len(self._gene_reads[gene])
 
     def save(self, filename: str) -> None:
         """save additional report txt"""

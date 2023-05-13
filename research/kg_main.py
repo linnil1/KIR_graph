@@ -265,7 +265,7 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     if not Path(cn_name + ".tsv").exists():
         return None
     cn = loadCN(cn_name + ".tsv")
-    called_alleles = t.typing(cn)
+    called_alleles, warning_genes = t.typing(cn)
 
     # Save all possible alleles in tsv
     possible_list = t.getAllPossibleTyping()
@@ -280,6 +280,7 @@ def kirTyping(input_name, cn_input_name, allele_method="pv"):
     pd.DataFrame([{
         'name': output_name,
         'alleles': "_".join(called_alleles),
+        "warnings": ["_".join(warning_genes)],
     }]).to_csv(output_name + ".tsv", sep="\t", index=False)
 
     # save result detail json
