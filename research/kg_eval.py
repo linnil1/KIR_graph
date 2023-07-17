@@ -736,9 +736,11 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
 
 
 if __name__ == "__main__":
-    # Compare Kelvin 0.1 vs 0.2
+    # Compare Kelvin 0.1 vs 0.2 vs 1.0
     # from kg_utils import compareResult
     # compareResult("./hprc_summary_v0_2", "./hprc_summary")
+    # compareResult("./hprc_summary_v0_2", "./hprc_summary_v1_0")
+    # exit()
 
     cohort_name = "100"
     cohort_name = "hprc"
@@ -861,9 +863,10 @@ if __name__ == "__main__":
     elif cohort_name == "hprc":
         answer = "hprc_summary.csv"
         answer = "hprc_summary_v0_2.csv"
+        answer = "hprc_summary_v1_0.tsv"
         prefix = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"  # .annot_read"
         cohort = [
-            {"method": "answer", "name": f"{answer}"},
+            {   "method": "answer", "name": f"{answer}"},
             {
                 "method": "graphkir-ab2dl1s1-full",
                 "name": f"{NamePath(prefix).replace_wildcard('_merge')}"

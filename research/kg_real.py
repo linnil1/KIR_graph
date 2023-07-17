@@ -183,6 +183,7 @@ if __name__ == "__main__":
         samples = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"
         samples += ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
         sample_possible_ans = "hprc_summary"  # from kg_from_kelvin.py
+        sample_possible_ans = "hprc_summary_v1_0"  # from kg_from_kelvin.py
         NameTask.set_default_executor(ConcurrentTaskExecutor(threads=20))
         variant = compose([
             samples,

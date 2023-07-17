@@ -289,7 +289,9 @@ if __name__ == "__main__":
             # TODO: exon-only
         ]
     else:
-        answer = "hprc_summary"
+        # answer = "hprc_summary"
+        answer = "hprc_summary_v0_2"
+        answer = "hprc_summary_v1_0"
         prefix = "data_real/hprc.{}.index_hs37d5.bwa.part_strict"  # .annot_read"
         prefix_graph = ".index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim"
         cohort = [
