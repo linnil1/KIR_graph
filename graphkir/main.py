@@ -20,7 +20,7 @@ from .hisat2 import hisatMap, extractVariantFromBam, readExons
 from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
 from .kir_typing import selectKirTypingModel
 from .utils import setThreads, getThreads, mergeCN, mergeAllele, setEngine, logger
-from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths
+from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths, savePlot
 
 
 def buildMSA(
@@ -368,7 +368,7 @@ def createParser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(args: argparse.Namespace) -> list[go.Figure]:
+def main(args: argparse.Namespace) -> None:
     """
     * WGS read mapping and KIR extraction
     * Graph Read Mapping
@@ -519,7 +519,7 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
             select_mode=args.cn_select,
         )
         # TODO: case of per gene CN prediction is plot from this json file
-        figs.append(plotCN(cn_cohort_name + ".json"))
+        figs.extend(plotCN(cn_cohort_name + ".json"))
     logger.debug(f"[CN] Copy number files: {cn_files}")
     logger.info(f"[CN] Saved copy number in {cohort_name}.cn.tsv")
     logger.info(mergeCN(cn_files, cohort_name + ".cn.tsv"))
@@ -531,16 +531,17 @@ def main(args: argparse.Namespace) -> list[go.Figure]:
         logger.info(f"[Allele] Saved in {cohort_name}.allele.tsv")
         mergeAllele(allele_files, cohort_name + ".allele.tsv")
     logger.info("[Main] Success")
-    return figs
+
+    if args.plot:
+        savePlot(cohort_name + ".plot.html", figs)
+        showPlot(figs)
 
 
 def entrypoint() -> None:
     """Command line entry function"""
     parser = createParser()
     args = parser.parse_args()
-    figs = main(args)
-    if args.plot:
-        showPlot(figs)
+    main(args)
 
 
 if __name__ == "__main__":
