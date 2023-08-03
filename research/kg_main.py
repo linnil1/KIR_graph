@@ -443,14 +443,14 @@ def typingNovelWrap(input_name, msa_name, variant_name):
 
 if __name__ == "__main__":
     # setThreads(20)
-    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=10))
+    NameTask.set_default_executor(ConcurrentTaskExecutor(threads=30))
     index_folder = "index"
     extract_exon = False
     add_novel = False
     answer_folder = "linnil1_syn"
     data_folder = "data"
 
-    cohort = "100_15x"
+    cohort = "100"
     if cohort == "10":
         N = 10
         seed1 = 44

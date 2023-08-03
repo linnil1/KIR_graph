@@ -30,9 +30,14 @@ __pycache__/
 .pylintrc
 .*.swp
 
-kelvin_kir.csv
 hg19.refGene.gtf.gz
 hg19.refGene.kir.gtf
 hg38.refGene.gtf.gz
 hg38.refGene.kir.gtf
 ncbi_kir_search_result1.gene.json
+kelvin_kir.csv
+kelvin_kir_v0_2.csv
+kelvin_kir_v1_0.csv
+hprc_summary.csv
+hprc_summary_v0_2.tsv
+hprc_summary_v1_0.tsv

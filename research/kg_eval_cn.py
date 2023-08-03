@@ -1,6 +1,5 @@
 import copy
 import json
-from pprint import pprint
 from typing import TypedDict
 from collections import Counter, defaultdict
 import numpy as np
@@ -225,19 +224,22 @@ def findBadCN(input_name):
 
 
 if __name__ == "__main__":
+    """
     input_name = "data_real/hprc.{}.index_hs37d5.bwa.part_strict.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.trim" + \
                  ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3"
     findBadCN(input_name)
     input_name = "data/linnil1_syn_s2022.{}.30x_s1031.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph" + \
                  ".variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3"
     findBadCN(input_name)
-
-    answer = "linnil1_syn/linnil1_syn_s44_summary"
-    prefix = "data/linnil1_syn_s44.{}.30x_s444"
-    answer = "linnil1_syn/linnil1_syn_s2022_summary"
-    prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
+    """
     real = False
     if not real:
+        answer = "linnil1_syn/linnil1_syn_s44_summary"
+        prefix = "data/linnil1_syn_s44.{}.30x_s444"
+        answer = "linnil1_syn/linnil1_syn_s2022_summary"
+        prefix = "data/linnil1_syn_s2022.{}.30x_s1031"
+        call_suffix = ".pv.compare_sum.var_errcorr.top600.tsv"
+        prefix_merge = NamePath(prefix).replace_wildcard('_merge')
         cohort = [
             {"method": "answer",
              "name": f"{answer}"},
@@ -251,16 +253,24 @@ if __name__ == "__main__":
              "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
             {"method": "graphkir-split",
              "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
+            {"method": "graphkir-split-call",
+             "name": f"{prefix_merge}.index_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3{call_suffix}"},
             {"method": "graphkir-ab2dl1s1-b2",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.tsv"},
             {"method": "graphkir-ab2dl1s1-b2-call",
-             "name": f"{NamePath(prefix).replace_wildcard('_merge')}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
+             "name": f"{prefix_merge}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3{call_suffix}" },
+            {"method": "graphkir-ab-b2-call",
+             "name": f"{prefix_merge}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.{call_suffix}"},
             {"method": "graphkir-ab2dl1s1-b2-cohort",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2.cohort.tsv"},
             {"method": "graphkir-ab2dl1s1-b2-exon",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.exon.p75.CNgroup_b2_assume3DL3.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2-exon-call",
+             "name": f"{prefix_merge}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.exon.p75.CNgroup_b2_assume3DL3{call_suffix}"},
             {"method": "graphkir-ab2dl1s1-b2-median",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_b2_assume3DL3.tsv"},
+            {"method": "graphkir-ab2dl1s1-b2-median-call",
+             "name": f"{prefix_merge}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_b2_assume3DL3{call_suffix}"},
             {"method": "graphkir-ab2dl1s1-15x",
              "name": f"{prefix.replace('30x', '15x')}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_dev0.06_assume3DL3.tsv"},
             # {"method": "ab2dl1s1-dev6",
@@ -273,8 +283,12 @@ if __name__ == "__main__":
             # {"method": "ab2dl1s1-median", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.median.CNgroup_assume3DL3.tsv"},
             {"method": "graphkir-ab2dl1s1-kde-cohort",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.cohort.tsv"},
+            {"method": "graphkir-ab2dl1s1-kde-cohort-call",
+             "name": f"{prefix_merge}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.cohort{call_suffix}"},
             {"method": "graphkir-ab2dl1s1-kde",
              "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde.tsv"},
+            {"method": "graphkir-ab2dl1s1-kde-call",
+             "name": f"{prefix_merge}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.kde{call_suffix}"},
             # {"method": "ab-cohort",       "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
             # {"method": "ab",              "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup_assume3DL3.tsv"},
             # {"method": "split-cohort",    "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.variant.noerrcorr.no_multi.depth.p75.CNgroup.cohort.tsv"},
@@ -284,6 +298,7 @@ if __name__ == "__main__":
             {"method": "ping-wgs",      "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_wgs/manualCopyNumberFrame.csv", },
             {"method": "ping-wgs-call", "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_wgs.merge.tsv", },
             {"method": "sakauekir",     "name": f"{NamePath(prefix).replace_wildcard('_merge_depth')}.sakauekir_v1_0_0.bwa.rg.md.coverage.depth.ploidy.csv", },
+            {"method": "sakauekir-call","name": f"{NamePath(prefix).replace_wildcard('_merge_called')}.sakauekir_v1_0_0.bwa.rg.md.ploidy_data_linnil1_syn_s2022_same_30x_s1031_sakauekir_v1_0_0_bwa_rg_md_answer_cn.gene_mergevcf.hc.gt.genecall_merge.alleles.tsv"},
             {"method": "kpi",           "name": f"{NamePath(prefix).replace_wildcard('_merge_cn')}.kpi_kpi_v1_1_1_prediction.csv", },
             {"method": "t1k-call",      "name": f"{NamePath(prefix).replace_wildcard('_mergecall')}.t1k_t1k_v1_0_1_ipd_2100.dig7.tsv", },
             # TODO: exon-only
@@ -304,6 +319,8 @@ if __name__ == "__main__":
              "name": f"{NamePath(prefix).replace_wildcard('_merge')}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2_assume3DL3.pv.compare_sum.var_errcorr.top600.tsv"},
             {"method": "ab2dl1s1-b2-cohort",
              "name": f"{prefix}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2.cohort.tsv"},
+            {"method": "ab2dl1s1-b2-cohort-call",
+             "name": f"{NamePath(prefix).replace_wildcard('_merge')}{prefix_graph}.variant.noerrcorr.no_multi.depth.p75.CNgroup_b2.cohort.pv.compare_sum.var_errcorr.top600.tsv"},
             {"method": "ping",          "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_20220527/manualCopyNumberFrame.csv"},
             {"method": "ping-call",     "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_20220527.merge.tsv"},
             {"method": "ping-wgs",      "name": f"{NamePath(prefix).replace_wildcard('_pingsample')}.result_ping_wgs/manualCopyNumberFrame.csv"},

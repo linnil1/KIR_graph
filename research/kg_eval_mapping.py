@@ -381,14 +381,29 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
                .agg({"precision": "mean", "recall": "mean"})
     df_roc["FDR"] = 1 - df_roc["precision"]
     print(df_roc)
+    order = {'method': sorted(set(df['method']))}
     return [
         px.scatter(
             df_gene, x="FDR",  y="recall",
-            color="method", symbol= "type"),
+            symbol_sequence= ['circle', 'cross'],
+            category_orders=order,
+            color="method", symbol= "type")\
+          .update_layout(
+            yaxis_title='Recall',
+          ),
         px.scatter(
             df_roc, x="FDR",  y="recall",
+            symbol_sequence= ['circle', 'cross'],
+            category_orders=order,
             color="method", symbol= "type")
-          .update_traces(marker_size=12),
+          .update_traces(marker_size=12)\
+          .update_layout(
+            font_size=12,
+            legend_font_size=12,
+            yaxis_title='Recall',
+            width=1200,
+            height=600,
+          ),
     ]
 
 
@@ -401,21 +416,41 @@ def customSecdPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
     df_noge = df.groupby(["method", "type"], as_index=False) \
                 .agg({"precision": "mean", "recall": "mean", "num_read": "mean"})
     df_noge["FDR"] = 1 - df_noge["precision"]
+    order = {'method': sorted(set(df['method']))}
 
+    x_title = "Average alignments per read"
     return [
         px.scatter(
             df_gene, x="num_read",  y=y,
+            symbol_sequence= ['circle', 'cross'],
+            category_orders=order,
             color="method", symbol="type")
+          .update_traces(marker_size=10)
           .update_layout(
-              xaxis_title="Total mapped possibles / Total reads"),
+              xaxis_title=x_title,
+              yaxis_title=y.capitalize(),
+              font_size=12,
+              legend_font_size=12,
+              width=1200,
+              height=600,
+          )
+          .add_vline(x=1, line_width=1, line_dash="dash", line_color="gray"),
         px.scatter(
             df_noge, x="num_read",  y=y,
+            symbol_sequence= ['circle', 'cross'],
+            category_orders=order,
             color="method", symbol="type")
           .update_traces(marker_size=12)
           .update_layout(
-              font_size=18,
-              legend_font_size=18,
-              xaxis_title="Total mapped possibles / Total reads"),
+              yaxis_title=y.capitalize(),
+              font_size=12,
+              legend_font_size=12,
+              width=1200,
+              height=600,
+              # legend_x=0.5,
+              xaxis_title=x_title,
+          )
+          .add_vline(x=1, line_width=1, line_dash="dash", line_color="gray")
     ]
 
 
@@ -523,10 +558,10 @@ def plotGenewiseMapping() -> list[go.Figure]:
         {"method": "bwa",               "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa.bam"},
         {"method": "graphkir-split",    "compare_gene": "",          "name": f"{prefix}.index_kir_2100_withexon_split.leftalign.mut01.graph.bam"},
         {"method": "graphkir-ab",       "compare_gene": "ab",        "name": f"{prefix}.index_kir_2100_withexon_ab.leftalign.mut01.graph.bam"},
-        {"method": "grpahkir-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
-        {"method": "grpahkir-ab2dl1s1-type", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.bam"},
+        {"method": "graphkir-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
+        {"method": "graphkir-ab2dl1s1-filter", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.mut01.graph.variant.noerrcorr.no_multi.bam"},
         {"method": "bwa-filter",        "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_2100_withexon_ab_2dl1s1.leftalign.backbone.bwa.NM_4.no_multi.bam"},
-        {"method": "grpahkir-290-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_290_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
+        {"method": "graphkir-290-ab2dl1s1", "compare_gene": "ab_2dl1s1", "name": f"{prefix}.index_kir_290_withexon_ab_2dl1s1.leftalign.mut01.graph.bam"},
         # {"method": "hisat_271-ab-2dl1s1",          "file": f"{name}.index_kir_271_2dl1s1.mut01.bam"},
         # {"method": "vg_ab",                        "file": f"data3/{answer}.{id:02d}.data3_kir_2100_raw.vgindex.bam"},
         # {"method": "vg_merge",                     "file": f"data3/{answer}.{id:02d}.data3_kir_2100_merge.vgindex.bam"},
@@ -570,15 +605,25 @@ def plotGenewiseMapping() -> list[go.Figure]:
         df_stat = pd.read_csv("kg_eval_mapping.pergene_stat.csv")
         df_prec = pd.read_csv("kg_eval_mapping.pergene_correct.csv")
 
+    df_stat["method"] = df_stat["method"].str.replace("bwa", "BWA-MEM")
+    df_stat["method"] = df_stat["method"].str.replace("graphkir", "Graph-KIR")
+    df_stat["method"] = df_stat["method"].str.replace("bowtie", "Bowtie 2")
+    df_prec["method"] = df_prec["method"].str.replace("bwa", "BWA-MEM")
+    df_prec["method"] = df_prec["method"].str.replace("graphkir", "Graph-KIR")
+    df_prec["method"] = df_prec["method"].str.replace("bowtie", "Bowtie 2")
+    df_prec = df_prec[~df_prec["method"].str.endswith("-filter")]
+
     figs = []
     figs.extend(customSamstatPlot(df_stat))
     df_prec = df_prec[~df_prec["type"].isin(("all", "primary-only"))]
     df_prec.loc[df_prec["type"] == "all-per-read", "type"] = "all"
+    df_prec.loc[df_prec["type"] == "unique-only", "type"] = "unique"
     # df_prec = df_prec[df_prec["method"] != "bowtie"]
     figs.extend(customGenePrecisionPlot(df_prec, "precision"))
     figs.extend(customGenePrecisionPlot(df_prec, "recall"))
     figs.extend(customGenePrecisionPlot(df_prec, "num_read"))
     figs.extend(customRocPlot(df_prec))
+    # figs[-1].write_image("fig_recall_fdr.png")
     figs.extend(customSecdPlot(df_prec, "recall"))
     figs.extend(customSecdPlot(df_prec, "precision"))
     return figs
