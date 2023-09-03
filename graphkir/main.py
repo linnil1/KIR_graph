@@ -94,7 +94,7 @@ def runWGS(
 
         # extract
         suffix = ".extract"
-        # logger.info(f"[WGS] Extract chr19... from {input_bam}")  # written in func
+        # logger.info(f"[WGS] Extract chr19... from {name}")  # written in func
         extractFromHg19(name + ".bam", name + suffix, "hs37d5", threads=getThreads())
         name += suffix
         logger.info(f"[WGS] Extract read from {name}.bam")
@@ -129,9 +129,7 @@ def readMapping(
 
         suffix = ".variant"
         logger.info(f"[Graph] Filter mapping ({name})")
-        extractVariantFromBam(
-            index_ref, name + ".bam", name + suffix, error_correction=False
-        )
+        extractVariantFromBam(index_ref, name + ".bam", name + suffix, error_correction=False)
         name += suffix
         processed_bam.append(name)  # it has multiple format
 
@@ -195,7 +193,9 @@ def alleleTyping(
         df.to_csv(name + ".tsv", sep="\t", index=False)
         allele_files.append(name + ".tsv")
 
-        logger.info(f"[Allele] All possible allele set in Allele typing saved in [name].possible.tsv")
+        logger.info(
+            f"[Allele] All possible allele set in Allele typing saved in [name].possible.tsv"
+        )
         possible_list = t.getAllPossibleTyping()
         df_possible = pd.DataFrame(possible_list)
         df_possible = df_possible.fillna("")
@@ -241,9 +241,11 @@ def replaceParentFolder(filename: str, new_folder: str) -> str:
 def createParser() -> argparse.ArgumentParser:
     """Setup arguments"""
     parser = argparse.ArgumentParser(
-        description="Run Graph KIR",
+        description="Run Graph-KIR",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
+    # General Options
     parser.add_argument(
         "--thread",
         default=1,
@@ -252,118 +254,136 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--engine",
         default="local",
-        help="podman,docker,singularity,local(samtools,hisat2... installed)",
+        choices=["podman", "docker", "singularity", "local"],
+        help="Run the external package with podman, docker, or singularity. "
+        "Alternatively, run it in a local environment, which requires manual installation.",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=logging._nameToLevel.keys(),
+        help="Set the log level",
+    )
+
+    # Input/Output Data
+    parser.add_argument(
+        "--r1",
+        action="append",
+        help="Paths to Read 1 FASTQ files (provide in order for multiple samples)",
+    )
+    parser.add_argument(
+        "--r2",
+        action="append",
+        help="Paths to Read 2 FASTQ files (in order)",
+    )
+    parser.add_argument(
+        "--input-csv",
+        help="Path to a CSV file containing samples (columns: id, fastq, cnfile)",
+    )
+    parser.add_argument(
+        "--output-folder",
+        help="Output folder for saving data (default: same folder as input reads)",
+    )
+    parser.add_argument(
+        "--output-cohort-name",
+        help="Output prefix to save the result of the entire cohort (Default: {output-folder}/cohort)",
+    )
+
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Generate plots for intermediate results (saved as {output-cohort-name}.xx.png)",
+    )
+
+    # Index and MSA
     parser.add_argument(
         "--ipd-version",
         default="2100",
         help="IPD*KIR version. Branch name in https://github.com/ANHIG/IPDKIR are all available.",
     )
     parser.add_argument(
-        "--r1",
-        action="append",
-        help="Read 1 fastq",
-    )
-    parser.add_argument(
-        "--r2",
-        action="append",
-        help="Read 2 fastq",
-    )
-    parser.add_argument(
-        "--input-csv",
-        help="All data are written in csv. Including id, fastq, cnfile",
-    )
-    parser.add_argument(
-        "--index-folder",
-        default="index",
-        help="The path to graph index",
-    )
-    parser.add_argument(
-        "--index-wgs",
-        default="",
-        help="A bwa-indexed hs37d5 index path (Default=index_folder/hs37d5.fa.gz)",
-    )
-    parser.add_argument(
-        "--output-folder",
-        help="The path for saving data. Otherwise save in the same folder with reads.",
-    )
-    parser.add_argument(
-        "--output-cohort-name",
-        help="Cohort name (Default: {folder}/cohort.xx)",
-    )
-    parser.add_argument(
         "--msa-type",
         default="ab_2dl1s1",
         choices=["merge", "split", "ab", "ab_2dl1s1"],
-        help="Type of MSA: merge, split, ab, ab_2dl1s1",
+        help="Type of Multiple Sequence Alignment (MSA) setup for Graph-KIR. "
+        "Options: merge (merge KIR genes into 1 gene), split (17 genes), "
+        "ab (16 genes, merging 2DL5A and 2DL5B), ab_2dl1s1 (15 genes, merging 2DL1 and 2DS1).",
     )
     parser.add_argument(
         "--msa-no-exon-only-allele",
         action="store_true",
-        help="Do not add exon-only alleles into allele set",
+        help="Exclude exon-only alleles from the allele set. (requires index rebuilding)",
     )
+    parser.add_argument(
+        "--index-folder",
+        default="index",
+        help="The path to the index folder, which must include the HISAT2-indexed KIR. "
+        "Optionally, the hs37d5 index can also be located in the same folder. "
+        "Alternatively, you can specify the path to the hs37d5 index using `--index-wgs`.",
+    )
+    parser.add_argument(
+        "--index-wgs",
+        help="Path to a BWA-indexed hs37d5 index file (Default=index_folder/hs37d5.fa.gz)",
+    )
+
+    # Copy Number
     parser.add_argument(
         "--cn-exon",
         action="store_true",
-        help="Select exon-only region of CN prediction",
+        help="Select exon-only regions of genes for copy number (CN) prediction instead of all positions",
     )
     parser.add_argument(
-        "--cn-individually",
+        "--cn-cohort",
         action="store_true",
-        help="Predict CN separtely instead of cohort-wisely",
+        help="Predict CN cohort-wise instead of sample-wise",
     )
     parser.add_argument(
         "--cn-select",
         default="p75",
-        help="Select 75 percentile(p75), mean(mean), median(median) of depths",
+        choices=["p75", "mean", "median"],
+        help="Method for selecting depths of each gene; 75 percentile(p75), mean(mean), median(median).",
     )
     parser.add_argument(
-        "--cn-cluster",
-        default="CNgroup",
-        help="CN prediction model (CNgroup, kde)",
+        "--cn-algorithm",
+        default="LCND",
+        choices=["LCND", "KDE"],
+        help="CN prediction model. Choose between LCND (Linear Copy Number Distribution, the method described in the paper) or KDE (Kernel Density Estimation).",
     )
     parser.add_argument(
-        "--cn-group-dev",
+        "--cn-dist-dev",
         default=0.08,
-        help="Deviation of CNgroup""",
+        help="Deviation of distrubionts in LCND (sometimes 0.06 works better)",
     )
     parser.add_argument(
-        "--cn-group-3dl3-not-diploid",
+        "--cn-3dl3-not-diploid",
         action="store_true",
-        help="Not assume KIR3DL3 as diploid gene in CNgroup""",
+        help="Do not assume KIR3DL3 as a diploid gene (for LCND)",
     )
     parser.add_argument(
         "--cn-provided",
         nargs="*",
-        help="Provided CN prediction in TSV",
+        help="Provided CN predictions in TSV format (each file represents a sample in order)",
     )
+
     parser.add_argument(
-        "--allele-method",
+        "--allele-strategy",
         default="full",
         choices=["full", "exonfirst", "report"],
-        help="Max Likelihood by full variants(full), "
-        "exon variant first than full (exon-first) or hisat-report(report)",
+        help="Choose the allele typing strategy: 'full' for maximum likelihood using all variants, "
+        "'exonfirst' for typing exon variants before full variants, "
+        "or 'report' for typing via abundance using an EM-algorithm similar to HISAT2-genotype.",
     )
-    parser.add_argument(
-        "--plot",
-        action="store_true",
-        help="Plot some intermediate result.",
-    )
+
+    # Skip Processing Steps
     parser.add_argument(
         "--step-skip-extraction",
         action="store_true",
-        help="Skip filtering KIR reads from the (WGS) fastq",
+        help="Skip filtering KIR reads from the (WGS) fastq files",
     )
     parser.add_argument(
         "--step-skip-typing",
         action="store_true",
         help="Skip allele-typing",
-    )
-    parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=logging._nameToLevel.keys(),
-        help="Set log level",
     )
     return parser
 
@@ -478,26 +498,26 @@ def main(args: argparse.Namespace) -> None:
     figs.extend(plotReadMappingStat(bam_files, [fq1 for fq1, _ in reads]))
 
     cluster_method_kwargs = {
-        "base_dev": float(args.cn_group_dev),
+        "base_dev": float(args.cn_dist_dev),
         "start_base": 2,
     }
     # Copy Number determination
     if all(cn_files):
         pass
-    elif args.cn_individually:
+    elif not args.cn_cohort:
         # per sample
         for i, depth_file in enumerate(depth_files):
             if cn_files[i]:  # CN file exists, skip
                 continue
-            suffix = f".{args.cn_select}.{args.cn_cluster}"
+            suffix = f".{args.cn_select}.{args.cn_algorithm}"
             name = str(Path(depth_file).with_suffix(suffix))
             logger.info(f"[CN] Copy number estimation per sample ({name})")
             predictSamplesCN(
                 [depth_file],
                 [name + ".tsv"],
-                cluster_method=args.cn_cluster,
+                cluster_method=args.cn_algorithm,
                 cluster_method_kwargs=cluster_method_kwargs,
-                assume_3DL3_diploid=not args.cn_group_3dl3_not_diploid,
+                assume_3DL3_diploid=not args.cn_3dl3_not_diploid,
                 save_cn_model_path=name + ".json",
                 select_mode=args.cn_select,
             )
@@ -506,14 +526,16 @@ def main(args: argparse.Namespace) -> None:
             figs.extend(plotCN(name + ".json"))
     else:
         # by cohort
-        suffix = f".{args.cn_select}.cohort.{args.cn_cluster}"
+        suffix = f".{args.cn_select}.cohort.{args.cn_algorithm}"
         cn_cohort_name = cohort_name + suffix
-        cn_files = [str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files]
+        cn_files = [
+            str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
+        ]
         logger.info(f"[CN] Copy number estimation by cohort ({cn_cohort_name})")
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
-            [cnf            for i, cnf in enumerate(cn_files) if cnf],
-            cluster_method=args.cn_cluster,
+            [cnf for i, cnf in enumerate(cn_files) if cnf],
+            cluster_method=args.cn_algorithm,
             cluster_method_kwargs=cluster_method_kwargs,
             save_cn_model_path=cn_cohort_name + ".json",
             select_mode=args.cn_select,
@@ -526,7 +548,9 @@ def main(args: argparse.Namespace) -> None:
 
     # Allele Typing
     if not args.step_skip_typing:
-        allele_files = alleleTyping(processed_bam, cn_files, method=args.allele_method)
+        allele_files = alleleTyping(
+            processed_bam, cn_files, method=args.allele_strategy
+        )
         logger.debug(f"[Allele] Allele typing resuslt: {allele_files}")
         logger.info(f"[Allele] Saved in {cohort_name}.allele.tsv")
         mergeAllele(allele_files, cohort_name + ".allele.tsv")

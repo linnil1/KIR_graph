@@ -76,7 +76,9 @@ def depthToCN(
     logger.info(f"[CN] Predict copy number by {cluster_method} with data size {len(values)}")
 
     # cluster
-    if cluster_method == "CNgroup":
+    if cluster_method == "CNgroup" or cluster_method.lower() == "lcnd":
+        # CNgroup is a alias of CNgroup (old name)
+        # LCND = Linear Copy Number Distributions
         dist = CNgroup()
         if cluster_method_kwargs:
             dist = CNgroup.setParams(dist.getParams() | cluster_method_kwargs)
@@ -110,7 +112,7 @@ def depthToCN(
         # if dist.base / assume_base > 1.7:
         #     dist.base /= 2
 
-    elif cluster_method == "kde":
+    elif cluster_method.lower() == "kde":
         dist = KDEcut()  # type: ignore
         dist.fit(values)
         logger.info(f"[CN] {cluster_method} cut = {dist.local_min}")  # type: ignore
