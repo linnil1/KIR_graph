@@ -689,6 +689,15 @@ def plotCohortGeneLevelSummary(
             xaxis_categoryarray=gene_order,
             xaxis_categoryorder="array",
             yaxis_title="Accuracy",
+            width=1200,
+            height=600,
+            font_size=20,
+            legend_font_size=16,
+            legend_xanchor="right",
+            legend_x=.99,
+            legend_yanchor="bottom",
+            legend_y=.95,
+            legend_orientation="h",
         )
         figs.append(fig)
     return figs
@@ -730,7 +739,9 @@ def compareAlleleWithMethod(cohort_data: dict[str, CohortAlleles]) -> None:
     # plot
     summary = summary[~summary["method"].isin([
         "answer", "sakaue", "sakaue-all", "sakaue-ans-all",
-        "graphkir-290-ab2dl1s1-full", "graphkir-290-ab2dl1s1-exonfirst"
+        "graphkir-290-ab2dl1s1-full", "graphkir-290-ab2dl1s1-exonfirst",
+        "ping", "ping_wgs-15x", "graphkir-ab2dl1s1-15x-full", "graphkir-ab2dl1s1-15x-exonfirst",
+        "graphkir-ab2dl1s1-full-best", "graphkir-ab2dl1s1-exonfirst-best", "graphkir-ab2dl1s1-exonfirst0.9",
     ])]
     showPlot(plotCohortGeneLevelSummary(summary))
 

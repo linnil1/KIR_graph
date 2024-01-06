@@ -390,6 +390,11 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
             color="method", symbol= "type")\
           .update_layout(
             yaxis_title='Recall',
+            width=1200,
+            height=600,
+            font_size=20,
+            legend_font_size=16,
+            legend=dict(yanchor="bottom", y=0.01, xanchor="right", x=0.99),
           ),
         px.scatter(
             df_roc, x="FDR",  y="recall",
@@ -398,11 +403,12 @@ def customRocPlot(df: pd.DataFrame) -> list[go.Figure]:
             color="method", symbol= "type")
           .update_traces(marker_size=12)\
           .update_layout(
-            font_size=12,
-            legend_font_size=12,
+            font_size=20,
+            legend_font_size=16,
             yaxis_title='Recall',
             width=1200,
             height=600,
+            legend=dict(yanchor="bottom", y=0.01, xanchor="right", x=0.99),
           ),
     ]
 
@@ -419,6 +425,9 @@ def customSecdPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
     order = {'method': sorted(set(df['method']))}
 
     x_title = "Average alignments per read"
+    legend_pos = dict(yanchor="bottom", y=0.01, xanchor="left", x=0.01)
+    if y == "recall":
+        legend_pos = dict(yanchor="bottom", y=0.01, xanchor="right", x=0.99)
     return [
         px.scatter(
             df_gene, x="num_read",  y=y,
@@ -429,10 +438,11 @@ def customSecdPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
           .update_layout(
               xaxis_title=x_title,
               yaxis_title=y.capitalize(),
-              font_size=12,
-              legend_font_size=12,
+              font_size=20,
+              legend_font_size=16,
               width=1200,
               height=600,
+              legend=legend_pos,
           )
           .add_vline(x=1, line_width=1, line_dash="dash", line_color="gray"),
         px.scatter(
@@ -443,8 +453,9 @@ def customSecdPlot(df: pd.DataFrame, y: str = "precision") -> list[go.Figure]:
           .update_traces(marker_size=12)
           .update_layout(
               yaxis_title=y.capitalize(),
-              font_size=12,
-              legend_font_size=12,
+              font_size=20,
+              legend_font_size=16,
+              legend=legend_pos,
               width=1200,
               height=600,
               # legend_x=0.5,
@@ -614,11 +625,13 @@ def plotGenewiseMapping() -> list[go.Figure]:
     df_prec = df_prec[~df_prec["method"].str.endswith("-filter")]
 
     figs = []
-    figs.extend(customSamstatPlot(df_stat))
+    # figs.extend(customSamstatPlot(df_stat))
     df_prec = df_prec[~df_prec["type"].isin(("all", "primary-only"))]
     df_prec.loc[df_prec["type"] == "all-per-read", "type"] = "all"
     df_prec.loc[df_prec["type"] == "unique-only", "type"] = "unique"
     # df_prec = df_prec[df_prec["method"] != "bowtie"]
+    df_prec = df_prec[~df_prec["method"].str.contains("290")]
+    df_prec = df_prec.sort_values("method")
     figs.extend(customGenePrecisionPlot(df_prec, "precision"))
     figs.extend(customGenePrecisionPlot(df_prec, "recall"))
     figs.extend(customGenePrecisionPlot(df_prec, "num_read"))
@@ -626,6 +639,14 @@ def plotGenewiseMapping() -> list[go.Figure]:
     # figs[-1].write_image("fig_recall_fdr.png")
     figs.extend(customSecdPlot(df_prec, "recall"))
     figs.extend(customSecdPlot(df_prec, "precision"))
+    # figs[-1].write_image("fig_precision_multiplereads.png")
+    figs[-2].update_layout(
+        xaxis_range=[0.2,1.05],
+        yaxis_range=[0.5,1.05],
+    )
+    figs[-2]["data"] = [i for i in figs[-2]["data"] if 'all' not in i['name'] and '-split' not in i['name']  ]
+    print(figs[-2]["data"])
+    figs[-2].write_image("fig_precision_multiplereads_genes.png")
     return figs
 
 
