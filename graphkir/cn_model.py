@@ -28,7 +28,9 @@ class Dist:
 
     def fit(self, values: list[float]) -> None:
         """Determine the parameters by data"""
-        raise NotImplementedError
+       raise NotImplementedError
+    def fit_3dl3_diploid(self, values: list[float], kir_3dl3_depth: float, width: float, decrease: float) -> None:
+        """Setting diploid coverage around kir 3dl3 coverage and determine the parameters"""
 
     def assignCN(self, values: list[float]) -> list[int]:
         """Assign CN with depth input by parameters"""
@@ -158,6 +160,28 @@ class CNgroup(Dist):
             likelihood_list
         )  # n x 2(base, likelihood of the base)
 
+        # Find best fit x = base
+        max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
+        self.base = max_point[0]
+
+def fit_3dl3_diploid(self, values: list[float], kir_3dl3_depth: float, width: float, decrease: float) -> None:
+        upper_bound = (kir_3dl3_depth + decrease*width)/2
+        lower_bound = (kir_3dl3_depth - decrease*width)/2
+        descrete = int(self.bin_num*decrease)
+        # discrete (bin_num)
+        # Calculate the probility that CN groups fit the data
+        density, _ = np.histogram(values, bins=self.bin_num, range=(0, self.x_max))
+        likelihood_list = []
+        for base in np.linspace(lower_bound, upper_bound, descrete):
+            # all probility of cn group across lower bound ~ upper bound
+            cn_group = self.calcCNGroupProb(base)
+            # Highest probility in each x
+            max_prob = cn_group.max(axis=0)
+            # log-probility = depth \cdot the log(highest probility)
+            likelihood_list.append((base, np.sum(np.log(max_prob + 1e-9) * density)))
+        self.likelihood = np.array(
+            likelihood_list
+        )  # n x 2(base, likelihood of the base)
         # Find best fit x = base
         max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
         self.base = max_point[0]

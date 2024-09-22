@@ -90,27 +90,19 @@ def depthToCN(
                 for gene_depths in sample_gene_depths
             ]
             cn = dist.assignCN(kir3dl3_depths)
-            if all(i == 1 for i in cn):
+            decrease_perc = float(1)
+            bound_width = float(10)
+            decrease_rate = 0.2
+            while not all(i == 2 for i in cn):
                 logger.debug("[CN] Assume 3DL3 cn=2")
-                assert isinstance(dist.base, float)
-                dist.base *= 1 / 2
-            # if all(i == 3 for i in cn):
-            #     logger.debug("[CN] Assume 3DL3 cn=2")
-            #     assert isinstance(dist.base, float)
-            #     dist.base *= 3 / 2
-            if all(i == 4 for i in cn):
-                logger.debug("[CN] Assume 3DL3 cn=2")
-                assert isinstance(dist.base, float)
-                dist.base *= 4 / 2
-
-            cn = dist.assignCN(kir3dl3_depths)
+                kir3dl3_depth = sum(kir3dl3_depths)/len(kir3dl3_depths)
+                dist.fit_3dl3_diploid(values, kir3dl3_depth, bound_width, decrease_perc)
+                cn = dist.assignCN(kir3dl3_depths)
+                decrease_perc = decrease_perc - decrease_rate
+                if decrease_perc <= 0:
+                    break
             assert all(i == 2 for i in cn)
         logger.info(f"[CN] {cluster_method} base = {dist.base}")
-        # logger.debug(f"[CN] Parameters after:  {dist.getParams()}")
-
-        # TODO: assume depth
-        # if dist.base / assume_base > 1.7:
-        #     dist.base /= 2
 
     elif cluster_method.lower() == "kde":
         dist = KDEcut()  # type: ignore
