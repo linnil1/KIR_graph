@@ -28,7 +28,8 @@ class Dist:
 
     def fit(self, values: list[float]) -> None:
         """Determine the parameters by data"""
-       raise NotImplementedError
+        raise NotImplementedError
+
     def fit_3dl3_diploid(self, values: list[float], kir_3dl3_depth: float, width: float, decrease: float) -> None:
         """Setting diploid coverage around kir 3dl3 coverage and determine the parameters"""
 
