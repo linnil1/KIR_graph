@@ -3,7 +3,9 @@
 Graph-KIR is a tool for KIR (Killer Immunoglobulin-like Receptor) typing using short read FASTQ files.
 
 Paper Link: (Not yet published)
+
 Biorxiv: https://doi.org/10.1101/2023.11.29.568665
+
 github tag: v1.0
 
 
@@ -157,6 +159,14 @@ To build the document, use: `mkdocs serve`
 * `filenameflow`: https://github.com/linnil1/FileNameFlow
 
   A lightweight pipeline tool that executes pipelines. It uses filenames as auto-versioning keys, which is convenient when tuning arguments or switching parts frequently. Note that in this research, Version 0.0.7 is used, so clone the repository and run `git checkout v0.0.7 && pip install .`.
+
+
+## Changelog
+
+* github tag: v1.0: Initial release on bioRxiv and open-sourced the Graph-KIR code.
+* latest: Current Version
+  * Improved the algorithm for assuming KIR3DL3 is diploid. We now treat KIR3DL3's depth as a probability of 2x depth instead of assuming an exact 2x depth, which enhances the clustering results for copy number estimation. Special thanks to Ting-Jian Wang, one of the authors of the original paper.
+
 
 ## LICENSE
 LGPL
