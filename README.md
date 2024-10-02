@@ -3,6 +3,8 @@
 Graph-KIR is a tool for KIR (Killer Immunoglobulin-like Receptor) typing using short read FASTQ files.
 
 Paper Link: (Not yet published)
+Biorxiv: https://doi.org/10.1101/2023.11.29.568665
+github tag: v1.0
 
 
 This repo contains two main programs:
