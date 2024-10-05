@@ -29,6 +29,23 @@ def bwa(index: str, f1: str, f2: str, output_name: str, threads: int = 1) -> Non
     )
     samtobam(output_name)
 
+def extractDiploidCoverage(input_name: str, diploid_gene: str) -> None:
+    print(f"\nThe diploid gene is {diploid_gene}.\n")
+    regions = {"VDR": "12:48235320-48298777", "RYR1": "19:38924331-39078204", "EGFR": "7:55086710-55279321"}
+    region = regions[diploid_gene]
+    print(f"region is {region}.\n")
+    runDocker(
+        "samtools",
+        f"samtools view -@8 -h -F 1024"
+        f"  {input_name}.bam {region} -o {input_name}.diploid_gene.sam")
+    samtobam(f"{input_name}.diploid_gene")
+    output_name = input_name + ".diploid_info.txt"
+    runDocker(
+        "samtools",
+        f"samtools depth {input_name}.diploid_gene.bam"
+        "  | awk '{sum+=$3; sumsq+=$3*$3} END {print sum/NR; print sqrt(sumsq/NR - (sum/NR)**2)}'"
+        f" > {output_name}")
+    runShell(f"rm {input_name}.diploid_gene.bam*")
 
 def extractFromHg19(
     input_bam: str, output_name: str, hg19_type: str = "hs37d5", threads: int = 1
