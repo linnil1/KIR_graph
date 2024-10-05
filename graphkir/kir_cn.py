@@ -55,6 +55,7 @@ def aggrDepths(depths: pd.DataFrame, select_mode: str = "p75") -> pd.DataFrame:
 
 def depthToCN(
     sample_gene_depths: list[dict[str, float]],
+    diploid_name: str,
     cluster_method: str = "CNgroup",
     cluster_method_kwargs: dict[str, Any] = {},
     assume_3DL3_diploid: bool = False,
@@ -83,7 +84,7 @@ def depthToCN(
         if cluster_method_kwargs:
             dist = CNgroup.setParams(dist.getParams() | cluster_method_kwargs)
         logger.debug(f"[CN] Parameters before: {dist.getParams()}")
-        dist.fit(values)
+        dist.fit(values, diploid_name)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
                 float(gene_depths["KIR3DL3*BACKBONE"])
@@ -142,6 +143,7 @@ def filterDepth(
 def predictSamplesCN(
     samples_depth_tsv: list[str],
     samples_cn: list[str],
+    diploid_name: str,
     save_cn_model_path: str | None = None,
     assume_3DL3_diploid: bool = False,
     select_mode: str = "p75",
@@ -174,6 +176,7 @@ def predictSamplesCN(
         # depth per gene -> cn per gene
         cns, model = depthToCN(
             depths_dict,
+            diploid_name,
             cluster_method=cluster_method,
             cluster_method_kwargs=cluster_method_kwargs,
             assume_3DL3_diploid=assume_3DL3_diploid,
