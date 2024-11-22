@@ -111,11 +111,12 @@ In the above sample, `example_data/cohort.cn.tsv` and `example_data/cohort.allel
 
 Some useful arguments include:
 * `--cn-diploid-gene`: Select reference diploid gene for the Copy number estimation model.(ex: VDR, RYR1 or EGFR)
-* `--cn-cohort`: Estimate copy number while considering the entire cohort.
+* `--cn-cohort`: Estimate copy number while considering the entire cohort. In cohort mode, diploid gene information is not considered.
 * `--allele-strategy exonfirst`: Perform typing using the exon part of reads instead of the entire sequence.
 * You can manually assess the copy number estimation results using the `--plot` option.
 * Adjust the distribution deviation with the `--cn-dist-dev` argument, for example, `--cn-dist-dev 0.06`.
 * KIR3DL3 is typically diploid. If KIR3DL3 is not diploid, the tool will adjust the CN estimation result by referencing KIR3DL3 coverage, ensuring KIR3DL3 to be diploid. Use `--cn-3dl3-not-diploid` to estimate copy number without assuming 3DL3 CN is 2.
+* If the input reads are already filtered for KIR regions, use `--step-skip-extraction` to skip the whole genome mapping and KIR read extraction steps.
 
 
 ## Usage (`kirpipe` pipeline for other KIR tools)

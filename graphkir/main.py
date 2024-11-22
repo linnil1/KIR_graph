@@ -475,9 +475,14 @@ def main(args: argparse.Namespace) -> None:
             index_wgs = args.index_wgs
 
         # read mapping and extract to fastq
-        names, reads, diploid_names = runWGS(names, reads, index_wgs, args.cn_diploid_gene)
+        diploid_gene = args.cn_diploid_gene
+        if args.cn_cohort:
+            diploid_gene = ""
+        names, reads, diploid_names = runWGS(names, reads, index_wgs, diploid_gene)
     else:
         diploid_names = ['' for _ in range(len(names))]
+
+
 
     # Prepare MSA
     if args.msa_no_exon_only_allele:
@@ -552,10 +557,12 @@ def main(args: argparse.Namespace) -> None:
         cn_files = [
             str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
         ]
+        diploid_name = ""
         logger.info(f"[CN] Copy number estimation by cohort ({cn_cohort_name})")
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
             [cnf for i, cnf in enumerate(cn_files) if cnf],
+            diploid_name,
             cluster_method=args.cn_algorithm,
             cluster_method_kwargs=cluster_method_kwargs,
             save_cn_model_path=cn_cohort_name + ".json",
