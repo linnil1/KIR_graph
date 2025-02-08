@@ -2,13 +2,6 @@
 
 Graph-KIR is a tool for KIR (Killer Immunoglobulin-like Receptor) typing using short read FASTQ files.
 
-Paper Link: (Not yet published)
-
-Biorxiv: https://doi.org/10.1101/2023.11.29.568665
-
-github tag: v1.0
-
-
 This repo contains two main programs:
 
 1. `graphkir` - Main Typing Tool
@@ -24,6 +17,18 @@ This repo contains two main programs:
     It includes five published tools: `graphkir`, `PING`, `Sakaue's KIR`, `T1K`, and `KIR*KPI`.
 
     (Note: Currently, `kirpipe` requires podman or docker to execute)
+
+
+## Version
+
+1. version 1.0
+	* Paper Link: (Not yet published)
+	* Biorxiv: https://doi.org/10.1101/2023.11.29.568665
+	* github tag: v1.0
+2. version 2.0 (latest)
+	* Paper Link: (Not yet published)
+	* Biorxiv: (Not Yet)
+	* github tag: v2.0
 
 
 ## Requirements
