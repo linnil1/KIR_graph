@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 from .kir_msa import buildKirMsa
 from .msa_leftalign import genemsaLeftAlign
 from .msa2hisat import msa2HisatReference, buildHisatIndex
-from .wgs import downloadHg19, bwa, bwaIndex, extractFromHg19, bam2fastq
+from .wgs import downloadHg19, bwa, bwaIndex, extractDiploidCoverage, extractFromHg19, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
 from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
 from .kir_typing import selectKirTypingModel
@@ -81,10 +81,11 @@ def buildGenomeIndex(index_folder: str = "index") -> str:
 
 
 def runWGS(
-    names: list[str], reads: list[tuple[str, str]], index_wgs: str
-) -> tuple[list[str], list[tuple[str, str]]]:
+        names: list[str], reads: list[tuple[str, str]], index_wgs: str, diploid_gene: str
+) -> tuple[list[str], list[tuple[str, str]], list[str]]:
     new_names = []
     new_reads = []
+    diploid_names = []
     for name, (fq1, fq2) in zip(names, reads):
         # read mapping
         logger.info(f"[WGS] Run BWA on index {index_wgs} ({name})")
@@ -92,7 +93,15 @@ def runWGS(
         bwa(index_wgs, fq1, fq2, name + suffix, threads=getThreads())
         name += suffix
 
-        # extract
+        # extract diploid coverage information
+        if diploid_gene != '':
+            if not Path(f"{name}.diploid_info.txt").exists():
+                extractDiploidCoverage(name, diploid_gene)
+            diploid_names.append(name + ".diploid_info.txt")
+        else:
+            diploid_names.append('')
+
+        # extract KIR
         suffix = ".extract"
         # logger.info(f"[WGS] Extract chr19... from {name}")  # written in func
         extractFromHg19(name + ".bam", name + suffix, "hs37d5", threads=getThreads())
@@ -101,7 +110,7 @@ def runWGS(
         bam2fastq(name + ".bam", name, threads=getThreads())
         new_names.append(name)
         new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
-    return new_names, new_reads
+    return new_names, new_reads, diploid_names
 
 
 def readMapping(
@@ -328,6 +337,14 @@ def createParser() -> argparse.ArgumentParser:
 
     # Copy Number
     parser.add_argument(
+        "--cn-diploid-gene",
+        choices=['', "VDR", "RYR1", "EGFR"],
+        default='',
+        help="Specify a gene to provide diploid coverage information during the CN estimation step. "
+        "(Default is '', which means the CN estimation module will operate without diploid information.) "
+        "Options for reference diploid genes are: VDR, RYR1, and EGFR."
+    )
+    parser.add_argument(
         "--cn-exon",
         action="store_true",
         help="Select exon-only regions of genes for copy number (CN) prediction instead of all positions",
@@ -458,7 +475,14 @@ def main(args: argparse.Namespace) -> None:
             index_wgs = args.index_wgs
 
         # read mapping and extract to fastq
-        names, reads = runWGS(names, reads, index_wgs)
+        diploid_gene = args.cn_diploid_gene
+        if args.cn_cohort:
+            diploid_gene = ""
+        names, reads, diploid_names = runWGS(names, reads, index_wgs, diploid_gene)
+    else:
+        diploid_names = ['' for _ in range(len(names))]
+
+
 
     # Prepare MSA
     if args.msa_no_exon_only_allele:
@@ -511,10 +535,12 @@ def main(args: argparse.Namespace) -> None:
                 continue
             suffix = f".{args.cn_select}.{args.cn_algorithm}"
             name = str(Path(depth_file).with_suffix(suffix))
+            diploid_name = diploid_names[i]
             logger.info(f"[CN] Copy number estimation per sample ({name})")
             predictSamplesCN(
                 [depth_file],
                 [name + ".tsv"],
+                diploid_name,
                 cluster_method=args.cn_algorithm,
                 cluster_method_kwargs=cluster_method_kwargs,
                 assume_3DL3_diploid=not args.cn_3dl3_not_diploid,
@@ -531,10 +557,12 @@ def main(args: argparse.Namespace) -> None:
         cn_files = [
             str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
         ]
+        diploid_name = ""
         logger.info(f"[CN] Copy number estimation by cohort ({cn_cohort_name})")
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
             [cnf for i, cnf in enumerate(cn_files) if cnf],
+            diploid_name,
             cluster_method=args.cn_algorithm,
             cluster_method_kwargs=cluster_method_kwargs,
             save_cn_model_path=cn_cohort_name + ".json",

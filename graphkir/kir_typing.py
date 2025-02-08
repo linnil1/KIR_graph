@@ -107,9 +107,19 @@ class TypingWithPosNegAllele(Typing):
             typ = AlleleTyping(
                 self._gene_reads[gene],
                 self._gene_variants[gene],
+                gene,
+                cn,
                 top_n=self._top_n,
                 variant_correction=self._variant_correction,
             )
+            if not typ.homo:
+                res = typ.typing(cn)
+                self._result[gene] = typ.result
+                alleles = res.selectBest()
+                # KIR2DL1*BACKBONE -> KIR2DL1
+                alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
+            else:
+                alleles = [f"{typ.typingHomo()}" for i in range(cn)]
         else:
             typ = AlleleTypingExonFirst(
                 self._gene_reads[gene],
@@ -118,13 +128,13 @@ class TypingWithPosNegAllele(Typing):
                 exon_only=self._exon_only,
                 candidate_set_threshold=self._exon_candidate_threshold,
             )
-        res = typ.typing(cn)
-        self._result[gene] = typ.result
-        # return res.selectBest(filter_minor=True)
-        alleles = res.selectBest()
-        # KIR2DL1*BACKBONE -> KIR2DL1
-        pure_gene = gene.split("*")[0]
-        alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
+            res = typ.typing(cn)
+            self._result[gene] = typ.result
+            # return res.selectBest(filter_minor=True)
+            alleles = res.selectBest()
+            # KIR2DL1*BACKBONE -> KIR2DL1
+            pure_gene = gene.split("*")[0]
+            alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
         return alleles, typ.getReadsNum()
 
     def getAllPossibleTyping(self) -> list[dict[Any, Any]]:

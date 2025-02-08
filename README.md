@@ -2,13 +2,6 @@
 
 Graph-KIR is a tool for KIR (Killer Immunoglobulin-like Receptor) typing using short read FASTQ files.
 
-Paper Link: (Not yet published)
-
-Biorxiv: https://doi.org/10.1101/2023.11.29.568665
-
-github tag: v1.0
-
-
 This repo contains two main programs:
 
 1. `graphkir` - Main Typing Tool
@@ -24,6 +17,18 @@ This repo contains two main programs:
     It includes five published tools: `graphkir`, `PING`, `Sakaue's KIR`, `T1K`, and `KIR*KPI`.
 
     (Note: Currently, `kirpipe` requires podman or docker to execute)
+
+
+## Version
+
+1. version 1.0
+	* Paper Link: (Not yet published)
+	* Biorxiv: https://doi.org/10.1101/2023.11.29.568665
+	* github tag: v1.0
+2. version 2.0 (latest)
+	* Paper Link: (Not yet published)
+	* Biorxiv: (Not Yet)
+	* github tag: v2.0
 
 
 ## Requirements
@@ -110,11 +115,13 @@ The final result that includes all the samples are aggrate into one file with pr
 In the above sample, `example_data/cohort.cn.tsv` and `example_data/cohort.allele.tsv` are generated.
 
 Some useful arguments include:
-* `--cn-cohort`: Estimate copy number while considering the entire cohort.
-* `--cn-3dl3-not-diploid`: Do not assume that the copy number of 3DL3 is equal to 2.
+* `--cn-diploid-gene`: Select reference diploid gene for the Copy number estimation model.(ex: VDR, RYR1 or EGFR)
+* `--cn-cohort`: Estimate copy number while considering the entire cohort. In cohort mode, diploid gene information is not considered.
 * `--allele-strategy exonfirst`: Perform typing using the exon part of reads instead of the entire sequence.
 * You can manually assess the copy number estimation results using the `--plot` option.
 * Adjust the distribution deviation with the `--cn-dist-dev` argument, for example, `--cn-dist-dev 0.06`.
+* KIR3DL3 is typically diploid. If KIR3DL3 is not diploid, the tool will adjust the CN estimation result by referencing KIR3DL3 coverage, ensuring KIR3DL3 to be diploid. Use `--cn-3dl3-not-diploid` to estimate copy number without assuming 3DL3 CN is 2.
+* If the input reads are already filtered for KIR regions, use `--step-skip-extraction` to skip the whole genome mapping and KIR read extraction steps.
 
 
 ## Usage (`kirpipe` pipeline for other KIR tools)

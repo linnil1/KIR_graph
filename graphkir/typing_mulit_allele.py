@@ -231,6 +231,8 @@ class AlleleTyping:
         self,
         reads: list[PairRead],
         variants: list[Variant],
+        gene: str,
+        cn: int,
         top_n: int = 300,
         no_empty: bool = True,
         variant_correction: bool = True,
@@ -253,6 +255,13 @@ class AlleleTyping:
         self.id_to_allele: dict[int, str] = dict(enumerate(sorted(allele_names)))
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
 
+        if "2DL1S1" in gene or "2DL5" in gene:
+            self.homo = False
+        elif cn > 1:
+            self.homo = self.readToHomoHetero(reads, gene, cn)
+        else:
+            self.homo = False
+
         if variant_correction:  # var_errcorr
             reads = self.errorCorrection(reads)
         if self._no_empty:  # reserve read position
@@ -269,6 +278,53 @@ class AlleleTyping:
     def getReadsNum(self) -> int:
         return len(self.probs)
 
+    def typingHomo(self) -> str:
+        return self.id_to_allele[np.argmax(np.prod(self.probs, axis=0))]
+
+    def readToHomoHetero(self, reads: list[PairRead], gene: str, cn: int) -> bool:
+        homo = False
+        v_record = defaultdict(lambda: defaultdict(int))
+        hit_score = 0
+        
+        # variants call by read -> dict
+        # note: pv record the variant on read, nv record the variant not on read
+        for read in reads:
+            for i in read.lpv:
+                v = self.variants[i]
+                if v.typ != "deletion":
+                    v_record[v.pos][v.val] += 1
+            for i in read.rpv:
+                v = self.variants[i]
+                if v.typ != "deletion":
+                    v_record[v.pos][v.val] += 1
+            for i in read.lnv:
+                v = self.variants[i]
+                if v.typ != "deletion":
+                    v_record[v.pos][f"*{v.val}"] += 1
+            for i in read.rnv:
+                v = self.variants[i]
+                if v.typ != "deletion":
+                    v_record[v.pos][f"*{v.val}"] += 1
+        # find heterozygous variant
+        for val in v_record.values():
+            if len(val) > 1:
+                if all('*' in key for key in val):
+                    continue
+                counts = sorted(list(val.values()), reverse=True)
+                counts = [c for c in counts if c > 3] # low coverage variant -> sequencing error
+                if len(counts) <= 1:
+                    continue
+                sum_counts = sum(counts)
+                hetero_percentage = [c/sum_counts for c in counts if c/sum_counts > 0.1] # filter very minor variant
+                if len(hetero_percentage) == 1:
+                    continue
+                if sum_counts < 20: # not processing low coverage possition
+                    pass
+                elif hetero_percentage[1] > (1/(cn*2)):
+                        hit_score += 1
+                    # break
+        return hit_score == 0
+
     @staticmethod
     def removeEmptyReads(reads: list[PairRead]) -> list[PairRead]:
         """
@@ -282,10 +338,10 @@ class AlleleTyping:
     def collectAlleleNames(variants: list[Variant]) -> set[str]:
         return set(chain.from_iterable(map(lambda i: i.allele, variants)))
 
-    def read2Onehot(self, variant: str) -> BoolArray:
+    def read2Onehot(self, variant: Variant) -> BoolArray:
         """Convert allele names in the variant into onehot encoding"""
         onehot: BoolArray = np.zeros(len(self.allele_to_id), dtype=bool)
-        for allele in self.variants[variant].allele:
+        for allele in variant.allele:
             onehot[self.allele_to_id[allele]] = True
         return onehot
 
@@ -339,12 +395,34 @@ class AlleleTyping:
         """Position/Negative variants in read -> probility of read belonged to allele"""
         probs = []
         for read in reads:
+            prob_mod = []
+            """
+            d_tune = 100 #deletion score tunning, mismatch panelty: 0.001 x d_tune
+            
+            lpv_d = [self.variants[v] for v in read.lpv if self.variants[v].typ == "deletion"]
+            lnv_d = [self.variants[v] for v in read.lnv if self.variants[v].typ == "deletion"]
+            rpv_d = [self.variants[v] for v in read.rpv if self.variants[v].typ == "deletion"]
+            rnv_d = [self.variants[v] for v in read.rnv if self.variants[v].typ == "deletion"]
+
+            for pv in lpv_d:
+                prob_mod.append([d_tune if _ == 0.001 else 1 for _ in self.onehot2Prob(self.read2Onehot(pv))])
+            for pv in rpv_d:
+                prob_mod.append([d_tune if _ == 0.001 else 1 for _ in self.onehot2Prob(self.read2Onehot(pv))])
+            for nv in lnv_d:
+                prob_mod.append([d_tune if _ == 0.001 else 1 for _ in self.onehot2Prob(np.logical_not(self.read2Onehot(nv)))])
+            for nv in rnv_d:
+                prob_mod.append([d_tune if _ == 0.001 else 1 for _ in self.onehot2Prob(np.logical_not(self.read2Onehot(nv)))])
+            """
+
             prob = [
-                *[self.onehot2Prob(               self.read2Onehot(i) ) for i in read.lpv],
-                *[self.onehot2Prob(               self.read2Onehot(i) ) for i in read.rpv],
-                *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.lnv],
-                *[self.onehot2Prob(np.logical_not(self.read2Onehot(i))) for i in read.rnv],
+                *[self.onehot2Prob(               self.read2Onehot(self.variants[i]) ) for i in read.lpv],
+                *[self.onehot2Prob(               self.read2Onehot(self.variants[i]) ) for i in read.rpv],
+                *[self.onehot2Prob(np.logical_not(self.read2Onehot(self.variants[i]))) for i in read.lnv],
+                *[self.onehot2Prob(np.logical_not(self.read2Onehot(self.variants[i]))) for i in read.rnv],
             ]
+            for p in prob_mod:
+                prob.append(p)
+
             if not prob:
                 if not self._no_empty:
                     prob = [np.ones(len(self.allele_to_id)) * 0.999]
