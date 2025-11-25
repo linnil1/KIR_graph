@@ -278,12 +278,12 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--r1",
         action="append",
-        help="Paths to Read 1 FASTQ files (provide in order for multiple samples)",
+        help="Paths to paired-end Read 1 FASTQ files (provide in order for multiple samples)",
     )
     parser.add_argument(
         "--r2",
         action="append",
-        help="Paths to Read 2 FASTQ files (in order)",
+        help="Paths to paired-end Read 2 FASTQ files (in order)",
     )
     parser.add_argument(
         "--input-csv",
@@ -424,8 +424,10 @@ def main(args: argparse.Namespace) -> None:
     # name of sample, reads, and cn_file
     cn_files = []
     if not args.input_csv:
-        assert len(args.r1)
-        assert len(args.r1) == len(args.r2)
+        if not args.r1:
+            raise ValueError("At least one paired-end read 1 FASTQ file must be provided")
+        if len(args.r1) != len(args.r2):
+            raise ValueError("The number of paired-end read 1 and read 2 FASTQ files must be equal")
         reads = list(zip(args.r1, args.r2))
         names = list(map(lambda i: getCommonName(i[0], i[1]), reads))
         if args.cn_provided:
@@ -442,9 +444,9 @@ def main(args: argparse.Namespace) -> None:
         else:
             cn_files = [""] * len(names)
     if not names:
-        logger.error(f"[Main] 0 Samples")
-        exit()
-    assert len(cn_files) == len(names)
+        raise ValueError("No samples found in input")
+    if len(cn_files) != len(names):
+        raise ValueError("Mismatch between number of samples and copy number files")
     logger.info(f"[Main] Samples: {names}")
 
     # output name
