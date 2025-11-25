@@ -52,7 +52,6 @@ To run Graph-KIR locally in default (with `--engine local`), you need:
 * HISAT2 >= 2.2.1
 * samtools >= 1.15.1
 * BWA-MEM >= 0.7.17 (needed only for the WGS extraction stage)
-* wget (necessary for downloading hs37d5 in the WGS extraction stage)
 
 ### Example: Create a Conda Environment for Local Engine
 
@@ -61,7 +60,7 @@ You can use conda to set up the required environment and install the necessary t
 ```bash
 conda create -n graphkir_env python=3.14
 conda activate graphkir_env
-conda install -c bioconda muscle=5.3 hisat2=2.2.1 samtools=1.22.1 bwa=0.7.19 wget
+conda install -c bioconda muscle=5.3 hisat2=2.2.1 samtools=1.22.1 bwa=0.7.19
 ```
 
 Then install Graph-KIR:

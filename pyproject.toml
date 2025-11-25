@@ -17,6 +17,8 @@ dependencies = [
     "biopython",
     "pysam",
     "matplotlib",
+    "requests",
+    "tqdm",
     "pyhlamsa @ git+https://github.com/linnil1/pyHLAMSA",
 ]
 
@@ -39,7 +41,6 @@ classifiers = [
 paper = [
     "black",
     "mypy",
-    "requests",
     "types-requests",
     "pandas-stubs",
     "filenameflow @ git+https://github.com/linnil1/FileNameFlow",

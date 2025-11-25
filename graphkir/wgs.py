@@ -1,17 +1,15 @@
 """
 WGS index/mapping part of graphkir
 """
-from .utils import runShell, runDocker, samtobam, logger
+from .utils import runShell, runDocker, samtobam, logger, downloadFile
 
 
 def downloadHg19(index_folder: str) -> str:
     """Download hs37d5"""
     output_name = f"{index_folder}/hs37d5.fa.gz"
     logger.info(f"[WGS] Download {output_name}")
-    runShell(
-        "wget https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
-        f"  -O {output_name}"
-    )
+    url = "https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
+    downloadFile(url, output_name)
     return output_name
 
 

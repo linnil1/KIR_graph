@@ -18,6 +18,9 @@ import numpy as np
 import pandas as pd
 from pyhlamsa import Genemsa
 
+import requests
+from tqdm import tqdm
+
 
 class _ResType(TypedDict):
     threads: int
@@ -34,6 +37,26 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 ch.setFormatter(logging.Formatter("%(asctime)s [%(name)s] [%(levelname)8s] %(message)s"))
 logger.addHandler(ch)
+
+
+def downloadFile(url: str, output_path: str) -> None:
+    """Download file using requests with progress bar"""
+    logger.info(f"Downloading {url} to {output_path}")
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+
+    total_size = int(response.headers.get("content-length", 0))
+    block_size = 8192
+
+    with open(output_path, "wb") as f:
+        with tqdm(
+            total=total_size, unit="B", unit_scale=True, desc="Downloading"
+        ) as pbar:
+            for chunk in response.iter_content(chunk_size=block_size):
+                if chunk:
+                    f.write(chunk)
+                    pbar.update(len(chunk))
+
 
 resources: _ResType = {  # per sample
     "threads": 2,
