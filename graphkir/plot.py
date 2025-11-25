@@ -11,7 +11,8 @@ import plotly.graph_objects as go
 
 from .kir_cn import readSamtoolsDepth
 from .cn_model import loadCNModel
-from .utils import getThreads, runDocker, logger
+from .utils import getThreads, logger
+from .external_tools import runTool
 
 
 def plotCN(filename_json: str) -> list[go.Figure]:
@@ -45,8 +46,10 @@ def readSamtoolsFlagstat(bamfile: str) -> dict[str, int]:
     num_pair = 0
     num_total = 0
     num_second = 0
-    proc = runDocker(
-        "samtools", f"samtools flagstat -@{getThreads()} {bamfile}", capture_output=True
+    proc = runTool(
+        "samtools",
+        ["samtools", "flagstat", f"-@{getThreads()}", bamfile],
+        capture_output=True,
     )
     for i in proc.stdout.split("\n"):
         # 122050 + 0 properly paired (100.00% : N/A)

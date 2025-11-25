@@ -4,8 +4,8 @@ from pathlib import Path
 import pandas as pd
 from pyhlamsa import KIRmsa, Genemsa
 
-from graphkir.utils import runShell, samtobam, getThreads
-from kg_utils import runDocker
+from kg_utils import runDocker, runShell
+from graphkir.utils import samtobam, getThreads
 
 
 def filterMSAname(input_name):

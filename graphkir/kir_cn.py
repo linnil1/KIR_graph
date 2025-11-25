@@ -7,16 +7,17 @@ import json
 
 import pandas as pd
 
-from .utils import runDocker, NumpyEncoder, logger
+from .external_tools import runTool
+from .utils import NumpyEncoder, logger
 from .cn_model import CNgroup, KDEcut, Dist
 
 
 def bam2Depth(file_bam: str, file_depth: str, get_all: bool = True) -> None:
     """Get read depth of all the position (via samtools depth)"""
     if get_all:
-        runDocker("samtools", f"samtools depth -aa {file_bam} -o {file_depth}")
+        runTool("samtools", ["samtools", "depth", "-aa", file_bam, "-o", file_depth])
     else:
-        runDocker("samtools", f"samtools depth     {file_bam} -o {file_depth}")
+        runTool("samtools", ["samtools", "depth", file_bam, "-o", file_depth])
 
 
 def readSamtoolsDepth(depth_filename: str) -> pd.DataFrame:

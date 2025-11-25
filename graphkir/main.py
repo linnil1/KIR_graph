@@ -19,7 +19,8 @@ from .wgs import downloadHg19, bwa, bwaIndex, extractDiploidCoverage, extractFro
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
 from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
 from .kir_typing import selectKirTypingModel
-from .utils import setThreads, getThreads, mergeCN, mergeAllele, setEngine, logger
+from .utils import setThreads, getThreads, mergeCN, mergeAllele, logger
+from .external_tools import setEngine
 from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths, savePlot
 
 

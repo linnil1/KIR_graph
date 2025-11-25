@@ -5,11 +5,11 @@ import pysam
 
 from graphkir import wgs
 from graphkir.utils import (
-    runShell,
     samtobam,
     getThreads,
 )
 from kg_utils import (
+    runShell,
     runDocker
 )
 

@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from Bio import SeqIO
 from pyhlamsa import Genemsa
 
-from .utils import runDocker, readFromMSAs, logger
+from .external_tools import runTool
+from .utils import readFromMSAs, logger
 
 
 @dataclass
@@ -359,13 +360,18 @@ def msa2HisatReference(msa_prefix: str, index_prefix: str) -> None:
 
 def buildHisatIndex(name: str, output_name: str, threads: int = 1) -> None:
     """Run hisat2-build, input and output are prefix of filenames"""
-    runDocker(
+    runTool(
         "hisat",
-        f"""\
-        hisat2-build {name}_backbone.fa \
-                     --snp {name}.index.snp \
-                     --haplotype {name}.haplotype \
-                     -p {threads} --verbose \
-                     {output_name}
-        """,
+        [
+            "hisat2-build",
+            f"{name}_backbone.fa",
+            "--snp",
+            f"{name}.index.snp",
+            "--haplotype",
+            f"{name}.haplotype",
+            "-p",
+            str(threads),
+            "--verbose",
+            output_name,
+        ],
     )

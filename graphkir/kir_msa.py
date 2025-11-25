@@ -10,7 +10,8 @@ from collections import defaultdict
 from Bio import SeqIO, SeqRecord, Align
 from pyhlamsa import Genemsa, KIRmsa
 
-from .utils import runDocker, readFromMSAs, logger
+from .external_tools import runTool
+from .utils import readFromMSAs, logger
 from .msa_cds_intron import fillMissingIntrons
 
 
@@ -253,9 +254,17 @@ def muscle(name: str, threads: int = 1) -> str:
     Construct MSA with muscle
     (Input and output are filename without suffix)
     """
-    runDocker(
+    runTool(
         "muscle",
-        f"muscle -align {name}.fa -threads {threads} -output {name}.muscle.fa",
+        [
+            "muscle",
+            "-align",
+            f"{name}.fa",
+            "-threads",
+            str(threads),
+            "-output",
+            f"{name}.muscle.fa",
+        ],
     )
     return name + ".muscle"
 
@@ -265,10 +274,20 @@ def clustalo(name: str, threads: int = 1) -> str:
     Construct MSA with clustalo
     (Input and output are filename without suffix)
     """
-    runDocker(
+    runTool(
         "clustalo",
-        f"clustalo --infile {name}.fa -o {name}.clustalo.fa"
-        f"         --outfmt fasta --threads {threads} --force",
+        [
+            "clustalo",
+            "--infile",
+            f"{name}.fa",
+            "-o",
+            f"{name}.clustalo.fa",
+            "--outfmt",
+            "fasta",
+            "--threads",
+            str(threads),
+            "--force",
+        ],
     )
     return name + ".clustalo"
 

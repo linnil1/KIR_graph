@@ -18,13 +18,12 @@ from namepipe import (
     NamePath,
 )
 from graphkir.utils import (
-    runShell,
-    runDocker,
     getThreads,
     getGeneName,
     setThreads,
-    setEngine,
 )
+from kg_utils import runShell, runDocker
+from graphkir.external_tools import setEngine
 from graphkir.plot import showPlot
 from kir.kir_pipe import FileMod, Executor
 from kir.sakauekir import SakaueKir
