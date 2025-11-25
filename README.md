@@ -31,28 +31,56 @@ This repo contains two main programs:
 	* github tag: v2.0
 
 
-## Requirements
+## Docker Version
 
-Before using Graph-KIR, ensure you meet these requirements:
+We have prepared a Docker version of Graph-KIR for easy setup and reproducibility. You can build and use the Docker image as follows:
+
+```bash
+docker build -t linnil1/graphkir .
+docker run -it --rm -v "$PWD":/data linnil1/graphkir --help
+```
+
+This will run Graph-KIR inside a container, mounting your current directory to `/data` in the container. Adjust the command and volume as needed for your workflow.
+
+
+## Requirements (Local Installation)
+
+To run Graph-KIR locally in default (with `--engine local`), you need:
 
 * Python >= 3.10
-
-You have the option to use one of the following containerization tools:
-
-* podman 
-* docker
-* singularity
-
-You can choose to use it by specifying the `engine`. i.e. `--engine podman`.
-
-If none of these containerization tools are installed, you can run Graph-KIR locally `--engine local`.
-However, you'll need to install the following external packages:
-
 * MUSCLE >= 5.1 (required only for index building stage)
 * HISAT2 >= 2.2.1
 * samtools >= 1.15.1
 * BWA-MEM >= 0.7.17 (needed only for the WGS extraction stage)
 * wget (necessary for downloading hs37d5 in the WGS extraction stage)
+
+### Example: Create a Conda Environment for Local Engine
+
+You can use conda to set up the required environment and install the necessary tools:
+
+```bash
+conda create -n graphkir_env python=3.14
+conda activate graphkir_env
+conda install -c bioconda muscle=5.3 hisat2=2.2.1 samtools=1.22.1 bwa=0.7.19 wget
+```
+
+Then install Graph-KIR:
+
+```bash
+pip install .
+```
+
+### Using Container Tools
+
+You can also use Graph-KIR with containerization tools for easier setup and reproducibility. Supported engines:
+
+* podman
+* docker
+* singularity
+
+Specify the engine with the `--engine` argument, e.g. `--engine podman`.
+
+Note: If you use other container engines (podman, docker, singularity) with `--engine`, you should install Graph-KIR with `pip install .` on your local machine. The container will be used only for running the external tools, while the main program runs locally.
 
 
 ## Usage (Main)
