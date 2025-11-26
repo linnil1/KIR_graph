@@ -47,7 +47,7 @@ class EngineConfig:
 
 
 # Global engine configuration
-_engine = "podman"
+_engine = "local"
 _engine_configs: dict[str, EngineConfig] = {
     "podman": EngineConfig(
         name="podman",

@@ -37,7 +37,7 @@ We have prepared a Docker version of Graph-KIR for easy setup and reproducibilit
 
 ```bash
 docker build -t linnil1/graphkir .
-docker run -it --rm -v "$PWD":/data linnil1/graphkir --help
+docker run -it --rm -v "$PWD":/data linnil1/graphkir graphkir --help
 ```
 
 This will run Graph-KIR inside a container, mounting your current directory to `/data` in the container. Adjust the command and volume as needed for your workflow.
