@@ -2,11 +2,18 @@
 External tools runner for different engines (docker, podman, singularity, local)
 """
 
+import os
 import uuid
 import subprocess
 from typing import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from .utils import runShell
+
+
+def _replacePWD(args: list[str], cwd: str | None = None) -> list[str]:
+    """Replace $PWD in arguments with actual working directory"""
+    pwd = cwd if cwd else os.getcwd()
+    return [arg.replace("$PWD", pwd) for arg in args]
 
 
 def _convertArgsForSingularity(args: list[str]) -> list[str]:
@@ -32,10 +39,11 @@ def _convertArgsForSingularity(args: list[str]) -> list[str]:
 class EngineConfig:
     name: str
     path: str
-    run_args: list[str]
+    run_args: list[str] = field(default_factory=list)
     image_prefix: str = ""
     name_flag: str | None = None
     convert_args_func: Callable[[list[str]], list[str]] | None = None
+    mount_work_dir_args: list[str] = field(default_factory=list)
 
 
 # Global engine configuration
@@ -44,21 +52,24 @@ _engine_configs: dict[str, EngineConfig] = {
     "podman": EngineConfig(
         name="podman",
         path="podman",
-        run_args=["run", "-t", "--rm", "-u", "root", "-w", "/app", "-v", "$PWD:/app"],
+        run_args=["run", "-t", "--rm", "-u", "root", "-w", "/app"],
         name_flag="--name",
+        mount_work_dir_args=["-v", "$PWD:/app"],
     ),
     "docker": EngineConfig(
         name="docker",
         path="/usr/bin/docker",
-        run_args=["run", "-t", "--rm", "-u", "root", "-w", "/app", "-v", "$PWD:/app"],
+        run_args=["run", "-t", "--rm", "-u", "root", "-w", "/app"],
         name_flag="--name",
+        mount_work_dir_args=["-v", "$PWD:/app"],
     ),
     "singularity": EngineConfig(
         name="singularity",
         path="singularity",
-        run_args=["run", "-B", "$PWD"],
+        run_args=["run"],
         image_prefix="docker://",
         convert_args_func=_convertArgsForSingularity,
+        mount_work_dir_args=["-B", "$PWD"],
     ),
     "local": EngineConfig(
         name="local",
@@ -109,6 +120,7 @@ def prepare_container_cmd(
     tool_name: str,
     cmd_args: list[str],
     extra_args: list[str] | None = None,
+    cwd: str | None = None,
 ) -> list[str]:
     """Prepare container command for research scripts"""
     config = _engine_configs[_engine]
@@ -128,9 +140,16 @@ def prepare_container_cmd(
         random_name = str(uuid.uuid4()).split("-", 1)[0]
         cmd.extend([config.name_flag, random_name])
 
+    # Add mount working directory arguments with $PWD replaced
+    if config.mount_work_dir_args:
+        mount_args = _replacePWD(config.mount_work_dir_args, cwd)
+        cmd.extend(mount_args)
+
     # Add extra arguments
-    if extra_args and config.convert_args_func:
-        extra_args = config.convert_args_func(extra_args)
+    if extra_args:
+        if config.convert_args_func:
+            extra_args = config.convert_args_func(extra_args)
+        extra_args = _replacePWD(extra_args, cwd)
         cmd.extend(extra_args)
 
     # Add image and command
@@ -163,5 +182,5 @@ def runTool(
         return runShell(cmd_args, capture_output=capture_output, cwd=cwd)
 
     # Prepare container command
-    cmd = prepare_container_cmd(tool_name, cmd_args, extra_args)
+    cmd = prepare_container_cmd(tool_name, cmd_args, extra_args, cwd)
     return runShell(cmd, capture_output=capture_output, cwd=cwd)

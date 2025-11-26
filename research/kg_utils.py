@@ -60,12 +60,12 @@ def runShell(
     return proc
 
 
-def runDocker(image: str, cmd: str, *arg, **kwargs):
+def runDocker(image: str, cmd: str, cwd: str | None = None, *arg, **kwargs):
     """ run docker container """
     image = images.get(image, image)
-    cmds = prepare_container_cmd(image, [])
+    cmds = prepare_container_cmd(image, [], cwd=cwd)
     cmd = " ".join(cmds) + " " + cmd
-    return runShell(cmd, *arg, **kwargs)
+    return runShell(cmd, *arg, cwd=cwd, **kwargs)
 
 
 def buildDocker(image: str, dockerfile: str, folder: str = "."):
