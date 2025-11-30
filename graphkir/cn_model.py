@@ -17,7 +17,6 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .samtools_utils import readSamtoolsDepth
 from .utils import NumpyEncoder
 
 
@@ -27,7 +26,7 @@ class Dist:
     def __init__(self) -> None:
         self.raw_df: list[Any] = []  # raw data (Datafrmae.to_dict())
 
-    def fit(self, values: list[float], diploid_name: str) -> None:
+    def fit(self, values: list[float], diploid_depth: str) -> None:
         """Determine the parameters by data"""
         raise NotImplementedError
 
@@ -133,7 +132,7 @@ class CNgroup(Dist):
         self.dev_decay_neg = data.get('dev_decay_neg', self.dev_decay)
         return self
 
-    def fit(self, values: list[float], diploid_name: str) -> None:
+    def fit(self, values: list[float], diploid_depth: str) -> None:
         """
         Find the maximum CN distributions to fit the values.
 
@@ -148,9 +147,9 @@ class CNgroup(Dist):
         self.data = values
 
         # get upper and lower bound of model fitting range
-        if diploid_name != '':
+        if diploid_depth != '':
             # get diploid coverage information from JSON (in extractDiploidCoverage)
-            with open(diploid_name + ".json", 'r') as f:
+            with open(diploid_depth + ".json", 'r') as f:
                 dp_info = json.load(f)
                 mean = round(dp_info["mean"])
                 dev = round(dp_info["std"])

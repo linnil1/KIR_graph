@@ -8,6 +8,12 @@ from .utils import getThreads, runShell, samtobam, logger, downloadFile
 from .external_tools import runTool
 from .samtools_utils import bam2Depth, readSamtoolsDepth
 
+# hs37d5's diploid regions
+regions_of_diploid = {
+    "VDR": "12:48235320-48298777",
+    "RYR1": "19:38924331-39078204",
+    "EGFR": "7:55086710-55279321",
+}
 
 def downloadHg19(index_folder: str) -> str:
     """Download hs37d5"""
@@ -49,12 +55,7 @@ def bwa(index: str, f1: str, f2: str, output_name: str, threads: int = 1) -> Non
 
 
 def extractDiploidCoverage(input_name: str, diploid_gene: str) -> str:
-    regions = {
-        "VDR": "12:48235320-48298777",
-        "RYR1": "19:38924331-39078204",
-        "EGFR": "7:55086710-55279321",
-    }
-    region = regions[diploid_gene]
+    region = regions_of_diploid[diploid_gene]
     output_name = input_name + f".diploid_gene_{diploid_gene}"
     logger.info(f"[WGS] Extract {diploid_gene} region to {output_name}")
     runTool(
@@ -75,21 +76,21 @@ def extractDiploidCoverage(input_name: str, diploid_gene: str) -> str:
     )
 
     # Calculate depth and save to TSV
-    depth_tsv = output_name + ".tsv"
-    bam2Depth(f"{output_name}.bam", depth_tsv, get_all=False)
+    depth_name = output_name + ".depth"
+    bam2Depth(f"{output_name}.bam", depth_name + ".tsv", get_all=False)
 
-    # Calculate and save statistics to JSON for faster repeated access
-    df = readSamtoolsDepth(depth_tsv)
+    # Calculate mean and std of depth
+    df = readSamtoolsDepth(depth_name + ".tsv")
     mean = float(df["depth"].mean())
     std = float(df["depth"].std())
 
-    stats_json = output_name + ".json"
-    with open(stats_json, "w") as f:
+    # Save depth stat to JSON
+    depth_stat_name = depth_name + ".stat"
+    with open(depth_stat_name + ".json", "w") as f:
         json.dump(
             {"mean": mean, "std": std, "gene": diploid_gene, "name": input_name}, f
         )
-
-    return output_name
+    return depth_stat_name
 
 
 def extractFromHg19(
