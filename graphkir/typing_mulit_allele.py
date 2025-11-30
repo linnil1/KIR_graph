@@ -3,7 +3,6 @@ Our main typing method
 """
 from __future__ import annotations
 import io
-import sys
 import copy
 from typing import Optional, Iterable
 from itertools import chain
@@ -394,7 +393,7 @@ class AlleleTyping:
         """
         # decide homo/hetero if not forced
         if self.force_homo is None:
-            homo = isHomozygous(self.reads, list(self.variants.values()), cn)
+            homo = isHomozygous(self.reads, self.variants, cn)
         else:
             homo = self.force_homo
 
@@ -797,7 +796,7 @@ def isHetrozygous(gene: str) -> bool:
     return False
 
 
-def isHomozygous(reads: list[PairRead], variants: list[Variant], cn: int) -> bool:
+def isHomozygous(reads: list[PairRead], variants_map: dict[str, Variant], cn: int) -> bool:
     """
     Determine whether the sample is homozygous for a given gene based on read variants.
 
@@ -810,18 +809,17 @@ def isHomozygous(reads: list[PairRead], variants: list[Variant], cn: int) -> boo
     if cn <= 1:
         return False
 
-    vmap: dict[str, Variant] = {str(v.id): v for v in variants}
     v_record: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     hit_score = 0
 
     # Tally variant observations per genomic position
     for read in reads:
         for i in chain.from_iterable([read.lpv, read.rpv]):
-            v = vmap[i]
+            v = variants_map[i]
             if v.typ != "deletion":
                 v_record[v.pos][str(v.val)] += 1
         for i in chain.from_iterable([read.lnv, read.rnv]):
-            v = vmap[i]
+            v = variants_map[i]
             if v.typ != "deletion":
                 v_record[v.pos][f"*{v.val}"] += 1
 
