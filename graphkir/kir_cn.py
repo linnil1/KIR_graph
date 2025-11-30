@@ -92,13 +92,15 @@ def depthToCN(
             cn = dist.assignCN(kir3dl3_depths)
             decrease_perc = float(1)
             decrease_rate = 0.2
+            original_bin_num = dist.bin_num
             while not all(i == 2 for i in cn):
                 logger.debug("[CN] Assume 3DL3 cn=2")
                 kir3dl3_depth = sum(kir3dl3_depths)/len(kir3dl3_depths)
                 lower_3dl3 = (kir3dl3_depth - decrease_perc * 10) / 2
                 upper_3dl3 = (kir3dl3_depth + decrease_perc * 10) / 2
-                bin_num_3dl3 = int(dist.bin_num * decrease_perc)
-                dist.fit(values, lower_3dl3, upper_3dl3, bin_num_3dl3)
+                bin_num_3dl3 = int(original_bin_num * decrease_perc)
+                dist.bin_num = bin_num_3dl3
+                dist.fit(values, lower_3dl3, upper_3dl3)
                 cn = dist.assignCN(kir3dl3_depths)
                 decrease_perc = decrease_perc - decrease_rate
                 if decrease_perc <= 0:

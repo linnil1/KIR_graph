@@ -126,7 +126,6 @@ class CNgroup(Dist):
         values: list[float],
         lower_bound: float = 0,
         upper_bound: float | None = None,
-        bin_num: int | None = None,
     ) -> None:
         """
         Find the maximum CN distributions to fit the values.
@@ -138,7 +137,6 @@ class CNgroup(Dist):
             values: Depth values to fit
             lower_bound: Lower bound for model fitting range
             upper_bound: Upper bound for model fitting range (defaults to x_max if None)
-            bin_num: Number of discrete bins for fitting (overrides default calculation if provided)
         """
         # normalize if first time
         if self.base is None:
@@ -147,12 +145,6 @@ class CNgroup(Dist):
             self.x_max = max(max_depth, 1e-6)  # to avoid divided by 0
             self.data = values
 
-        # get upper and lower bound of model fitting range
-        if bin_num is not None:
-            discrete = bin_num
-        else:
-            discrete = self.bin_num
-
         if upper_bound is None:
             upper_bound = self.x_max
 
@@ -160,7 +152,7 @@ class CNgroup(Dist):
         # Calculate the probility that CN groups fit the data
         density, _ = np.histogram(values, bins=self.bin_num, range=(0, self.x_max))
         likelihood_list = []
-        for base in np.linspace(lower_bound, upper_bound, discrete):
+        for base in np.linspace(lower_bound, upper_bound, self.bin_num):
             # all probility of cn group across lower bound ~ upper bound
             cn_group = self.calcCNGroupProb(base)
             # Highest probility in each x
