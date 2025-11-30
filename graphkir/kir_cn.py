@@ -80,6 +80,8 @@ def depthToCN(
                 dev = float(dp_info["std"])
                 lower_bound = (mean - dev) / 2
                 upper_bound = (mean + dev) / 2
+        else:
+            dist.bin_num += 200
 
         dist.fit(values, lower_bound, upper_bound)
         if assume_3DL3_diploid:
@@ -89,12 +91,14 @@ def depthToCN(
             ]
             cn = dist.assignCN(kir3dl3_depths)
             decrease_perc = float(1)
-            bound_width = float(10)
             decrease_rate = 0.2
             while not all(i == 2 for i in cn):
                 logger.debug("[CN] Assume 3DL3 cn=2")
                 kir3dl3_depth = sum(kir3dl3_depths)/len(kir3dl3_depths)
-                dist.fit_3dl3_diploid(values, kir3dl3_depth, bound_width, decrease_perc)
+                lower_3dl3 = (kir3dl3_depth - decrease_perc * 10) / 2
+                upper_3dl3 = (kir3dl3_depth + decrease_perc * 10) / 2
+                bin_num_3dl3 = int(dist.bin_num * decrease_perc)
+                dist.fit(values, lower_3dl3, upper_3dl3, bin_num_3dl3)
                 cn = dist.assignCN(kir3dl3_depths)
                 decrease_perc = decrease_perc - decrease_rate
                 if decrease_perc <= 0:
