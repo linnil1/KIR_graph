@@ -231,8 +231,7 @@ class AlleleTyping:
         self,
         reads: list[PairRead],
         variants: list[Variant],
-        gene: str,
-        cn: int,
+        force_homo: bool | None = None,
         top_n: int = 300,
         no_empty: bool = True,
         variant_correction: bool = True,
@@ -247,6 +246,7 @@ class AlleleTyping:
         """
         self.top_n = top_n
         self._no_empty = no_empty
+        self.force_homo: bool | None = force_homo
         allele_names = self.collectAlleleNames(variants)
 
         # create variant_id -> variant
@@ -255,17 +255,11 @@ class AlleleTyping:
         self.id_to_allele: dict[int, str] = dict(enumerate(sorted(allele_names)))
         self.allele_to_id: dict[str, int] = {j: i for i, j in self.id_to_allele.items()}
 
-        if "2DL1S1" in gene or "2DL5" in gene:
-            self.homo = False
-        elif cn > 1:
-            self.homo = self.readToHomoHetero(reads, gene, cn)
-        else:
-            self.homo = False
-
         if variant_correction:  # var_errcorr
             reads = self.errorCorrection(reads)
         if self._no_empty:  # reserve read position
             reads = self.removeEmptyReads(reads)
+        self.reads = reads
         self.probs = self.reads2AlleleProb(reads)
         self.log_probs = np.log10(self.probs)
 
@@ -279,51 +273,7 @@ class AlleleTyping:
         return len(self.probs)
 
     def typingHomo(self) -> str:
-        return self.id_to_allele[np.argmax(np.prod(self.probs, axis=0))]
-
-    def readToHomoHetero(self, reads: list[PairRead], gene: str, cn: int) -> bool:
-        homo = False
-        v_record = defaultdict(lambda: defaultdict(int))
-        hit_score = 0
-        
-        # variants call by read -> dict
-        # note: pv record the variant on read, nv record the variant not on read
-        for read in reads:
-            for i in read.lpv:
-                v = self.variants[i]
-                if v.typ != "deletion":
-                    v_record[v.pos][v.val] += 1
-            for i in read.rpv:
-                v = self.variants[i]
-                if v.typ != "deletion":
-                    v_record[v.pos][v.val] += 1
-            for i in read.lnv:
-                v = self.variants[i]
-                if v.typ != "deletion":
-                    v_record[v.pos][f"*{v.val}"] += 1
-            for i in read.rnv:
-                v = self.variants[i]
-                if v.typ != "deletion":
-                    v_record[v.pos][f"*{v.val}"] += 1
-        # find heterozygous variant
-        for val in v_record.values():
-            if len(val) > 1:
-                if all('*' in key for key in val):
-                    continue
-                counts = sorted(list(val.values()), reverse=True)
-                counts = [c for c in counts if c > 3] # low coverage variant -> sequencing error
-                if len(counts) <= 1:
-                    continue
-                sum_counts = sum(counts)
-                hetero_percentage = [c/sum_counts for c in counts if c/sum_counts > 0.1] # filter very minor variant
-                if len(hetero_percentage) == 1:
-                    continue
-                if sum_counts < 20: # not processing low coverage possition
-                    pass
-                elif hetero_percentage[1] > (1/(cn*2)):
-                        hit_score += 1
-                    # break
-        return hit_score == 0
+        return self.id_to_allele[int(np.argmax(np.prod(self.probs, axis=0)))]
 
     @staticmethod
     def removeEmptyReads(reads: list[PairRead]) -> list[PairRead]:
@@ -442,16 +392,59 @@ class AlleleTyping:
           The top-n allele-set are best fit the reads (with maximum probility).
             Each set has CN alleles.
         """
+        # decide homo/hetero if not forced
+        if self.force_homo is None:
+            homo = isHomozygous(self.reads, list(self.variants.values()), cn)
+        else:
+            homo = self.force_homo
+
         self.result = []
         for _ in range(cn):
             self.addCandidate()
+            if homo:
+                break
             # self.result[-1].print()
+
+        if homo:
+            for _ in range(1, cn):
+                self.addHomoResult(self.result[0])
+
         self.result[-1].print()
         return self.result[-1]
 
     def mapAlleleIDs(self, list_ids: IdArray) -> list[list[str]]:
         """id (m x n np array) -> name (m list x n list of str)"""
         return [[self.id_to_allele[id] for id in ids] for ids in list_ids]
+
+    def addHomoResult(self, prev_result: TypingResult) -> TypingResult:
+        """
+        Duplicate the homozygous allele result to create result with CN+1.
+        Used when sample is homozygous to add the same allele n times.
+
+        Parameters:
+            prev_result: Previous typing result with n alleles
+        Returns:
+            New typing result with n+1 alleles (all the same)
+        """
+        n = prev_result.n + 1
+        # Replicate the single allele n times
+        new_allele_id = np.repeat(prev_result.allele_id, n // prev_result.n, axis=1)
+        new_allele_name = [[name[0]] * n for name in prev_result.allele_name]
+
+        result = TypingResult(
+            n=n,
+            value=prev_result.value,
+            value_sum_indv=np.repeat(
+                prev_result.value_sum_indv, n // prev_result.n, axis=1
+            ),
+            allele_id=new_allele_id,
+            allele_name=new_allele_name,
+            allele_prob=prev_result.allele_prob,
+            fraction=np.ones((len(prev_result.value), n)) / n,
+            fraction_uniq=np.ones((len(prev_result.value), n)) / n,
+        )
+        self.result.append(result)
+        return result
 
     @staticmethod
     def uniqueAllele(data: IdArray) -> BoolArray:
@@ -632,6 +625,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         exon_only: bool = False,
         candidate_set_threshold: float = 1.,
         variant_correction: bool = True,
+        force_homo: bool | None = None,
     ):
         """Extracting exon alleles"""
         # extract exon variants
@@ -660,7 +654,7 @@ class AlleleTypingExonFirst(AlleleTyping):
         # pprint(self.allele_group)
 
         # same as before
-        super().__init__(exon_reads, exon_variants, top_n=top_n)
+        super().__init__(exon_reads, exon_variants, force_homo=force_homo, top_n=top_n)
         self.candidate_set_threshold = candidate_set_threshold
         """
         self.first_set_only = candidate_set == "first_score"
@@ -676,6 +670,7 @@ class AlleleTypingExonFirst(AlleleTyping):
             self.full_model: AlleleTyping | None = AlleleTyping(
                 reads,
                 variants,
+                force_homo=force_homo,
                 top_n = top_n // 5, # TODO: default = 30
                 variant_correction=variant_correction,
                 # variant_correction=False,  # no_intron_corr
@@ -793,3 +788,64 @@ class AlleleTypingExonFirst(AlleleTyping):
         logger.debug("[Allele] Typing intron + exon")
         result.print()
         return result
+
+
+def isHetrozygous(gene: str) -> bool:
+    """Decide whether the gene is heterozygous by gene name only"""
+    if "2DL1S1" in gene or "2DL5" in gene:
+        return True
+    return False
+
+
+def isHomozygous(reads: list[PairRead], variants: list[Variant], cn: int) -> bool:
+    """
+    Determine whether the sample is homozygous for a given gene based on read variants.
+
+    Heuristics:
+    - If copy number <= 1, treat as heterozygous (return False).
+    - Otherwise, inspect per-position variant support; if we observe convincing
+      bi-allelic evidence at any position (second-most allele passes thresholds),
+      we treat as heterozygous; else homozygous.
+    """
+    if cn <= 1:
+        return False
+
+    vmap: dict[str, Variant] = {str(v.id): v for v in variants}
+    v_record: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    hit_score = 0
+
+    # Tally variant observations per genomic position
+    for read in reads:
+        for i in chain.from_iterable([read.lpv, read.rpv]):
+            v = vmap[i]
+            if v.typ != "deletion":
+                v_record[v.pos][str(v.val)] += 1
+        for i in chain.from_iterable([read.lnv, read.rnv]):
+            v = vmap[i]
+            if v.typ != "deletion":
+                v_record[v.pos][f"*{v.val}"] += 1
+
+    # Identify heterozygous positions
+    for val in v_record.values():
+        if len(val) <= 1:
+            continue
+        # Ignore positions where all are negative evidence
+        if all("*" in key for key in val):
+            continue
+        counts = sorted(list(val.values()), reverse=True)
+
+        # filter low coverage to avoid sequencing error
+        counts = [c for c in counts if c > 3]
+        sum_counts = sum(counts)
+        # too low coverage: skip decision for this site
+        if sum_counts < 20:
+            continue
+        # filter very minor variant
+        hetero_percentage = [c / sum_counts for c in counts if c / sum_counts > 0.1]
+        if len(hetero_percentage) == 1:
+            continue
+        # heterozygous if runner-up fraction is above 1/(2*cn)
+        if hetero_percentage[1] > (1 / (cn * 2)):
+            hit_score += 1
+
+    return hit_score == 0
