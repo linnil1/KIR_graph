@@ -26,17 +26,6 @@ class Dist:
     def __init__(self) -> None:
         self.raw_df: list[Any] = []  # raw data (Datafrmae.to_dict())
 
-    def fit(self, values: list[float], diploid_depth: str) -> None:
-        """Determine the parameters by data"""
-        raise NotImplementedError
-
-    def fit_3dl3_diploid(self, values: list[float], kir_3dl3_depth: float, width: float, decrease: float) -> None:
-        """Setting diploid coverage around kir 3dl3 coverage and determine the parameters"""
-
-    def assignCN(self, values: list[float]) -> list[int]:
-        """Assign CN with depth input by parameters"""
-        raise NotImplementedError
-
     def save(self, filename: str) -> None:
         """Save parameters"""
         with open(filename, "w") as f:
@@ -132,12 +121,22 @@ class CNgroup(Dist):
         self.dev_decay_neg = data.get('dev_decay_neg', self.dev_decay)
         return self
 
-    def fit(self, values: list[float], diploid_depth: str) -> None:
+    def fit(
+        self,
+        values: list[float],
+        lower_bound: float = 0,
+        upper_bound: float | None = None,
+    ) -> None:
         """
         Find the maximum CN distributions to fit the values.
 
         1. Normalize by `x_max` (Maximum of depths)
         2. Find `base` (Mean of CN=1 distribution)
+
+        Parameters:
+            values: Depth values to fit
+            lower_bound: Lower bound for model fitting range
+            upper_bound: Upper bound for model fitting range (defaults to x_max if None)
         """
         assert self.base is None
         # normalize
@@ -147,19 +146,11 @@ class CNgroup(Dist):
         self.data = values
 
         # get upper and lower bound of model fitting range
-        if diploid_depth != '':
-            # get diploid coverage information from JSON (in extractDiploidCoverage)
-            with open(diploid_depth + ".json", 'r') as f:
-                dp_info = json.load(f)
-                mean = round(dp_info["mean"])
-                dev = round(dp_info["std"])
-                lower_bound = (mean - dev) / 2
-                upper_bound = (mean + dev) / 2
-                discrete = self.bin_num
-        else:
-            lower_bound = 0
-            upper_bound = self.x_max 
+        if upper_bound is None:
+            upper_bound = self.x_max
             discrete = self.bin_num + 200
+        else:
+            discrete = self.bin_num
 
         # discrete (bin_num)
         # Calculate the probility that CN groups fit the data

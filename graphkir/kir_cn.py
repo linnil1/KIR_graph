@@ -69,7 +69,19 @@ def depthToCN(
         if cluster_method_kwargs:
             dist = CNgroup.setParams(dist.getParams() | cluster_method_kwargs)
         logger.debug(f"[CN] Parameters before: {dist.getParams()}")
-        dist.fit(values, diploid_depth)
+
+        # Read diploid coverage bounds if provided
+        lower_bound = 0.0
+        upper_bound = None
+        if diploid_depth != "":
+            with open(diploid_depth + ".json", "r") as f:
+                dp_info = json.load(f)
+                mean = float(dp_info["mean"])
+                dev = float(dp_info["std"])
+                lower_bound = (mean - dev) / 2
+                upper_bound = (mean + dev) / 2
+
+        dist.fit(values, lower_bound, upper_bound)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
                 float(gene_depths["KIR3DL3*BACKBONE"])
