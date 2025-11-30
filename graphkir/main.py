@@ -17,7 +17,8 @@ from .msa_leftalign import genemsaLeftAlign
 from .msa2hisat import msa2HisatReference, buildHisatIndex
 from .wgs import downloadHg19, bwa, bwaIndex, extractDiploidCoverage, extractFromHg19, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
-from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
+from .kir_cn import predictSamplesCN, loadCN, filterDepth
+from .samtools_utils import bam2Depth
 from .kir_typing import selectKirTypingModel
 from .utils import setThreads, getThreads, mergeCN, mergeAllele, logger
 from .external_tools import setEngine
@@ -89,16 +90,14 @@ def runWGS(
     diploid_names = []
     for name, (fq1, fq2) in zip(names, reads):
         # read mapping
-        logger.info(f"[WGS] Run BWA on index {index_wgs} ({name})")
+        logger.info(f"[WGS] Run BWA mapping with index {index_wgs} on {name}")
         suffix = "." + index_wgs.replace(".", "_").replace("/", "_")
         bwa(index_wgs, fq1, fq2, name + suffix, threads=getThreads())
         name += suffix
 
         # extract diploid coverage information
         if diploid_gene != '':
-            if not Path(f"{name}.diploid_info.txt").exists():
-                extractDiploidCoverage(name, diploid_gene)
-            diploid_names.append(name + ".diploid_info.txt")
+            diploid_names.append(extractDiploidCoverage(name, diploid_gene))
         else:
             diploid_names.append('')
 

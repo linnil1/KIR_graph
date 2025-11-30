@@ -1,8 +1,12 @@
 """
 WGS index/mapping part of graphkir
 """
-from .utils import runShell, samtobam, logger, downloadFile
+
+import json
+
+from .utils import getThreads, runShell, samtobam, logger, downloadFile
 from .external_tools import runTool
+from .samtools_utils import bam2Depth, readSamtoolsDepth
 
 
 def downloadHg19(index_folder: str) -> str:
@@ -44,43 +48,48 @@ def bwa(index: str, f1: str, f2: str, output_name: str, threads: int = 1) -> Non
     samtobam(output_name)
 
 
-def extractDiploidCoverage(input_name: str, diploid_gene: str) -> None:
-    print(f"\nThe diploid gene is {diploid_gene}.\n")
+def extractDiploidCoverage(input_name: str, diploid_gene: str) -> str:
     regions = {
         "VDR": "12:48235320-48298777",
         "RYR1": "19:38924331-39078204",
         "EGFR": "7:55086710-55279321",
     }
     region = regions[diploid_gene]
-    print(f"region is {region}.\n")
+    output_name = input_name + f".diploid_gene_{diploid_gene}"
+    logger.info(f"[WGS] Extract {diploid_gene} region to {output_name}")
     runTool(
         "samtools",
         [
             "samtools",
             "view",
-            "-@8",
+            "-@",
+            str(getThreads()),
             "-h",
             "-F",
             "1024",
             f"{input_name}.bam",
             region,
             "-o",
-            f"{input_name}.diploid_gene.sam",
+            f"{output_name}.bam",
         ],
     )
-    samtobam(f"{input_name}.diploid_gene")
-    output_name = input_name + ".diploid_info.txt"
-    runTool(
-        "samtools",
-        [
-            "sh",
-            "-c",
-            f"samtools depth {input_name}.diploid_gene.bam | awk '{{sum+=$3; sumsq+=$3*$3}} END {{print sum/NR; print sqrt(sumsq/NR - (sum/NR)**2)}}' > {output_name}",
-        ],
-    )
-    runShell(
-        ["rm", f"{input_name}.diploid_gene.bam", f"{input_name}.diploid_gene.bam.bai"]
-    )
+
+    # Calculate depth and save to TSV
+    depth_tsv = output_name + ".tsv"
+    bam2Depth(f"{output_name}.bam", depth_tsv, get_all=False)
+
+    # Calculate and save statistics to JSON for faster repeated access
+    df = readSamtoolsDepth(depth_tsv)
+    mean = float(df["depth"].mean())
+    std = float(df["depth"].std())
+
+    stats_json = output_name + ".json"
+    with open(stats_json, "w") as f:
+        json.dump(
+            {"mean": mean, "std": std, "gene": diploid_gene, "name": input_name}, f
+        )
+
+    return output_name
 
 
 def extractFromHg19(

@@ -17,6 +17,7 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.graph_objects as go
 
+from .samtools_utils import readSamtoolsDepth
 from .utils import NumpyEncoder
 
 
@@ -148,11 +149,11 @@ class CNgroup(Dist):
 
         # get upper and lower bound of model fitting range
         if diploid_name != '':
-            # get diploid coverage information
-            with open(diploid_name, 'r') as f:
-                dp_info = f.readlines()
-                mean = round(float(dp_info[0].strip('\n')))
-                dev = round(float(dp_info[1].strip('\n')))
+            # get diploid coverage information from JSON (in extractDiploidCoverage)
+            with open(diploid_name + ".json", 'r') as f:
+                dp_info = json.load(f)
+                mean = round(dp_info["mean"])
+                dev = round(dp_info["std"])
                 lower_bound = (mean - dev) / 2
                 upper_bound = (mean + dev) / 2
                 discrete = self.bin_num
@@ -160,7 +161,6 @@ class CNgroup(Dist):
             lower_bound = 0
             upper_bound = self.x_max 
             discrete = self.bin_num + 200
-
 
         # discrete (bin_num)
         # Calculate the probility that CN groups fit the data
