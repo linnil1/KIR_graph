@@ -90,9 +90,9 @@ def runWGS(
     diploid_depths = []
     for name, (fq1, fq2) in zip(names, reads):
         # read mapping
-        logger.info(f"[WGS] Run BWA mapping with index {index_wgs} on {name}")
+        logger.info(f"[WGS] Run BWA on index {index_wgs} ({name})")
         suffix = "." + index_wgs.replace(".", "_").replace("/", "_")
-        # bwa(index_wgs, fq1, fq2, name + suffix, threads=getThreads())
+        bwa(index_wgs, fq1, fq2, name + suffix, threads=getThreads())
         name += suffix
 
         # extract diploid coverage information
