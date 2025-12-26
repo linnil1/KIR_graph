@@ -9,7 +9,8 @@ from namepipe import NameTask, compose, ConcurrentTaskExecutor
 from graphkir import kir_msa
 from graphkir.msa2hisat import buildHisatIndex, msa2HisatReference
 from graphkir.hisat2 import extractVariantFromBam, readExons
-from graphkir.kir_cn import bam2Depth, filterDepth, loadCN, predictSamplesCN
+from graphkir.samtools_utils import bam2Depth
+from graphkir.kir_cn import filterDepth, loadCN, predictSamplesCN
 from graphkir.kir_typing import selectKirTypingModel
 from graphkir.plot import showPlot, plotCN, plotGeneDepths
 from graphkir.msa_leftalign import genemsaLeftAlign

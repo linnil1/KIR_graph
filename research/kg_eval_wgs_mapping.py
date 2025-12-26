@@ -19,7 +19,7 @@ from plotly.subplots import make_subplots
 from namepipe import NamePath
 from graphkir.plot import showPlot
 from graphkir.utils import runShell
-from graphkir.kir_cn import bam2Depth, readSamtoolsDepth
+from graphkir.samtools_utils import bam2Depth, readSamtoolsDepth
 
 
 @dataclass(order=True)

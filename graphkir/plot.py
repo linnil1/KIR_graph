@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .kir_cn import readSamtoolsDepth
+from .samtools_utils import readSamtoolsDepth
 from .cn_model import loadCNModel
 from .utils import getThreads, logger
 from .external_tools import runTool
