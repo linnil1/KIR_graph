@@ -271,9 +271,6 @@ class AlleleTyping:
     def getReadsNum(self) -> int:
         return len(self.probs)
 
-    def typingHomo(self) -> str:
-        return self.id_to_allele[int(np.argmax(np.prod(self.probs, axis=0)))]
-
     @staticmethod
     def removeEmptyReads(reads: list[PairRead]) -> list[PairRead]:
         """
