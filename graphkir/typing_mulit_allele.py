@@ -388,6 +388,9 @@ class AlleleTyping:
           The top-n allele-set are best fit the reads (with maximum probility).
             Each set has CN alleles.
         """
+        if cn < 1:
+            raise ValueError(f"CN should be >= 1, got {cn}")
+
         # decide homo/hetero if not forced
         if self.force_homo is None:
             homo = isHomozygous(self.reads, self.variants, cn)
@@ -395,51 +398,59 @@ class AlleleTyping:
             homo = self.force_homo
 
         self.result = []
-        for _ in range(cn):
-            self.addCandidate()
-            if homo:
-                break
-            # self.result[-1].print()
-
         if homo:
-            for _ in range(1, cn):
-                self.addHomoResult(self.result[0])
+            self.addCandidate()
+            self.addHomoResultForCn(cn)
+        else:
+            for _ in range(cn):
+                self.addCandidate()
+            # self.result[-1].print()
 
         self.result[-1].print()
         return self.result[-1]
+
+    def addHomoResultForCn(self, cn: int) -> None:
+        """Add homozygous result for copy number > 1."""
+        if cn > 1:
+            homo_result = self.createHomoResult(self.result[0], cn)
+            assert homo_result is not None
+            self.result.append(homo_result)
 
     def mapAlleleIDs(self, list_ids: IdArray) -> list[list[str]]:
         """id (m x n np array) -> name (m list x n list of str)"""
         return [[self.id_to_allele[id] for id in ids] for ids in list_ids]
 
-    def addHomoResult(self, prev_result: TypingResult) -> TypingResult:
+    @staticmethod
+    def createHomoResult(cn1_result: TypingResult, cn: int) -> TypingResult:
         """
-        Duplicate the homozygous allele result to create result with CN+1.
-        Used when sample is homozygous to add the same allele n times.
+        Generate homozygous typing result with CN copies from CN=1 result.
+        Used when sample is homozygous to replicate the same allele n times.
 
         Parameters:
-            prev_result: Previous typing result with n alleles
+            cn1_result: Typing result with CN=1 (single allele)
+            cn: Target copy number (> 1)
         Returns:
-            New typing result with n+1 alleles (all the same)
+            TypingResult with cn copies of the allele
+        Raises:
+            ValueError: If cn <= 1
         """
-        n = prev_result.n + 1
-        # Replicate the single allele n times
-        new_allele_id = np.repeat(prev_result.allele_id, n // prev_result.n, axis=1)
-        new_allele_name = [[name[0]] * n for name in prev_result.allele_name]
+        if cn <= 1:
+            raise ValueError(f"CN should be > 1, got {cn}")
+
+        # Replicate the single allele cn times
+        new_allele_id = np.repeat(cn1_result.allele_id, cn, axis=1)
+        new_allele_name = [[name[0]] * cn for name in cn1_result.allele_name]
 
         result = TypingResult(
-            n=n,
-            value=prev_result.value,
-            value_sum_indv=np.repeat(
-                prev_result.value_sum_indv, n // prev_result.n, axis=1
-            ),
+            n=cn,
+            value=cn1_result.value * cn,  # Scale likelihood by CN
+            value_sum_indv=np.repeat(cn1_result.value_sum_indv, cn, axis=1),
             allele_id=new_allele_id,
             allele_name=new_allele_name,
-            allele_prob=prev_result.allele_prob,
-            fraction=np.ones((len(prev_result.value), n)) / n,
-            fraction_uniq=np.ones((len(prev_result.value), n)) / n,
+            allele_prob=cn1_result.allele_prob,
+            fraction=np.ones((len(cn1_result.value), cn)) / cn,
+            fraction_uniq=np.ones((len(cn1_result.value), cn)) / cn,
         )
-        self.result.append(result)
         return result
 
     @staticmethod
