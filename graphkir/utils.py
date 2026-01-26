@@ -89,7 +89,7 @@ def runShell(
     cmd: list[str], capture_output: bool = False, cwd: str | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Run shell command with list of arguments"""
-    logger.debug(f"[Run] {" ".join(cmd)}")
+    logger.debug(f'[Run] {" ".join(cmd)}')
     proc = subprocess.run(
         cmd,
         shell=False,
