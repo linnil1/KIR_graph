@@ -17,7 +17,8 @@ from .msa_leftalign import genemsaLeftAlign
 from .msa2hisat import msa2HisatReference, buildHisatIndex
 from .wgs import downloadHg19, bwa, bwaIndex, extractDiploidCoverage, extractFromHg19, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
-from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
+from .kir_cn import predictSamplesCN, loadCN, filterDepth
+from .samtools_utils import bam2Depth
 from .kir_typing import selectKirTypingModel
 from .utils import setThreads, getThreads, mergeCN, mergeAllele, logger
 from .external_tools import setEngine
@@ -86,7 +87,7 @@ def runWGS(
 ) -> tuple[list[str], list[tuple[str, str]], list[str]]:
     new_names = []
     new_reads = []
-    diploid_names = []
+    diploid_depths = []
     for name, (fq1, fq2) in zip(names, reads):
         # read mapping
         logger.info(f"[WGS] Run BWA on index {index_wgs} ({name})")
@@ -96,11 +97,9 @@ def runWGS(
 
         # extract diploid coverage information
         if diploid_gene != '':
-            if not Path(f"{name}.diploid_info.txt").exists():
-                extractDiploidCoverage(name, diploid_gene)
-            diploid_names.append(name + ".diploid_info.txt")
+            diploid_depths.append(extractDiploidCoverage(name, diploid_gene))
         else:
-            diploid_names.append('')
+            diploid_depths.append('')
 
         # extract KIR
         suffix = ".extract"
@@ -111,7 +110,7 @@ def runWGS(
         bam2fastq(name + ".bam", name, threads=getThreads())
         new_names.append(name)
         new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
-    return new_names, new_reads, diploid_names
+    return new_names, new_reads, diploid_depths
 
 
 def readMapping(
@@ -481,9 +480,9 @@ def main(args: argparse.Namespace) -> None:
         diploid_gene = args.cn_diploid_gene
         if args.cn_cohort:
             diploid_gene = ""
-        names, reads, diploid_names = runWGS(names, reads, index_wgs, diploid_gene)
+        names, reads, diploid_depths = runWGS(names, reads, index_wgs, diploid_gene)
     else:
-        diploid_names = ['' for _ in range(len(names))]
+        diploid_depths = ['' for _ in range(len(names))]
 
 
 
@@ -538,12 +537,12 @@ def main(args: argparse.Namespace) -> None:
                 continue
             suffix = f".{args.cn_select}.{args.cn_algorithm}"
             name = str(Path(depth_file).with_suffix(suffix))
-            diploid_name = diploid_names[i]
+            diploid_depth = diploid_depths[i]
             logger.info(f"[CN] Copy number estimation per sample ({name})")
             predictSamplesCN(
                 [depth_file],
                 [name + ".tsv"],
-                diploid_name,
+                diploid_depth,
                 cluster_method=args.cn_algorithm,
                 cluster_method_kwargs=cluster_method_kwargs,
                 assume_3DL3_diploid=not args.cn_3dl3_not_diploid,
@@ -560,12 +559,10 @@ def main(args: argparse.Namespace) -> None:
         cn_files = [
             str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
         ]
-        diploid_name = ""
         logger.info(f"[CN] Copy number estimation by cohort ({cn_cohort_name})")
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
             [cnf for i, cnf in enumerate(cn_files) if cnf],
-            diploid_name,
             cluster_method=args.cn_algorithm,
             cluster_method_kwargs=cluster_method_kwargs,
             save_cn_model_path=cn_cohort_name + ".json",

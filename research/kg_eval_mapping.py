@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from namepipe import NamePath
-from graphkir.kir_cn import readSamtoolsDepth
+from graphkir.samtools_utils import readSamtoolsDepth
 from graphkir.hisat2 import loadReadsAndVariantsData
 from graphkir.utils import samtobam, getGeneName, getAlleleField, runShell
 from kg_utils import runDocker
