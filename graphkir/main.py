@@ -178,7 +178,7 @@ def alleleTyping(
             .replace(".", "_")
             + "."
         )
-        if method == "exonfirst":
+        if method == "exon_only":
             method += "_1"
         suffix += method
         t = selectKirTypingModel(
@@ -385,9 +385,9 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allele-strategy",
         default="full",
-        choices=["full", "exonfirst", "report"],
+        choices=["full", "exon_only", "report"],
         help="Choose the allele typing strategy: 'full' for maximum likelihood using all variants, "
-        "'exonfirst' for typing exon variants before full variants, "
+        "'exon_only' for typing exon variants before full variants, "
         "or 'report' for typing via abundance using an EM-algorithm similar to HISAT2-genotype.",
     )
 
