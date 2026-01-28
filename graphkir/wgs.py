@@ -44,7 +44,7 @@ def downloadHg38(index_folder: str) -> str:
     output_name = f"{index_folder}/hs38noalt.fa.gz"
     logger.info(f"[WGS] Download {output_name}")
     url = "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz"
-    downloadFile(url, output_name)
+    runShell(f"wget {url} -O {output_name}")
     return output_name
 
 
