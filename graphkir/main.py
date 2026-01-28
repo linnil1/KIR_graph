@@ -343,7 +343,7 @@ def createParser() -> argparse.ArgumentParser:
         help="Path to a BWA-indexed WGS reference file (Default depends on --reference-genome, hg19:index_folder/hs37d5.fa.gz, hg38: index_folder/hs38noalt.fa.gz)",
     )
     parser.add_argument(
-        "--reference-genome",
+        "--ref-genome",
         default="hg19",
         choices=["hg19", "hg38"],
         help="Reference genome version for WGS extraction. "
@@ -487,7 +487,7 @@ def main(args: argparse.Namespace) -> None:
     if not args.step_skip_extraction:
         # Prepare wgs Index
         if not args.index_wgs:
-            index_wgs = buildGenomeIndex(args.index_folder, args.reference_genome)
+            index_wgs = buildGenomeIndex(args.index_folder, args.ref_genome)
         else:
             index_wgs = args.index_wgs
 
@@ -496,7 +496,7 @@ def main(args: argparse.Namespace) -> None:
         if args.cn_cohort:
             diploid_gene = ""
         names, reads, diploid_depths = runWGS(
-            names, reads, index_wgs, diploid_gene, args.reference_genome
+            names, reads, index_wgs, diploid_gene, args.ref_genome
         )
     else:
         diploid_depths = ['' for _ in range(len(names))]
