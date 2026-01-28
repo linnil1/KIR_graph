@@ -22,12 +22,9 @@ This repo contains two main programs:
 ## Version
 
 1. version 1.0
-	* Paper Link: (Not yet published)
 	* Biorxiv: https://doi.org/10.1101/2023.11.29.568665
 	* github tag: v1.0
 2. version 2.0 (latest)
-	* Paper Link: (Not yet published)
-	* Biorxiv: (Not Yet)
 	* github tag: v2.0
 
 
@@ -179,6 +176,12 @@ To build the document, use: `mkdocs serve`
 * `research/other_kir.py`       Run other KIR tools for HPRC or 100 samples
 * `research/kg_dev_*`           Scripts for development purposes (not used in the paper)
 * `research/kg_eval_*`          Compare the results
+
+Evaluation code and data for v2:
+
+* `research/kg_eval_hprc_alldigit.py`
+* `research/kg_eval_hprc_remove_novel.py`
+* `research/groundtruth/hprc_annotation_skirt.tsv`
 
 
 ## Related tools
