@@ -26,17 +26,6 @@ class Dist:
     def __init__(self) -> None:
         self.raw_df: list[Any] = []  # raw data (Datafrmae.to_dict())
 
-    def fit(self, values: list[float], diploid_name: str) -> None:
-        """Determine the parameters by data"""
-        raise NotImplementedError
-
-    def fit_3dl3_diploid(self, values: list[float], kir_3dl3_depth: float, width: float, decrease: float) -> None:
-        """Setting diploid coverage around kir 3dl3 coverage and determine the parameters"""
-
-    def assignCN(self, values: list[float]) -> list[int]:
-        """Assign CN with depth input by parameters"""
-        raise NotImplementedError
-
     def save(self, filename: str) -> None:
         """Save parameters"""
         with open(filename, "w") as f:
@@ -132,41 +121,38 @@ class CNgroup(Dist):
         self.dev_decay_neg = data.get('dev_decay_neg', self.dev_decay)
         return self
 
-    def fit(self, values: list[float], diploid_name: str) -> None:
+    def fit(
+        self,
+        values: list[float],
+        lower_bound: float = 0,
+        upper_bound: float | None = None,
+    ) -> None:
         """
         Find the maximum CN distributions to fit the values.
 
         1. Normalize by `x_max` (Maximum of depths)
         2. Find `base` (Mean of CN=1 distribution)
+
+        Parameters:
+            values: Depth values to fit
+            lower_bound: Lower bound for model fitting range
+            upper_bound: Upper bound for model fitting range (defaults to x_max if None)
         """
-        assert self.base is None
-        # normalize
-        max_depth = max(values) * 1.2
-        self.base_dev *= max_depth
-        self.x_max = max(max_depth, 1e-6)  # to avoid divided by 0
-        self.data = values
+        # normalize if first time
+        if self.base is None:
+            max_depth = max(values) * 1.2
+            self.base_dev *= max_depth
+            self.x_max = max(max_depth, 1e-6)  # to avoid divided by 0
+            self.data = values
 
-        # get upper and lower bound of model fitting range
-        if diploid_name != '':
-            # get diploid coverage information
-            with open(diploid_name, 'r') as f:
-                dp_info = f.readlines()
-                mean = round(float(dp_info[0].strip('\n')))
-                dev = round(float(dp_info[1].strip('\n')))
-                lower_bound = (mean - dev) / 2
-                upper_bound = (mean + dev) / 2
-                discrete = self.bin_num
-        else:
-            lower_bound = 0
-            upper_bound = self.x_max 
-            discrete = self.bin_num + 200
-
+        if upper_bound is None:
+            upper_bound = self.x_max
 
         # discrete (bin_num)
         # Calculate the probility that CN groups fit the data
         density, _ = np.histogram(values, bins=self.bin_num, range=(0, self.x_max))
         likelihood_list = []
-        for base in np.linspace(lower_bound, upper_bound, discrete):
+        for base in np.linspace(lower_bound, upper_bound, self.bin_num):
             # all probility of cn group across lower bound ~ upper bound
             cn_group = self.calcCNGroupProb(base)
             # Highest probility in each x
@@ -177,28 +163,6 @@ class CNgroup(Dist):
             likelihood_list
         )  # n x 2(base, likelihood of the base)
 
-        # Find best fit x = base
-        max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
-        self.base = max_point[0]
-
-    def fit_3dl3_diploid(self, values: list[float], kir_3dl3_depth: float, width: float, decrease: float) -> None:
-        upper_bound = (kir_3dl3_depth + decrease*width)/2
-        lower_bound = (kir_3dl3_depth - decrease*width)/2
-        descrete = int(self.bin_num*decrease)
-        # discrete (bin_num)
-        # Calculate the probility that CN groups fit the data
-        density, _ = np.histogram(values, bins=self.bin_num, range=(0, self.x_max))
-        likelihood_list = []
-        for base in np.linspace(lower_bound, upper_bound, descrete):
-            # all probility of cn group across lower bound ~ upper bound
-            cn_group = self.calcCNGroupProb(base)
-            # Highest probility in each x
-            max_prob = cn_group.max(axis=0)
-            # log-probility = depth \cdot the log(highest probility)
-            likelihood_list.append((base, np.sum(np.log(max_prob + 1e-9) * density)))
-        self.likelihood = np.array(
-            likelihood_list
-        )  # n x 2(base, likelihood of the base)
         # Find best fit x = base
         max_point = self.likelihood[np.argmax(self.likelihood[:, 1]), :]
         self.base = max_point[0]

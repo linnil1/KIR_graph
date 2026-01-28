@@ -22,37 +22,61 @@ This repo contains two main programs:
 ## Version
 
 1. version 1.0
-	* Paper Link: (Not yet published)
 	* Biorxiv: https://doi.org/10.1101/2023.11.29.568665
 	* github tag: v1.0
 2. version 2.0 (latest)
-	* Paper Link: (Not yet published)
-	* Biorxiv: (Not Yet)
 	* github tag: v2.0
 
 
-## Requirements
+## Docker Version
 
-Before using Graph-KIR, ensure you meet these requirements:
+We have prepared a Docker version of Graph-KIR for easy setup and reproducibility. You can build and use the Docker image as follows:
+
+```bash
+docker build -t linnil1/graphkir .
+docker run -it --rm -v "$PWD":/data linnil1/graphkir graphkir --help
+```
+
+This will run Graph-KIR inside a container, mounting your current directory to `/data` in the container. Adjust the command and volume as needed for your workflow.
+
+
+## Requirements (Local Installation)
+
+To run Graph-KIR locally in default (with `--engine local`), you need:
 
 * Python >= 3.10
-
-You have the option to use one of the following containerization tools:
-
-* podman 
-* docker
-* singularity
-
-You can choose to use it by specifying the `engine`. i.e. `--engine podman`.
-
-If none of these containerization tools are installed, you can run Graph-KIR locally `--engine local`.
-However, you'll need to install the following external packages:
-
 * MUSCLE >= 5.1 (required only for index building stage)
 * HISAT2 >= 2.2.1
 * samtools >= 1.15.1
 * BWA-MEM >= 0.7.17 (needed only for the WGS extraction stage)
-* wget (necessary for downloading hs37d5 in the WGS extraction stage)
+
+### Example: Create a Conda Environment for Local Engine
+
+You can use conda to set up the required environment and install the necessary tools:
+
+```bash
+conda create -n graphkir_env python=3.14
+conda activate graphkir_env
+conda install -c bioconda muscle=5.3 hisat2=2.2.1 samtools=1.22.1 bwa=0.7.19
+```
+
+Then install Graph-KIR:
+
+```bash
+pip install .
+```
+
+### Using Container Tools
+
+You can also use Graph-KIR with containerization tools for easier setup and reproducibility. Supported engines:
+
+* podman
+* docker
+* singularity
+
+Specify the engine with the `--engine` argument, e.g. `--engine podman`.
+
+Note: If you use other container engines (podman, docker, singularity) with `--engine`, you should install Graph-KIR with `pip install .` on your local machine. The container will be used only for running the external tools, while the main program runs locally.
 
 
 ## Usage (Main)
@@ -94,7 +118,7 @@ graphkir \
     --thread 2 \
     --input-csv example/cohort.csv \
     --index-folder example_index \
-    --allele-method exonfirst \
+    --allele-strategy exon_only \
     --output-cohort-name example_data/cohort \
     --log-level DEBUG
 ```
@@ -117,7 +141,7 @@ In the above sample, `example_data/cohort.cn.tsv` and `example_data/cohort.allel
 Some useful arguments include:
 * `--cn-diploid-gene`: Select reference diploid gene for the Copy number estimation model.(ex: VDR, RYR1 or EGFR)
 * `--cn-cohort`: Estimate copy number while considering the entire cohort. In cohort mode, diploid gene information is not considered.
-* `--allele-strategy exonfirst`: Perform typing using the exon part of reads instead of the entire sequence.
+* `--allele-strategy exon_only`: Perform typing using the exon part of reads instead of the entire sequence.
 * You can manually assess the copy number estimation results using the `--plot` option.
 * Adjust the distribution deviation with the `--cn-dist-dev` argument, for example, `--cn-dist-dev 0.06`.
 * KIR3DL3 is typically diploid. If KIR3DL3 is not diploid, the tool will adjust the CN estimation result by referencing KIR3DL3 coverage, ensuring KIR3DL3 to be diploid. Use `--cn-3dl3-not-diploid` to estimate copy number without assuming 3DL3 CN is 2.
@@ -152,6 +176,12 @@ To build the document, use: `mkdocs serve`
 * `research/other_kir.py`       Run other KIR tools for HPRC or 100 samples
 * `research/kg_dev_*`           Scripts for development purposes (not used in the paper)
 * `research/kg_eval_*`          Compare the results
+
+Evaluation code and data for v2:
+
+* `research/kg_eval_hprc_alldigit.py`
+* `research/kg_eval_hprc_remove_novel.py`
+* `research/groundtruth/hprc_annotation_skirt.tsv`
 
 
 ## Related tools

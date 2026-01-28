@@ -1,9 +1,30 @@
+from dataclasses import asdict
 from pathlib import Path
 from functools import partial
 import pandas as pd
 
 from namepipe import NameTask, compose, ConcurrentTaskExecutor, BaseTaskExecutor
-from graphkir.utils import runShell, setEngine
+from kg_utils import runShell
+from graphkir.external_tools import setEngine, addCustomEngine, EngineConfig, getEngineConfig
+
+
+def setupLinnil1SingularityEngine() -> None:
+    """Setup custom singularity configuration for linnil1's HPC environment"""
+    singularity = getEngineConfig("singularity")
+    config = EngineConfig(
+        **asdict(singularity),
+        name="singularity_linnil1",
+        run_args=[
+            "run",
+            "--bind", "/home/linnil1tw",
+            "--bind", "/work/linnil1tw",
+            "--bind", "/staging/biology/linnil1tw",
+            "--bind", "/staging/biology/zxc898977",
+            "--bind", "/staging/biodata/lions/twbk",
+        ],
+    )
+    addCustomEngine(config)
+    setEngine("singularity_linnil1")
 
 from kg_wgs import (
     downloadHg19,
@@ -96,7 +117,7 @@ if __name__ == "__main__":
 
     # these step in run on Taiwania HPC
     if TAIWANIA:
-        setEngine("singularity_linnil1")
+        setupLinnil1SingularityEngine()
         if cohort == "twbb_bam":
             sample = compose([
                 data_folder,

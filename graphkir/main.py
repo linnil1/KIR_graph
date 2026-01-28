@@ -15,11 +15,13 @@ import plotly.graph_objects as go
 from .kir_msa import buildKirMsa
 from .msa_leftalign import genemsaLeftAlign
 from .msa2hisat import msa2HisatReference, buildHisatIndex
-from .wgs import downloadHg19, bwa, bwaIndex, extractDiploidCoverage, extractFromHg19, bam2fastq
+from .wgs import downloadHg19, downloadHg38, bwa, bwaIndex, extractDiploidCoverage, extractKirRegion, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
-from .kir_cn import predictSamplesCN, loadCN, filterDepth, bam2Depth
+from .kir_cn import predictSamplesCN, loadCN, filterDepth
+from .samtools_utils import bam2Depth
 from .kir_typing import selectKirTypingModel
-from .utils import setThreads, getThreads, mergeCN, mergeAllele, setEngine, logger
+from .utils import setThreads, getThreads, mergeCN, mergeAllele, logger
+from .external_tools import setEngine
 from .plot import plotCN, plotReadMappingStat, showPlot, plotGeneDepths, savePlot
 
 
@@ -67,13 +69,21 @@ def buildMSA(
     return msa_index
 
 
-def buildGenomeIndex(index_folder: str = "index") -> str:
-    """Download hs37d5.fa and build hs37d5 bwa index"""
+def buildGenomeIndex(index_folder: str = "index", ref_genome: str = "hg19") -> str:
+    """Download reference genome and build BWA index."""
     Path(index_folder).mkdir(exist_ok=True)
-    wgs_index = f"{index_folder}/hs37d5.fa.gz"
-    if not Path(wgs_index).exists():
-        # logger.info(f"[WGS] Download hs37d5")
-        wgs_index = downloadHg19(index_folder)
+    
+    if ref_genome == "hg19":
+        wgs_index = f"{index_folder}/hs37d5.fa.gz"
+        if not Path(wgs_index).exists():
+            wgs_index = downloadHg19(index_folder)
+    elif ref_genome == "hg38":
+        wgs_index = f"{index_folder}/hs38noalt.fa.gz"
+        if not Path(wgs_index).exists():
+            wgs_index = downloadHg38(index_folder)
+    else:
+        raise ValueError(f"Unsupported reference genome: {ref_genome}. Use 'hg19' or 'hg38'.")
+    
     if not Path(wgs_index + ".bwt").exists():
         logger.info(f"[WGS] Build {wgs_index} bwa index")
         bwaIndex(wgs_index, wgs_index)
@@ -81,11 +91,12 @@ def buildGenomeIndex(index_folder: str = "index") -> str:
 
 
 def runWGS(
-        names: list[str], reads: list[tuple[str, str]], index_wgs: str, diploid_gene: str
+        names: list[str], reads: list[tuple[str, str]], index_wgs: str, 
+        diploid_gene: str, ref_type: str = "hg19"
 ) -> tuple[list[str], list[tuple[str, str]], list[str]]:
     new_names = []
     new_reads = []
-    diploid_names = []
+    diploid_depths = []
     for name, (fq1, fq2) in zip(names, reads):
         # read mapping
         logger.info(f"[WGS] Run BWA on index {index_wgs} ({name})")
@@ -95,22 +106,19 @@ def runWGS(
 
         # extract diploid coverage information
         if diploid_gene != '':
-            if not Path(f"{name}.diploid_info.txt").exists():
-                extractDiploidCoverage(name, diploid_gene)
-            diploid_names.append(name + ".diploid_info.txt")
+            diploid_depths.append(extractDiploidCoverage(name, diploid_gene, ref_type))
         else:
-            diploid_names.append('')
+            diploid_depths.append('')
 
         # extract KIR
         suffix = ".extract"
-        # logger.info(f"[WGS] Extract chr19... from {name}")  # written in func
-        extractFromHg19(name + ".bam", name + suffix, "hs37d5", threads=getThreads())
+        extractKirRegion(name + ".bam", name + suffix, ref_type, threads=getThreads())
         name += suffix
         logger.info(f"[WGS] Extract read from {name}.bam")
         bam2fastq(name + ".bam", name, threads=getThreads())
         new_names.append(name)
         new_reads.append((name + ".read.1.fq.gz", name + ".read.2.fq.gz"))
-    return new_names, new_reads, diploid_names
+    return new_names, new_reads, diploid_depths
 
 
 def readMapping(
@@ -178,7 +186,7 @@ def alleleTyping(
             .replace(".", "_")
             + "."
         )
-        if method == "exonfirst":
+        if method == "exon_only":
             method += "_1"
         suffix += method
         t = selectKirTypingModel(
@@ -278,12 +286,12 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--r1",
         action="append",
-        help="Paths to Read 1 FASTQ files (provide in order for multiple samples)",
+        help="Paths to paired-end Read 1 FASTQ files (provide in order for multiple samples)",
     )
     parser.add_argument(
         "--r2",
         action="append",
-        help="Paths to Read 2 FASTQ files (in order)",
+        help="Paths to paired-end Read 2 FASTQ files (in order)",
     )
     parser.add_argument(
         "--input-csv",
@@ -327,12 +335,19 @@ def createParser() -> argparse.ArgumentParser:
         "--index-folder",
         default="index",
         help="The path to the index folder, which must include the HISAT2-indexed KIR. "
-        "Optionally, the hs37d5 index can also be located in the same folder. "
-        "Alternatively, you can specify the path to the hs37d5 index using `--index-wgs`.",
+        "Optionally, the reference genome can also be located in the same folder. "
+        "Alternatively, you can specify the path to the reference genome using `--index-wgs`.",
     )
     parser.add_argument(
         "--index-wgs",
-        help="Path to a BWA-indexed hs37d5 index file (Default=index_folder/hs37d5.fa.gz)",
+        help="Path to a BWA-indexed WGS reference file (Default depends on --reference-genome, hg19:index_folder/hs37d5.fa.gz, hg38: index_folder/hs38noalt.fa.gz)",
+    )
+    parser.add_argument(
+        "--ref-genome",
+        default="hg19",
+        choices=["hg19", "hg38"],
+        help="Reference genome version for WGS extraction. "
+        "'hg19' uses hs37d5 (GRCh37), 'hg38' uses GRCh38_no_alt_analysis_set.",
     )
 
     # Copy Number
@@ -385,9 +400,9 @@ def createParser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allele-strategy",
         default="full",
-        choices=["full", "exonfirst", "report"],
+        choices=["full", "exon_only", "report"],
         help="Choose the allele typing strategy: 'full' for maximum likelihood using all variants, "
-        "'exonfirst' for typing exon variants before full variants, "
+        "'exon_only' for typing exon variants before full variants, "
         "or 'report' for typing via abundance using an EM-algorithm similar to HISAT2-genotype.",
     )
 
@@ -424,8 +439,10 @@ def main(args: argparse.Namespace) -> None:
     # name of sample, reads, and cn_file
     cn_files = []
     if not args.input_csv:
-        assert len(args.r1)
-        assert len(args.r1) == len(args.r2)
+        if not args.r1:
+            raise ValueError("At least one paired-end read 1 FASTQ file must be provided")
+        if len(args.r1) != len(args.r2):
+            raise ValueError("The number of paired-end read 1 and read 2 FASTQ files must be equal")
         reads = list(zip(args.r1, args.r2))
         names = list(map(lambda i: getCommonName(i[0], i[1]), reads))
         if args.cn_provided:
@@ -442,9 +459,9 @@ def main(args: argparse.Namespace) -> None:
         else:
             cn_files = [""] * len(names)
     if not names:
-        logger.error(f"[Main] 0 Samples")
-        exit()
-    assert len(cn_files) == len(names)
+        raise ValueError("No samples found in input")
+    if len(cn_files) != len(names):
+        raise ValueError("Mismatch between number of samples and copy number files")
     logger.info(f"[Main] Samples: {names}")
 
     # output name
@@ -470,7 +487,7 @@ def main(args: argparse.Namespace) -> None:
     if not args.step_skip_extraction:
         # Prepare wgs Index
         if not args.index_wgs:
-            index_wgs = buildGenomeIndex(args.index_folder)
+            index_wgs = buildGenomeIndex(args.index_folder, args.ref_genome)
         else:
             index_wgs = args.index_wgs
 
@@ -478,9 +495,11 @@ def main(args: argparse.Namespace) -> None:
         diploid_gene = args.cn_diploid_gene
         if args.cn_cohort:
             diploid_gene = ""
-        names, reads, diploid_names = runWGS(names, reads, index_wgs, diploid_gene)
+        names, reads, diploid_depths = runWGS(
+            names, reads, index_wgs, diploid_gene, args.ref_genome
+        )
     else:
-        diploid_names = ['' for _ in range(len(names))]
+        diploid_depths = ['' for _ in range(len(names))]
 
 
 
@@ -535,12 +554,12 @@ def main(args: argparse.Namespace) -> None:
                 continue
             suffix = f".{args.cn_select}.{args.cn_algorithm}"
             name = str(Path(depth_file).with_suffix(suffix))
-            diploid_name = diploid_names[i]
+            diploid_depth = diploid_depths[i]
             logger.info(f"[CN] Copy number estimation per sample ({name})")
             predictSamplesCN(
                 [depth_file],
                 [name + ".tsv"],
-                diploid_name,
+                diploid_depth,
                 cluster_method=args.cn_algorithm,
                 cluster_method_kwargs=cluster_method_kwargs,
                 assume_3DL3_diploid=not args.cn_3dl3_not_diploid,
@@ -557,12 +576,10 @@ def main(args: argparse.Namespace) -> None:
         cn_files = [
             str(Path(path).with_suffix(suffix + ".tsv")) for path in depth_files
         ]
-        diploid_name = ""
         logger.info(f"[CN] Copy number estimation by cohort ({cn_cohort_name})")
         predictSamplesCN(
             [depth_files[i] for i, cnf in enumerate(cn_files) if cnf],
             [cnf for i, cnf in enumerate(cn_files) if cnf],
-            diploid_name,
             cluster_method=args.cn_algorithm,
             cluster_method_kwargs=cluster_method_kwargs,
             save_cn_model_path=cn_cohort_name + ".json",

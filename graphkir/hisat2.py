@@ -12,7 +12,8 @@ import bisect
 from typing import TypedDict, Iterable
 from dataclasses import dataclass, field, asdict
 
-from .utils import runDocker, samtobam, logger
+from .utils import samtobam, logger
+from .external_tools import runTool
 from .msa2hisat import Variant
 from .pileup import PileupCount, getPileupBaseRatio
 
@@ -68,13 +69,25 @@ def hisatMap(index: str, f1: str, f2: str, output_file: str, threads: int = 1) -
     """run hisat2"""
     assert output_file.endswith(".bam")
     output_name = output_file.rsplit(".", 1)[0]
-    runDocker(
+    runTool(
         "hisat",
-        f"""\
-        hisat2 --threads {threads} -x {index} -1 {f1} -2 {f2} \
-               --no-spliced-alignment --max-altstried 64 --haplotype \
-               -S {output_name}.sam
-        """,
+        [
+            "hisat2",
+            "--threads",
+            str(threads),
+            "-x",
+            index,
+            "-1",
+            f1,
+            "-2",
+            f2,
+            "--no-spliced-alignment",
+            "--max-altstried",
+            "64",
+            "--haplotype",
+            "-S",
+            f"{output_name}.sam",
+        ],
     )
     samtobam(output_name)
 
@@ -89,15 +102,19 @@ def getNH(sam_info: str) -> int:
 
 def readBam(bam_file: str) -> list[str]:
     """Read bam file via samtools"""
-    proc = runDocker(
-        "samtools", f"samtools sort -n {bam_file} -O SAM", capture_output=True
+    proc = runTool(
+        "samtools",
+        ["samtools", "sort", "-n", bam_file, "-O", "SAM"],
+        capture_output=True,
     )
     return str(proc.stdout).split("\n")
 
 
 def readBamHeader(bam_file: str) -> str:
     """Read header of bam file via samtools"""
-    proc = runDocker("samtools", f"samtools view -H {bam_file}", capture_output=True)
+    proc = runTool(
+        "samtools", ["samtools", "view", "-H", bam_file], capture_output=True
+    )
     return str(proc.stdout)
 
 

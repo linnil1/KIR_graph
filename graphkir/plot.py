@@ -2,7 +2,6 @@
 Plot utility for statistic (Not for accuracy)
 """
 from typing import Iterable
-from concurrent.futures import ProcessPoolExecutor
 import gzip
 
 from Bio import SeqIO
@@ -10,9 +9,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .kir_cn import readSamtoolsDepth
+from .samtools_utils import readSamtoolsDepth
 from .cn_model import loadCNModel
-from .utils import runDocker, runShell, logger
+from .utils import getThreads, logger
+from .external_tools import runTool
 
 
 def plotCN(filename_json: str) -> list[go.Figure]:
@@ -46,8 +46,10 @@ def readSamtoolsFlagstat(bamfile: str) -> dict[str, int]:
     num_pair = 0
     num_total = 0
     num_second = 0
-    proc = runDocker(
-        "samtools", f"samtools flagstat -@4 {bamfile}", capture_output=True
+    proc = runTool(
+        "samtools",
+        ["samtools", "flagstat", f"-@{getThreads()}", bamfile],
+        capture_output=True,
     )
     for i in proc.stdout.split("\n"):
         # 122050 + 0 properly paired (100.00% : N/A)
@@ -88,10 +90,9 @@ def plotReadMappingStat(
         The corresponding method for the bamfile.
         Leave None if only one method.
     """
-    with ProcessPoolExecutor() as executor:
-        stats = executor.map(readSamtoolsFlagstat, bam_files)
-        if fastq_files:
-            reads = executor.map(readFastqID, fastq_files)
+    stats = map(readSamtoolsFlagstat, bam_files)
+    if fastq_files:
+        reads = map(readFastqID, fastq_files)
 
     df = pd.DataFrame(list(stats))
     df["name"] = bam_files

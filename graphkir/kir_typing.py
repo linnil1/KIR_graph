@@ -8,7 +8,7 @@ import json
 from .utils import NumpyEncoder, logger
 from .msa2hisat import Variant
 from .hisat2 import loadReadsAndVariantsData, removeMultipleMapped, PairRead
-from .typing_mulit_allele import AlleleTyping, AlleleTypingExonFirst
+from .typing_mulit_allele import AlleleTyping, AlleleTypingExonFirst, isHetrozygous
 from .typing_em import preprocessHisatReads, hisat2TypingPerGene, printHisatTyping
 
 
@@ -103,38 +103,32 @@ class TypingWithPosNegAllele(Typing):
     def typingPerGene(self, gene: str, cn: int) -> tuple[list[str], int]:
         """Select reads belonged to the gene and typing it"""
         logger.debug(f"[Allele] {gene=} {cn=}")
+        force_homo = False if isHetrozygous(gene) else None
+
         if not self._exon_first and not self._exon_only:
             typ = AlleleTyping(
                 self._gene_reads[gene],
                 self._gene_variants[gene],
-                gene,
-                cn,
+                force_homo=force_homo,
                 top_n=self._top_n,
                 variant_correction=self._variant_correction,
             )
-            if not typ.homo:
-                res = typ.typing(cn)
-                self._result[gene] = typ.result
-                alleles = res.selectBest()
-                # KIR2DL1*BACKBONE -> KIR2DL1
-                alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
-            else:
-                alleles = [f"{typ.typingHomo()}" for i in range(cn)]
         else:
             typ = AlleleTypingExonFirst(
                 self._gene_reads[gene],
                 self._gene_variants[gene],
+                force_homo=force_homo,
                 top_n=self._top_n,
                 exon_only=self._exon_only,
                 candidate_set_threshold=self._exon_candidate_threshold,
             )
-            res = typ.typing(cn)
-            self._result[gene] = typ.result
-            # return res.selectBest(filter_minor=True)
-            alleles = res.selectBest()
-            # KIR2DL1*BACKBONE -> KIR2DL1
-            pure_gene = gene.split("*")[0]
-            alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
+        res = typ.typing(cn)
+        self._result[gene] = typ.result
+        # return res.selectBest(filter_minor=True)
+        alleles = res.selectBest()
+        # KIR2DL1*BACKBONE -> KIR2DL1
+        pure_gene = gene.split("*")[0]
+        alleles = [i if i != "fail" else f"{pure_gene}*" for i in alleles]
         return alleles, typ.getReadsNum()
 
     def getAllPossibleTyping(self) -> list[dict[Any, Any]]:
@@ -218,11 +212,11 @@ def selectKirTypingModel(
     """Select and Init typing model"""
     if method == "full":
         return TypingWithPosNegAllele(filename_variant_json, **kwargs)
-    if method.startswith("exonfirst"):
+    if method.startswith("exon_only"):
         fields = method.split("_")
         threshold = 0.0
-        if len(fields) == 2:  # e.g. exonfirst_1.2
-            threshold = float(method[len("exonfirst_") :])
+        if len(fields) == 3:  # e.g. exon_only_1.2
+            threshold = float(method[len("exon_only_") :])
         return TypingWithPosNegAllele(
             filename_variant_json,
             exon_first=True,

@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from typing import Iterator
 
-from .utils import runDocker
+from .external_tools import runTool
 
 PileupCount = dict[tuple[str, int], dict[str, float]]
 
@@ -44,7 +44,9 @@ def readPileup(bam_file: str) -> Iterator[tuple[str, int, int, str]]:
     Returns:
       (reference, position, depth, bases)
     """
-    proc = runDocker("samtools", f"samtools mpileup -a {bam_file}", capture_output=True)
+    proc = runTool(
+        "samtools", ["samtools", "mpileup", "-a", bam_file], capture_output=True
+    )
     for line in proc.stdout.split("\n"):
         if not line or "[mpileup]" in line:
             continue

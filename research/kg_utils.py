@@ -14,12 +14,9 @@ from pathlib import Path
 
 from Bio import SeqIO
 from namepipe import BaseTaskExecutor, NamePath, StandaloneTaskExecutor
-from graphkir.utils import (
-    runShell,
-    runDocker as runDockerGK,
-    getEngine,
-)
+from graphkir.external_tools import getEngine, prepare_container_cmd
 from kg_eval import compareCohort, readPredictResult, readAnswerAllele
+
 
 logging.basicConfig(level=logging.DEBUG)
 # logging.basicConfig(level=logging.INFO)
@@ -45,11 +42,30 @@ images = {
     "bwakit":   "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
 }
 
+def runShell(
+    cmd: str, capture_output: bool = False, cwd: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Same as runShell but allow any code"""
+    logging.debug(f"[Run] {cmd}")
+    proc = subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=True,
+        cwd=cwd,
+        check=True,
+        universal_newlines=True,
+    )
+    if not capture_output:
+        logging.debug(proc.stdout)
+    return proc
 
-def runDocker(image: str, cmd: str, *arg, **kwargs):
+
+def runDocker(image: str, cmd: str, cwd: str | None = None, *arg, **kwargs):
     """ run docker container """
     image = images.get(image, image)
-    return runDockerGK(image, cmd, *arg, **kwargs)
+    cmds = prepare_container_cmd(image, [], cwd=cwd)
+    cmd = " ".join(cmds) + " " + cmd
+    return runShell(cmd, *arg, cwd=cwd, **kwargs)
 
 
 def buildDocker(image: str, dockerfile: str, folder: str = "."):
@@ -80,7 +96,8 @@ class SlurmTaskExecutor(StandaloneTaskExecutor):
         """
         cmd = ["python << EOF",
                "from namepipe import StandaloneTaskExecutor",
-               "from graphkir.utils import setThreads, setEngine",
+               "from graphkir.utils import setThreads",
+               "from graphkir.external_tools import setEngine",
                f"setThreads({self.threads_per_sample})",
                f"setEngine({repr(str(getEngine()))})",
                "import sys",  # this path hacking

@@ -79,7 +79,7 @@ class GraphKir(KirPipe):
                 --thread {self.getThreads()} \
                 --input-csv {mapping_file}.csv \
                 --index-folder {index} \
-                --allele-method exonfirst \
+                --allele-strategy exon_only \
                 --output-cohort-name {output_name} \
                 --log-level DEBUG \
                 --engine {self.run_engine}

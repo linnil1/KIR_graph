@@ -19,7 +19,8 @@ import numpy as np
 import pandas as pd
 
 from pyhlamsa import Genemsa
-from .utils import samtobam, runDocker
+from .external_tools import runTool
+from .utils import samtobam
 from .hisat2 import PairRead
 from .msa2hisat import Variant
 from .kir_typing import TypingWithPosNegAllele
@@ -218,7 +219,9 @@ def groupReadToBam(
     """Write the assigned/grouped reads into bam file"""
     output_name, bam_ext = output_bam.rsplit(".", 1)
     assert bam_ext == "bam"
-    runDocker("samtools", f"samtools view -H {input_bam} -o {output_name}.sam")
+    runTool(
+        "samtools", ["samtools", "view", "-H", input_bam, "-o", f"{output_name}.sam"]
+    )
     with open(f"{output_name}.sam", "a") as f:
         for alleles in assign_reads.keys():
             alleles_str = ",".join(alleles)

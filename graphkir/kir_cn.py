@@ -7,24 +7,9 @@ import json
 
 import pandas as pd
 
-from .utils import runDocker, NumpyEncoder, logger
+from .utils import NumpyEncoder, logger
 from .cn_model import CNgroup, KDEcut, Dist
-
-
-def bam2Depth(file_bam: str, file_depth: str, get_all: bool = True) -> None:
-    """Get read depth of all the position (via samtools depth)"""
-    if get_all:
-        runDocker("samtools", f"samtools depth -aa {file_bam} -o {file_depth}")
-    else:
-        runDocker("samtools", f"samtools depth     {file_bam} -o {file_depth}")
-
-
-def readSamtoolsDepth(depth_filename: str) -> pd.DataFrame:
-    """Read depths from samtools depths command (columns: gene, pos, depth)"""
-    df = pd.read_csv(
-        depth_filename, sep="\t", header=None, names=["gene", "pos", "depth"]
-    )
-    return df
+from .samtools_utils import readSamtoolsDepth
 
 
 def selectSamtoolsDepth(
@@ -55,7 +40,7 @@ def aggrDepths(depths: pd.DataFrame, select_mode: str = "p75") -> pd.DataFrame:
 
 def depthToCN(
     sample_gene_depths: list[dict[str, float]],
-    diploid_name: str,
+    diploid_depth: str = "",
     cluster_method: str = "CNgroup",
     cluster_method_kwargs: dict[str, Any] = {},
     assume_3DL3_diploid: bool = False,
@@ -84,7 +69,21 @@ def depthToCN(
         if cluster_method_kwargs:
             dist = CNgroup.setParams(dist.getParams() | cluster_method_kwargs)
         logger.debug(f"[CN] Parameters before: {dist.getParams()}")
-        dist.fit(values, diploid_name)
+
+        # Read diploid coverage bounds if provided
+        lower_bound = 0.0
+        upper_bound = None
+        if diploid_depth != "":
+            with open(diploid_depth + ".json", "r") as f:
+                dp_info = json.load(f)
+                mean = float(dp_info["mean"])
+                dev = float(dp_info["std"])
+                lower_bound = (mean - dev) / 2
+                upper_bound = (mean + dev) / 2
+        else:
+            dist.bin_num += 200
+
+        dist.fit(values, lower_bound, upper_bound)
         if assume_3DL3_diploid:
             kir3dl3_depths = [
                 float(gene_depths["KIR3DL3*BACKBONE"])
@@ -92,12 +91,16 @@ def depthToCN(
             ]
             cn = dist.assignCN(kir3dl3_depths)
             decrease_perc = float(1)
-            bound_width = float(10)
             decrease_rate = 0.2
+            original_bin_num = dist.bin_num
             while not all(i == 2 for i in cn):
                 logger.debug("[CN] Assume 3DL3 cn=2")
                 kir3dl3_depth = sum(kir3dl3_depths)/len(kir3dl3_depths)
-                dist.fit_3dl3_diploid(values, kir3dl3_depth, bound_width, decrease_perc)
+                lower_3dl3 = (kir3dl3_depth - decrease_perc * 10) / 2
+                upper_3dl3 = (kir3dl3_depth + decrease_perc * 10) / 2
+                bin_num_3dl3 = int(original_bin_num * decrease_perc)
+                dist.bin_num = bin_num_3dl3
+                dist.fit(values, lower_3dl3, upper_3dl3)
                 cn = dist.assignCN(kir3dl3_depths)
                 decrease_perc = decrease_perc - decrease_rate
                 if decrease_perc <= 0:
@@ -143,7 +146,7 @@ def filterDepth(
 def predictSamplesCN(
     samples_depth_tsv: list[str],
     samples_cn: list[str],
-    diploid_name: str,
+    diploid_depth: str = "",
     save_cn_model_path: str | None = None,
     assume_3DL3_diploid: bool = False,
     select_mode: str = "p75",
@@ -176,7 +179,7 @@ def predictSamplesCN(
         # depth per gene -> cn per gene
         cns, model = depthToCN(
             depths_dict,
-            diploid_name,
+            diploid_depth,
             cluster_method=cluster_method,
             cluster_method_kwargs=cluster_method_kwargs,
             assume_3DL3_diploid=assume_3DL3_diploid,
