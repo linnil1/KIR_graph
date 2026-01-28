@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 from .kir_msa import buildKirMsa
 from .msa_leftalign import genemsaLeftAlign
 from .msa2hisat import msa2HisatReference, buildHisatIndex
-from .wgs import downloadHg19, bwa, bwaIndex, extractDiploidCoverage, extractFromHg19, bam2fastq
+from .wgs import downloadHg19, downloadHg38, bwa, bwaIndex, extractDiploidCoverage, extractKirRegion, bam2fastq
 from .hisat2 import hisatMap, extractVariantFromBam, readExons
 from .kir_cn import predictSamplesCN, loadCN, filterDepth
 from .samtools_utils import bam2Depth
@@ -69,13 +69,21 @@ def buildMSA(
     return msa_index
 
 
-def buildGenomeIndex(index_folder: str = "index") -> str:
-    """Download hs37d5.fa and build hs37d5 bwa index"""
+def buildGenomeIndex(index_folder: str = "index", ref_genome: str = "hg19") -> str:
+    """Download reference genome and build BWA index."""
     Path(index_folder).mkdir(exist_ok=True)
-    wgs_index = f"{index_folder}/hs37d5.fa.gz"
-    if not Path(wgs_index).exists():
-        # logger.info(f"[WGS] Download hs37d5")
-        wgs_index = downloadHg19(index_folder)
+    
+    if ref_genome == "hg19":
+        wgs_index = f"{index_folder}/hs37d5.fa.gz"
+        if not Path(wgs_index).exists():
+            wgs_index = downloadHg19(index_folder)
+    elif ref_genome == "hg38":
+        wgs_index = f"{index_folder}/hs38noalt.fa.gz"
+        if not Path(wgs_index).exists():
+            wgs_index = downloadHg38(index_folder)
+    else:
+        raise ValueError(f"Unsupported reference genome: {ref_genome}. Use 'hg19' or 'hg38'.")
+    
     if not Path(wgs_index + ".bwt").exists():
         logger.info(f"[WGS] Build {wgs_index} bwa index")
         bwaIndex(wgs_index, wgs_index)
@@ -83,7 +91,8 @@ def buildGenomeIndex(index_folder: str = "index") -> str:
 
 
 def runWGS(
-        names: list[str], reads: list[tuple[str, str]], index_wgs: str, diploid_gene: str
+        names: list[str], reads: list[tuple[str, str]], index_wgs: str, 
+        diploid_gene: str, ref_type: str = "hg19"
 ) -> tuple[list[str], list[tuple[str, str]], list[str]]:
     new_names = []
     new_reads = []
@@ -97,14 +106,13 @@ def runWGS(
 
         # extract diploid coverage information
         if diploid_gene != '':
-            diploid_depths.append(extractDiploidCoverage(name, diploid_gene))
+            diploid_depths.append(extractDiploidCoverage(name, diploid_gene, ref_type))
         else:
             diploid_depths.append('')
 
         # extract KIR
         suffix = ".extract"
-        # logger.info(f"[WGS] Extract chr19... from {name}")  # written in func
-        extractFromHg19(name + ".bam", name + suffix, "hs37d5", threads=getThreads())
+        extractKirRegion(name + ".bam", name + suffix, ref_type, threads=getThreads())
         name += suffix
         logger.info(f"[WGS] Extract read from {name}.bam")
         bam2fastq(name + ".bam", name, threads=getThreads())
@@ -327,12 +335,19 @@ def createParser() -> argparse.ArgumentParser:
         "--index-folder",
         default="index",
         help="The path to the index folder, which must include the HISAT2-indexed KIR. "
-        "Optionally, the hs37d5 index can also be located in the same folder. "
-        "Alternatively, you can specify the path to the hs37d5 index using `--index-wgs`.",
+        "Optionally, the reference genome can also be located in the same folder. "
+        "Alternatively, you can specify the path to the reference genome using `--index-wgs`.",
     )
     parser.add_argument(
         "--index-wgs",
-        help="Path to a BWA-indexed hs37d5 index file (Default=index_folder/hs37d5.fa.gz)",
+        help="Path to a BWA-indexed WGS reference file (Default depends on --reference-genome, hg19:index_folder/hs37d5.fa.gz, hg38: index_folder/hs38noalt.fa.gz)",
+    )
+    parser.add_argument(
+        "--reference-genome",
+        default="hg19",
+        choices=["hg19", "hg38"],
+        help="Reference genome version for WGS extraction. "
+        "'hg19' uses hs37d5 (GRCh37), 'hg38' uses GRCh38_no_alt_analysis_set.",
     )
 
     # Copy Number
@@ -472,7 +487,7 @@ def main(args: argparse.Namespace) -> None:
     if not args.step_skip_extraction:
         # Prepare wgs Index
         if not args.index_wgs:
-            index_wgs = buildGenomeIndex(args.index_folder)
+            index_wgs = buildGenomeIndex(args.index_folder, args.reference_genome)
         else:
             index_wgs = args.index_wgs
 
@@ -480,7 +495,9 @@ def main(args: argparse.Namespace) -> None:
         diploid_gene = args.cn_diploid_gene
         if args.cn_cohort:
             diploid_gene = ""
-        names, reads, diploid_depths = runWGS(names, reads, index_wgs, diploid_gene)
+        names, reads, diploid_depths = runWGS(
+            names, reads, index_wgs, diploid_gene, args.reference_genome
+        )
     else:
         diploid_depths = ['' for _ in range(len(names))]
 
