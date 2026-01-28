@@ -402,7 +402,7 @@ def createParser() -> argparse.ArgumentParser:
         default="full",
         choices=["full", "exon_only", "report"],
         help="Choose the allele typing strategy: 'full' for maximum likelihood using all variants, "
-        "'exon_only' for typing exon variants before full variants, "
+        "'exon_only' for prioritizing exon variants during allele typing, "
         "or 'report' for typing via abundance using an EM-algorithm similar to HISAT2-genotype.",
     )
 
