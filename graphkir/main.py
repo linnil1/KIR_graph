@@ -347,7 +347,7 @@ def createParser() -> argparse.ArgumentParser:
         default="hg19",
         choices=["hg19", "hg38"],
         help="Reference genome version for WGS extraction. "
-        "'hg19' uses hs37d5 (GRCh37), 'hg38' uses GRCh38_no_alt_analysis_set.",
+        "'hg19' uses hs37d5 (GRCh37), and 'hg38' uses GRCh38_no_alt_analysis_set.",
     )
 
     # Copy Number

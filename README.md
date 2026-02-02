@@ -139,13 +139,14 @@ The final result that includes all the samples are aggrate into one file with pr
 In the above sample, `example_data/cohort.cn.tsv` and `example_data/cohort.allele.tsv` are generated.
 
 Some useful arguments include:
-* `--cn-diploid-gene`: Select reference diploid gene for the Copy number estimation model.(ex: VDR, RYR1 or EGFR)
-* `--cn-cohort`: Estimate copy number while considering the entire cohort. In cohort mode, diploid gene information is not considered.
+* `--ref-genome`: Reference genome for WGS extraction: `hg19` (hs37d5) or `hg38` (GRCh38_no_alt). (default: hg19)
+* `--step-skip-extraction`: Skip whole genome mapping and KIR read extraction. Use this if your input reads are already filtered for KIR regions.
 * `--allele-strategy exonfirst`: Denoted as 'exon_only' in the manuscript for 3-digit or 5-digit typing. This mode prioritizes exon-level information and is designed to enhance exon-level typing accuracy.
-* You can manually assess the copy number estimation results using the `--plot` option.
-* Adjust the distribution deviation with the `--cn-dist-dev` argument, for example, `--cn-dist-dev 0.06`.
-* KIR3DL3 is typically diploid. If KIR3DL3 is not diploid, the tool will adjust the CN estimation result by referencing KIR3DL3 coverage, ensuring KIR3DL3 to be diploid. Use `--cn-3dl3-not-diploid` to estimate copy number without assuming 3DL3 CN is 2.
-* If the input reads are already filtered for KIR regions, use `--step-skip-extraction` to skip the whole genome mapping and KIR read extraction steps.
+* `--cn-3dl3-not-diploid`:  Estimate CN without assuming KIR3DL3 CN is 2. By default, Graph-KIR assumes KIR3DL3 is diploid and adjusts CN estimation accordingly.
+* `--cn-diploid-gene`: Use a diploid gene (VDR/RYR1/EGFR) to normalize CN estimation. Leave empty for no normalization. Requires `--cn-3dl3-not-diploid`.
+* `--cn-cohort`: Estimate CN while considering the entire cohort. In cohort mode, diploid gene information is not considered.
+* `--plot`: Generate CN result plots.
+* `--cn-dist-dev`: Adjust CN distribution model deviation (e.g., `0.06`).
 
 
 ## Usage (`kirpipe` pipeline for other KIR tools)
