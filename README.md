@@ -118,7 +118,7 @@ graphkir \
     --thread 2 \
     --input-csv example/cohort.csv \
     --index-folder example_index \
-    --allele-strategy exon_only \
+    --allele-strategy exonfirst \
     --output-cohort-name example_data/cohort \
     --log-level DEBUG
 ```
@@ -141,8 +141,7 @@ In the above sample, `example_data/cohort.cn.tsv` and `example_data/cohort.allel
 Some useful arguments include:
 * `--cn-diploid-gene`: Select reference diploid gene for the Copy number estimation model.(ex: VDR, RYR1 or EGFR)
 * `--cn-cohort`: Estimate copy number while considering the entire cohort. In cohort mode, diploid gene information is not considered.
-* `--allele-strategy exon_only`: Perform allele typing with an exon-focused strategy.
-    This mode prioritizes exon-level information and is designed to enhance exon-level typing accuracy.
+* `--allele-strategy exonfirst`: Denoted as 'exon_only' in the manuscript for 3-digit or 5-digit typing. This mode prioritizes exon-level information and is designed to enhance exon-level typing accuracy.
 * You can manually assess the copy number estimation results using the `--plot` option.
 * Adjust the distribution deviation with the `--cn-dist-dev` argument, for example, `--cn-dist-dev 0.06`.
 * KIR3DL3 is typically diploid. If KIR3DL3 is not diploid, the tool will adjust the CN estimation result by referencing KIR3DL3 coverage, ensuring KIR3DL3 to be diploid. Use `--cn-3dl3-not-diploid` to estimate copy number without assuming 3DL3 CN is 2.

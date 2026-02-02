@@ -212,11 +212,11 @@ def selectKirTypingModel(
     """Select and Init typing model"""
     if method == "full":
         return TypingWithPosNegAllele(filename_variant_json, **kwargs)
-    if method.startswith("exon_only"):
+    if method.startswith("exonfirst"):
         fields = method.split("_")
         threshold = 0.0
-        if len(fields) == 3:  # e.g. exon_only_1.2
-            threshold = float(method[len("exon_only_") :])
+        if len(fields) == 2:  # e.g. exonfirst_1.2
+            threshold = float(method[len("exonfirst_") :])
         return TypingWithPosNegAllele(
             filename_variant_json,
             exon_first=True,
