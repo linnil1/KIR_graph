@@ -35,16 +35,14 @@ from collections import defaultdict
 # CONFIGURATION
 # ============================================================================
 
-BASE_DIR = "/home/kwang67/BioinfoJournal/KIR_latest/KIR_graph/evaluation"
-DATA_DIR = os.path.join(BASE_DIR, "data")
 SAMPLE_ID_DIR = os.path.join(BASE_DIR, "sampleID")
-TABLE_DIR = os.path.join(BASE_DIR, "table")
+BASE_DIR = "{your_base_directory}"  # Set your base directory here
+DATA_DIR = os.path.join(BASE_DIR, "{your_data_directory}")  # Set your data directory here
+RESULT_DIR = os.path.join(BASE_DIR, "{your_result_directory}")  # Set your output directory
+TABLE_DIR = os.path.join(RESULT_DIR, "tables")
 
 # Ground truth (skirt annotation, 44 samples)
-GROUND_TRUTH_CSV = os.path.join(DATA_DIR, "groundtruth", "hprc_gt_0801_skirt_44.csv")
-
-# Sample ID file (44 HPRC samples)
-SAMPLE_ID_FILE = os.path.join(SAMPLE_ID_DIR, "hprc_44.txt")
+GROUND_TRUTH_CSV = os.path.join(DATA_DIR, "groundtruth", "hprc_summary_v1_2_e.tsv")
 
 # Tool configurations
 TOOL_CONFIGS = {
@@ -85,34 +83,22 @@ TOOL_CONFIGS = {
         "type": "geny"
     },
 }
-"""
-    "GraphKIR-exonfirst-hg38(noAlt)": {
-        "file": os.path.join(DATA_DIR, "graph-kir-exonfirst-hg38noalt-homo-t1-hprc44.tsv"),
-        "type": "graphkir"
-    },
-    "GraphKIR-exonfirst-hg38-extract1(mainOnly)": {
-        "file": os.path.join(DATA_DIR, "graph-kir-exonfirst-hg38new-hprc44.tsv"),
-        "type": "graphkir"
-    },
-    "GraphKIR_exonfirst_hg38_extract2(alt)": {
-        "file": os.path.join(DATA_DIR, "graph-kir-exonfirst-hg38new2-hprc44.tsv"),
-        "type": "graphkir"
-    },
-    "GraphKIR_exonfirst_hg38_extract3(alt + noInterGenic)": {
-        "file": os.path.join(DATA_DIR, "graph-kir-exonfirst-hg38new3-hprc44.tsv"),
-        "type": "graphkir"
-    },
-    "GraphKIR_full_hg38": {
-        "file": os.path.join(DATA_DIR, "graphkir_hg38_homo_hprc.tsv"),
-        "type": "graphkir"
-    },
-"""
+
+# HPRC sample IDs
+HPRC_44_SAMPLE_IDS = {
+    "HG002", "HG00438", "HG005", "HG00621", "HG00673", "HG00733", "HG00735", "HG00741",
+    "HG01071", "HG01106", "HG01109", "HG01175", "HG01243", "HG01258", "HG01358", "HG01361",
+    "HG01891", "HG01928", "HG01952", "HG01978", "HG02055", "HG02080", "HG02109", "HG02145",
+    "HG02148", "HG02257", "HG02572", "HG02622", "HG02630", "HG02717", "HG02723", "HG02818",
+    "HG02886", "HG03098", "HG03453", "HG03486", "HG03492", "HG03516", "HG03540", "HG03579",
+    "NA18906", "NA19240", "NA20129", "NA21309",
+}
 
 # Output files
-OUTPUT_TSV_RECALL = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit2_recall.tsv")
-OUTPUT_TSV_PRECISION = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit2_precision.tsv")
-OUTPUT_TSV_F1 = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit2_f1.tsv")
-OUTPUT_TXT = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit2.txt")
+OUTPUT_TSV_RECALL = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit_recall.tsv")
+OUTPUT_TSV_PRECISION = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit_precision.tsv")
+OUTPUT_TSV_F1 = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit_f1.tsv")
+OUTPUT_TXT = os.path.join(TABLE_DIR, "evaluation_hprc_alldigit.txt")
 
 # KIR genes
 KIR_GENES = [
@@ -125,16 +111,6 @@ KIR_GENES = [
 # ============================================================================
 # DATA LOADING
 # ============================================================================
-
-def load_sample_ids(sample_id_file):
-    """Load sample IDs from text file."""
-    sample_ids = []
-    with open(sample_id_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                sample_ids.append(line)
-    return set(sample_ids)
 
 
 def load_ground_truth(csv_file):
@@ -760,7 +736,7 @@ def main():
     print("Loading data...")
 
     # Load sample IDs
-    sample_ids = load_sample_ids(SAMPLE_ID_FILE)
+    sample_ids = HPRC_44_SAMPLE_IDS
     print(f"  Sample IDs: {len(sample_ids)}")
 
     # Load ground truth
