@@ -79,6 +79,7 @@ class CNgroup(Dist):
         self.dev_decay: float = 0.5  # 0.5 or 1
         self.dev_decay_neg: float = 0.3  # 0.5 or 1
         self.start_base: int  = 1  # The maximum Cn group is
+        self.tuning_status: str = "not_run"
 
         # result (saved for plotting)
         self.data: list[float] = []
@@ -100,6 +101,7 @@ class CNgroup(Dist):
             'likelihood' : self.likelihood,
             'start_base' : self.start_base,
             'raw_df'     : self.raw_df,
+            'tuning_status': self.tuning_status,
         }
 
     @classmethod
@@ -119,6 +121,7 @@ class CNgroup(Dist):
         self.likelihood = np.array(data['likelihood'])
         self.start_base = data.get('start_base', 1)
         self.dev_decay_neg = data.get('dev_decay_neg', self.dev_decay)
+        self.tuning_status = data.get('tuning_status', "not_run")
         return self
 
     def fit(

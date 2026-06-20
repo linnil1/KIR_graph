@@ -3,6 +3,7 @@ Raw depths -> gene depths -> gene's CN
 """
 from typing import Any
 from itertools import chain
+from copy import deepcopy
 import json
 
 import pandas as pd
@@ -60,6 +61,12 @@ def depthToCN(
     """
     values = list(chain.from_iterable(map(lambda i: i.values(), sample_gene_depths)))
     logger.info(f"[CN] Predict copy number by {cluster_method} with data size {len(values)}")
+    if values:
+        logger.debug(
+            "[CN] Depth summary: "
+            f"min={min(values):.4f}, max={max(values):.4f}, "
+            f"mean={sum(values) / len(values):.4f}, values={values}"
+        )
 
     # cluster
     if cluster_method == "CNgroup" or cluster_method.lower() == "lcnd":
@@ -85,27 +92,85 @@ def depthToCN(
 
         dist.fit(values, lower_bound, upper_bound)
         if assume_3DL3_diploid:
-            kir3dl3_depths = [
-                float(gene_depths["KIR3DL3*BACKBONE"])
-                for gene_depths in sample_gene_depths
+            tuned_dist = dist
+            fallback_dist = deepcopy(dist)
+            missing_3dl3 = [
+                i
+                for i, gene_depths in enumerate(sample_gene_depths)
+                if "KIR3DL3*BACKBONE" not in gene_depths
             ]
-            cn = dist.assignCN(kir3dl3_depths)
-            decrease_perc = float(1)
-            decrease_rate = 0.2
-            original_bin_num = dist.bin_num
-            while not all(i == 2 for i in cn):
-                logger.debug("[CN] Assume 3DL3 cn=2")
-                kir3dl3_depth = sum(kir3dl3_depths)/len(kir3dl3_depths)
-                lower_3dl3 = (kir3dl3_depth - decrease_perc * 10) / 2
-                upper_3dl3 = (kir3dl3_depth + decrease_perc * 10) / 2
-                bin_num_3dl3 = int(original_bin_num * decrease_perc)
-                dist.bin_num = bin_num_3dl3
-                dist.fit(values, lower_3dl3, upper_3dl3)
+            if missing_3dl3:
+                logger.warning(
+                    "[CN] 3DL3 diploid tuning skipped because KIR3DL3*BACKBONE "
+                    f"is missing in sample indexes {missing_3dl3}. "
+                    "Falling back to the untuned CN model."
+                )
+                fallback_dist.tuning_status = "skipped_missing_3dl3"
+                dist = fallback_dist
+            else:
+                kir3dl3_depths = [
+                    float(gene_depths["KIR3DL3*BACKBONE"])
+                    for gene_depths in sample_gene_depths
+                ]
                 cn = dist.assignCN(kir3dl3_depths)
-                decrease_perc = decrease_perc - decrease_rate
-                if decrease_perc <= 0:
-                    break
-            assert all(i == 2 for i in cn)
+                logger.debug(
+                    "[CN] 3DL3 diploid tuning start: "
+                    f"depths={kir3dl3_depths}, cn={cn}, "
+                    f"base={dist.base}, bin_num={dist.bin_num}, x_max={dist.x_max}"
+                )
+                decrease_perc = float(1)
+                decrease_rate = 0.2
+                original_bin_num = dist.bin_num
+                tuning_failed = False
+                while not all(i == 2 for i in cn):
+                    kir3dl3_depth = sum(kir3dl3_depths) / len(kir3dl3_depths)
+                    lower_3dl3 = (kir3dl3_depth - decrease_perc * 10) / 2
+                    upper_3dl3 = (kir3dl3_depth + decrease_perc * 10) / 2
+                    bin_num_3dl3 = int(original_bin_num * decrease_perc)
+                    logger.debug(
+                        "[CN] 3DL3 diploid tuning iteration: "
+                        f"decrease_perc={decrease_perc:.4f}, "
+                        f"lower={lower_3dl3:.4f}, upper={upper_3dl3:.4f}, "
+                        f"bin_num={bin_num_3dl3}, previous_cn={cn}"
+                    )
+                    if bin_num_3dl3 <= 0 or upper_3dl3 <= lower_3dl3:
+                        logger.warning(
+                            "[CN] 3DL3 diploid tuning skipped because the tuning "
+                            "search interval collapsed or bin_num became non-positive: "
+                            f"original_bin_num={original_bin_num}, "
+                            f"decrease_perc={decrease_perc:.4f}, "
+                            f"lower={lower_3dl3:.4f}, upper={upper_3dl3:.4f}, "
+                            f"bin_num={bin_num_3dl3}, "
+                            f"kir3dl3_depths={kir3dl3_depths}, previous_cn={cn}. "
+                            "Falling back to the untuned CN model."
+                        )
+                        tuning_failed = True
+                        break
+
+                    dist.bin_num = bin_num_3dl3
+                    dist.fit(values, lower_3dl3, upper_3dl3)
+                    cn = dist.assignCN(kir3dl3_depths)
+                    logger.debug(
+                        "[CN] 3DL3 diploid tuning after fit: "
+                        f"base={dist.base}, cn={cn}, bin_num={dist.bin_num}"
+                    )
+                    decrease_perc = decrease_perc - decrease_rate
+                    if decrease_perc <= 0 and not all(i == 2 for i in cn):
+                        logger.warning(
+                            "[CN] 3DL3 diploid tuning failed to make all "
+                            f"KIR3DL3*BACKBONE CN calls equal 2 before the search "
+                            f"range was exhausted: depths={kir3dl3_depths}, cn={cn}. "
+                            "Falling back to the untuned CN model."
+                        )
+                        tuning_failed = True
+                        break
+
+                if tuning_failed:
+                    fallback_dist.tuning_status = "fallback_3dl3_tuning_failed"
+                    dist = fallback_dist
+                else:
+                    tuned_dist.tuning_status = "success_3dl3_diploid"
+                    dist = tuned_dist
         logger.info(f"[CN] {cluster_method} base = {dist.base}")
 
     elif cluster_method.lower() == "kde":
